@@ -1,0 +1,6 @@
+{
+  "name": "Image Cutter & Selection Editor",
+  "description": "An intuitive image segmenter with rectangular, freehand lasso, and magnetic lasso selection tools, featuring easy selection saves and batch transparent PNG exports.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
