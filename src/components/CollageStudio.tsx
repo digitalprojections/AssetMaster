@@ -111,6 +111,21 @@ const loadImageElement = (src: string): Promise<HTMLImageElement> =>
     img.src = src;
   });
 
+const readFileAsDataUrl = (file: File): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result);
+        return;
+      }
+
+      reject(new Error('Could not read image file'));
+    };
+    reader.onerror = () => reject(reader.error ?? new Error('Could not read image file'));
+    reader.readAsDataURL(file);
+  });
+
 const downloadBlob = (filename: string, blob: Blob) => {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -150,6 +165,7 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
     selectedItem: false,
   });
   const projectImportInputRef = useRef<HTMLInputElement | null>(null);
+  const imageImportInputRef = useRef<HTMLInputElement | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const interactionRef = useRef<InteractionState | null>(null);
 
@@ -360,23 +376,40 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
     stageZoom,
   });
 
-  const addSegmentToProject = (segment: SavedSegment) => {
+  const buildProjectItem = (input: {
+    name: string;
+    thumbnailUrl: string;
+    originalWidth: number;
+    originalHeight: number;
+    placementIndex?: number;
+    sourceSegmentId?: string | null;
+  }): CollageItem => {
     const fitScale = Math.min(
-      (project.width * 0.6) / Math.max(1, segment.bounds.width),
-      (project.height * 0.6) / Math.max(1, segment.bounds.height),
+      (project.width * 0.6) / Math.max(1, input.originalWidth),
+      (project.height * 0.6) / Math.max(1, input.originalHeight),
       1
     );
+    const normalizedScale = clamp(fitScale, 0.05, 8);
+    const scaledWidth = input.originalWidth * normalizedScale;
+    const scaledHeight = input.originalHeight * normalizedScale;
+    const placementIndex = input.placementIndex ?? project.items.length;
+    const offsetStep = Math.max(24, Math.round(Math.min(project.width, project.height) * 0.035));
+    const columnCount = 3;
+    const column = placementIndex % columnCount;
+    const row = Math.floor(placementIndex / columnCount);
+    const rawX = Math.round(project.width / 2 + (column - 1) * offsetStep);
+    const rawY = Math.round(project.height / 2 + (row - 1) * offsetStep);
 
-    const newItem: CollageItem = {
+    return {
       id: `collage-item-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      name: segment.name.replace(/\.png$/i, ''),
-      sourceSegmentId: segment.id,
-      thumbnailUrl: segment.thumbnailUrl,
-      originalWidth: Math.max(1, segment.bounds.width),
-      originalHeight: Math.max(1, segment.bounds.height),
-      x: Math.round(project.width / 2),
-      y: Math.round(project.height / 2),
-      scale: clamp(fitScale, 0.05, 8),
+      name: input.name,
+      sourceSegmentId: input.sourceSegmentId ?? null,
+      thumbnailUrl: input.thumbnailUrl,
+      originalWidth: Math.max(1, input.originalWidth),
+      originalHeight: Math.max(1, input.originalHeight),
+      x: clamp(rawX, Math.round(scaledWidth / 2), Math.max(Math.round(scaledWidth / 2), Math.round(project.width - (scaledWidth / 2)))),
+      y: clamp(rawY, Math.round(scaledHeight / 2), Math.max(Math.round(scaledHeight / 2), Math.round(project.height - (scaledHeight / 2)))),
+      scale: normalizedScale,
       rotation: 0,
       opacity: 1,
       flipX: false,
@@ -384,6 +417,16 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
       locked: false,
       visible: true,
     };
+  };
+
+  const addSegmentToProject = (segment: SavedSegment) => {
+    const newItem = buildProjectItem({
+      name: segment.name.replace(/\.png$/i, ''),
+      thumbnailUrl: segment.thumbnailUrl,
+      originalWidth: Math.max(1, segment.bounds.width),
+      originalHeight: Math.max(1, segment.bounds.height),
+      sourceSegmentId: segment.id,
+    });
 
     setProject((prev) => ({
       ...prev,
@@ -655,6 +698,10 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
     projectImportInputRef.current?.click();
   };
 
+  const handleImportImagesRequest = () => {
+    imageImportInputRef.current?.click();
+  };
+
   const handleImportProjectFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) {
@@ -677,6 +724,40 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
     } catch (error) {
       console.error('Failed to import collage project', error);
       window.alert('The selected collage project file could not be loaded.');
+    } finally {
+      event.target.value = '';
+    }
+  };
+
+  const handleImportImagesFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []).filter((file) => file.type.startsWith('image/'));
+    if (files.length === 0) {
+      event.target.value = '';
+      return;
+    }
+
+    try {
+      const importedItems = await Promise.all(files.map(async (file, index) => {
+        const dataUrl = await readFileAsDataUrl(file);
+        const image = await loadImageElement(dataUrl);
+        return buildProjectItem({
+          name: file.name.replace(/\.[^.]+$/u, ''),
+          thumbnailUrl: dataUrl,
+          originalWidth: image.naturalWidth || image.width,
+          originalHeight: image.naturalHeight || image.height,
+          placementIndex: project.items.length + index,
+        });
+      }));
+
+      setProject((prev) => ({
+        ...prev,
+        updatedAt: Date.now(),
+        items: [...prev.items, ...importedItems],
+      }));
+      setSelectedItemId(importedItems[importedItems.length - 1]?.id ?? null);
+    } catch (error) {
+      console.error('Failed to import images into collage studio', error);
+      window.alert('One or more selected images could not be imported.');
     } finally {
       event.target.value = '';
     }
@@ -858,7 +939,14 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
                 </button>
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  onClick={handleImportImagesRequest}
+                  className="py-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-200 text-[11px] font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <ImageIcon className="h-3 w-3" />
+                  <span>Images</span>
+                </button>
                 <button
                   onClick={handleImportProjectRequest}
                   className="py-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-200 text-[11px] font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
@@ -1289,6 +1377,14 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
           accept="application/json,.json"
           className="hidden"
           onChange={handleImportProjectFile}
+        />
+        <input
+          ref={imageImportInputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          className="hidden"
+          onChange={handleImportImagesFile}
         />
       </div>
     </div>
