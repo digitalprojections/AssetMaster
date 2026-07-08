@@ -77,3 +77,44 @@ export interface AnimationStudioProjectFile {
   rows: number;
   showSubdivisionGrid: boolean;
 }
+
+export type CollageBackground = {
+  mode: 'transparent' | 'solid';
+  color: string;
+};
+
+export interface CollageItem {
+  id: string;
+  name: string;
+  sourceSegmentId?: string | null;
+  thumbnailUrl: string;
+  originalWidth: number;
+  originalHeight: number;
+  x: number;
+  y: number;
+  scale: number;
+  rotation: number;
+  opacity: number;
+  flipX: boolean;
+  flipY: boolean;
+  locked: boolean;
+  visible: boolean;
+}
+
+export interface CollageProject {
+  id: string;
+  name: string;
+  width: number;
+  height: number;
+  background: CollageBackground;
+  items: CollageItem[];
+  updatedAt?: number;
+}
+
+export interface CollageStudioProjectFile {
+  version: number;
+  exportedAt: number;
+  project: CollageProject;
+  selectedItemId?: string | null;
+  stageZoom?: number;
+}
