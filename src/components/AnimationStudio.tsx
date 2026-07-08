@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { SavedSegment, AnimationFrame, AnimationProject } from '../types';
+import { SavedSegment, AnimationFrame, AnimationProject, AnimationStudioProjectFile } from '../types';
 import {
   Play,
   Pause,
@@ -28,12 +28,16 @@ import {
   RotateCcw,
   ArrowRight,
   Columns,
-  Square
+  Square,
+  Upload,
+  Tags,
+  Save
 } from 'lucide-react';
 import JSZip from 'jszip';
 import { motion, AnimatePresence } from 'motion/react';
 import BackgroundRemover from './BackgroundRemover';
 import { createSegmentImage } from '../utils/canvasUtils';
+import { getIndexedDbRecord, setIndexedDbRecord } from '../utils/indexedDbStorage';
 
 type DetectedSpriteComponent = {
   minX: number;
@@ -53,6 +57,8 @@ type SegmentImageCacheEntry = {
 };
 
 type SourceFilter = 'all' | 'needs-cleanup' | 'cleaned';
+
+const STUDIO_PROJECT_STORAGE_KEY = 'assetmaster.animationStudio.project.v1';
 
 interface AnimationStudioProps {
   savedSegments: SavedSegment[];
@@ -81,7 +87,9 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
   const [isDropdownOpen, setIsDropdownOpen] = useState<boolean>(false);
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all');
   const [sourceSearch, setSourceSearch] = useState<string>('');
+  const [cleanupQueue, setCleanupQueue] = useState<string[]>([]);
   const dropdownRef = useRef<HTMLDivElement | null>(null);
+  const projectImportInputRef = useRef<HTMLInputElement | null>(null);
   
   // Grid subdivision config
   const [cols, setCols] = useState<number>(4);
@@ -98,6 +106,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
   const [autoDetectedGridLabel, setAutoDetectedGridLabel] = useState<string>('');
 
   const [isExporting, setIsExporting] = useState<boolean>(false);
+  const [isProjectHydrated, setIsProjectHydrated] = useState<boolean>(false);
 
   // Canvas ref for generating sub-frame slices
   const sliceCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -105,6 +114,36 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
   // Cache for segment images to ensure synchronous, buttery-smooth on-the-fly re-slicing
   const segmentImageCacheRef = useRef<Record<string, SegmentImageCacheEntry>>({});
   const [gridAssessmentNonce, setGridAssessmentNonce] = useState<number>(0);
+
+  const normalizeFrame = (frame: AnimationFrame, fallbackWidth: number, fallbackHeight: number): AnimationFrame => {
+    const baseWidth = frame.sliceW ?? frame.originalSliceW ?? fallbackWidth;
+    const baseHeight = frame.sliceH ?? frame.originalSliceH ?? fallbackHeight;
+    const pivotX = frame.pivotX ?? frame.originalPivotX ?? Math.round(baseWidth / 2);
+    const pivotY = frame.pivotY ?? frame.originalPivotY ?? Math.round(baseHeight / 2);
+
+    return {
+      ...frame,
+      pivotX,
+      pivotY,
+      originalPivotX: frame.originalPivotX ?? pivotX,
+      originalPivotY: frame.originalPivotY ?? pivotY,
+      originalSliceX: frame.originalSliceX ?? frame.sliceX,
+      originalSliceY: frame.originalSliceY ?? frame.sliceY,
+      originalSliceW: frame.originalSliceW ?? frame.sliceW ?? baseWidth,
+      originalSliceH: frame.originalSliceH ?? frame.sliceH ?? baseHeight,
+    };
+  };
+
+  const normalizeProject = (incomingProject: AnimationProject): AnimationProject => ({
+    ...incomingProject,
+    updatedAt: Date.now(),
+    frames: incomingProject.frames.map((frame) => normalizeFrame(frame, incomingProject.width, incomingProject.height)),
+  });
+
+  const getFramePivot = (frame: AnimationFrame, imageWidth: number, imageHeight: number) => ({
+    x: frame.pivotX ?? frame.originalPivotX ?? Math.round(imageWidth / 2),
+    y: frame.pivotY ?? frame.originalPivotY ?? Math.round(imageHeight / 2),
+  });
 
   const loadSegmentImage = (segment: SavedSegment): Promise<HTMLImageElement> => {
     const cached = segmentImageCacheRef.current[segment.id];
@@ -356,6 +395,96 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
     }
   }, [savedSegments, selectedSegmentId]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadProject = async () => {
+      try {
+        const indexedDbSnapshot = await getIndexedDbRecord<AnimationStudioProjectFile>(STUDIO_PROJECT_STORAGE_KEY);
+        const parsed = indexedDbSnapshot;
+        if (parsed?.project) {
+          if (cancelled) {
+            return;
+          }
+
+          const normalized = normalizeProject(parsed.project);
+          setProject(normalized);
+          setCols(parsed.cols ?? 4);
+          setRows(parsed.rows ?? 1);
+          setShowSubdivisionGrid(parsed.showSubdivisionGrid ?? false);
+          if (parsed.selectedSegmentId) {
+            setSelectedSegmentId(parsed.selectedSegmentId);
+          }
+          return;
+        }
+      } catch (error) {
+        console.error('Failed to load saved animation studio project from IndexedDB', error);
+      }
+
+      const savedProjectRaw = localStorage.getItem(STUDIO_PROJECT_STORAGE_KEY);
+      if (!savedProjectRaw) {
+        return;
+      }
+
+      try {
+        const parsed = JSON.parse(savedProjectRaw) as Partial<AnimationStudioProjectFile>;
+        if (!parsed.project || cancelled) {
+          return;
+        }
+
+        const normalized = normalizeProject(parsed.project);
+        setProject(normalized);
+        setCols(parsed.cols ?? 4);
+        setRows(parsed.rows ?? 1);
+        setShowSubdivisionGrid(parsed.showSubdivisionGrid ?? false);
+        if (parsed.selectedSegmentId) {
+          setSelectedSegmentId(parsed.selectedSegmentId);
+        }
+
+        await setIndexedDbRecord(STUDIO_PROJECT_STORAGE_KEY, {
+          version: 1,
+          exportedAt: parsed.exportedAt ?? Date.now(),
+          project: normalized,
+          selectedSegmentId: parsed.selectedSegmentId,
+          cols: parsed.cols ?? 4,
+          rows: parsed.rows ?? 1,
+          showSubdivisionGrid: parsed.showSubdivisionGrid ?? false,
+        } satisfies AnimationStudioProjectFile);
+      } catch (error) {
+        console.error('Failed to migrate saved animation studio project', error);
+      }
+    };
+
+    void loadProject().finally(() => {
+      if (!cancelled) {
+        setIsProjectHydrated(true);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isProjectHydrated) {
+      return;
+    }
+
+    const snapshot: AnimationStudioProjectFile = {
+      version: 1,
+      exportedAt: Date.now(),
+      project,
+      selectedSegmentId,
+      cols,
+      rows,
+      showSubdivisionGrid,
+    };
+    void setIndexedDbRecord(STUDIO_PROJECT_STORAGE_KEY, snapshot).catch((error) => {
+      console.error('Failed to persist animation studio project into IndexedDB', error);
+    });
+  }, [cols, isProjectHydrated, project, rows, selectedSegmentId, showSubdivisionGrid]);
+
   // Close custom dropdown when clicking outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -406,7 +535,8 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
       (sourceFilter === 'cleaned' && Boolean(segment.backgroundRemovedAt));
     const matchesSearch =
       normalizedSourceSearch.length === 0 ||
-      segment.name.toLowerCase().includes(normalizedSourceSearch);
+      segment.name.toLowerCase().includes(normalizedSourceSearch) ||
+      (segment.tags ?? []).some((tag) => tag.toLowerCase().includes(normalizedSourceSearch));
 
     return matchesFilter && matchesSearch;
   });
@@ -415,6 +545,9 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
     'needs-cleanup': savedSegments.filter((segment) => !segment.backgroundRemovedAt && !segment.cleanupProcessedAt).length,
     cleaned: savedSegments.filter((segment) => Boolean(segment.backgroundRemovedAt)).length,
   };
+  const queuedSegments = cleanupQueue
+    .map((segmentId) => savedSegments.find((segment) => segment.id === segmentId))
+    .filter(Boolean) as SavedSegment[];
   const previewGuideControls = (
     <div className="space-y-3 rounded-xl border border-slate-800 bg-slate-900/35 p-3">
       <div className="flex items-center space-x-2">
@@ -575,16 +708,24 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
               offsetY: 0,
               scale: 1.0,
               duration: 1,
+              pivotX: Math.round(frameW / 2),
+              pivotY: Math.round(frameH / 2),
               sourceSegmentId: segment.id,
               sliceX: sx,
               sliceY: sy,
               sliceW: frameW,
               sliceH: frameH,
+              originalSliceX: sx,
+              originalSliceY: sy,
+              originalSliceW: frameW,
+              originalSliceH: frameH,
+              originalPivotX: Math.round(frameW / 2),
+              originalPivotY: Math.round(frameH / 2),
             });
           }
         }
 
-        setProject((prev) => ({
+        setProject((prev) => normalizeProject({
           ...prev,
           frames: newFrames,
           width: frameW,
@@ -607,11 +748,19 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
       offsetY: 0,
       scale: 1.0,
       duration: 1,
+      pivotX: Math.round(segment.bounds.width / 2),
+      pivotY: Math.round(segment.bounds.height / 2),
       sourceSegmentId: segment.id,
       sliceX: 0,
       sliceY: 0,
       sliceW: segment.bounds.width,
       sliceH: segment.bounds.height,
+      originalSliceX: 0,
+      originalSliceY: 0,
+      originalSliceW: segment.bounds.width,
+      originalSliceH: segment.bounds.height,
+      originalPivotX: Math.round(segment.bounds.width / 2),
+      originalPivotY: Math.round(segment.bounds.height / 2),
     };
 
     setProject((prev) => {
@@ -621,7 +770,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
       const maxH = Math.max(prev.height, segment.bounds.height);
       return {
         ...prev,
-        frames: updatedFrames,
+        frames: updatedFrames.map((frame) => normalizeFrame(frame, prev.frames.length === 0 ? segment.bounds.width : maxW, prev.frames.length === 0 ? segment.bounds.height : maxH)),
         width: prev.frames.length === 0 ? segment.bounds.width : maxW,
         height: prev.frames.length === 0 ? segment.bounds.height : maxH,
       };
@@ -700,6 +849,40 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
     delete segmentImageCacheRef.current[activeSegment.id];
     setAutoDetectedGridLabel('Reassessing cleaned cutout...');
     setGridAssessmentNonce((prev) => prev + 1);
+  };
+
+  const addActiveSegmentToCleanupQueue = () => {
+    if (!activeSegment) return;
+    setCleanupQueue((prev) => (
+      prev.includes(activeSegment.id)
+        ? prev
+        : [...prev, activeSegment.id]
+    ));
+  };
+
+  const queueVisibleNeedsCleanupSegments = () => {
+    const nextIds = filteredSegments
+      .filter((segment) => !segment.backgroundRemovedAt && !segment.cleanupProcessedAt)
+      .map((segment) => segment.id);
+
+    setCleanupQueue((prev) => Array.from(new Set([...prev, ...nextIds])));
+  };
+
+  const startQueuedCleanup = () => {
+    const nextId = cleanupQueue.find((segmentId) => savedSegments.some((segment) => segment.id === segmentId));
+    if (nextId) {
+      setSelectedSegmentId(nextId);
+      setShowBgRemover(true);
+      return;
+    }
+
+    if (activeSegment) {
+      setShowBgRemover(true);
+    }
+  };
+
+  const removeQueuedSegment = (segmentId: string) => {
+    setCleanupQueue((prev) => prev.filter((queuedId) => queuedId !== segmentId));
   };
 
   // Nudge selected frame position offsets or source slicing rectangle
@@ -796,11 +979,13 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
         offsetX: 0,
         offsetY: 0,
         scale: 1.0,
+        pivotX: newFrames[frameIndex].originalPivotX,
+        pivotY: newFrames[frameIndex].originalPivotY,
         sliceX: newSliceX,
         sliceY: newSliceY,
         thumbnailUrl: newUrl,
       };
-      return { ...prev, frames: newFrames };
+      return { ...prev, frames: newFrames.map((item) => normalizeFrame(item, prev.width, prev.height)), updatedAt: Date.now() };
     });
   };
 
@@ -824,6 +1009,8 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
         offsetX: 0,
         offsetY: 0,
         scale: 1.0,
+        pivotX: frame.originalPivotX,
+        pivotY: frame.originalPivotY,
         sliceX: newSliceX,
         sliceY: newSliceY,
         thumbnailUrl: newUrl,
@@ -833,7 +1020,8 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
     const newFrames = await Promise.all(resetFramesPromises);
     setProject((prev) => ({
       ...prev,
-      frames: newFrames,
+      frames: newFrames.map((frame) => normalizeFrame(frame, prev.width, prev.height)),
+      updatedAt: Date.now(),
     }));
   };
 
@@ -854,23 +1042,24 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
             return frame;
           }
 
+          const pivot = getFramePivot(frame, img.width, img.height);
           let nextOffsetX = frame.offsetX;
           let nextOffsetY = frame.offsetY;
 
           if (horizontal === 'left') {
-            nextOffsetX = Math.round(img.width / 2 - project.width / 2 - opaqueBounds.minX);
+            nextOffsetX = Math.round(pivot.x - opaqueBounds.minX - project.width / 2);
           } else if (horizontal === 'center') {
-            nextOffsetX = Math.round(img.width / 2 - opaqueBounds.centerX);
+            nextOffsetX = Math.round(pivot.x - opaqueBounds.centerX);
           } else if (horizontal === 'right') {
-            nextOffsetX = Math.round(project.width / 2 + img.width / 2 - opaqueBounds.maxX);
+            nextOffsetX = Math.round(project.width / 2 + pivot.x - opaqueBounds.maxX);
           }
 
           if (vertical === 'top') {
-            nextOffsetY = Math.round(img.height / 2 - project.height / 2 - opaqueBounds.minY);
+            nextOffsetY = Math.round(pivot.y - opaqueBounds.minY - project.height / 2);
           } else if (vertical === 'center') {
-            nextOffsetY = Math.round(img.height / 2 - opaqueBounds.centerY);
+            nextOffsetY = Math.round(pivot.y - opaqueBounds.centerY);
           } else if (vertical === 'bottom') {
-            nextOffsetY = Math.round(project.height / 2 + img.height / 2 - opaqueBounds.maxY);
+            nextOffsetY = Math.round(project.height / 2 + pivot.y - opaqueBounds.maxY);
           }
 
           return {
@@ -920,9 +1109,10 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
             // Translate to center point
             outCtx.translate(project.width / 2 + frame.offsetX, project.height / 2 + frame.offsetY);
             outCtx.scale(frame.scale, frame.scale);
+            const pivot = getFramePivot(frame, img.width, img.height);
             
             // Draw image centered at 0,0 relative
-            outCtx.drawImage(img, -img.width / 2, -img.height / 2);
+            outCtx.drawImage(img, -pivot.x, -pivot.y);
             outCtx.restore();
 
             const frameDataUrl = outCanvas.toDataURL('image/png');
@@ -979,8 +1169,9 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
             // Offset drawing matrix to frame slot center
             sheetCtx.translate(startX + project.width / 2 + frame.offsetX, project.height / 2 + frame.offsetY);
             sheetCtx.scale(frame.scale, frame.scale);
+            const pivot = getFramePivot(frame, img.width, img.height);
             
-            sheetCtx.drawImage(img, -img.width / 2, -img.height / 2);
+            sheetCtx.drawImage(img, -pivot.x, -pivot.y);
             sheetCtx.restore();
             resolve();
           };
@@ -1011,22 +1202,455 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
       return;
     }
 
+    const processedSegmentId = activeSegment.id;
+    const remainingQueue = cleanupQueue.filter((segmentId) => segmentId !== processedSegmentId);
+
     delete segmentImageCacheRef.current[activeSegment.id];
 
     const newSegment = onCreateSegment?.(activeSegment, updatedUrl);
+    setCleanupQueue(remainingQueue);
     if (newSegment) {
       setSelectedSegmentId(newSegment.id);
       setAutoDetectedGridLabel('Reassessing cleaned cutout...');
       setGridAssessmentNonce((prev) => prev + 1);
     }
 
+    const nextQueuedSegmentId = remainingQueue.find((segmentId) => (
+      savedSegments.some((segment) => segment.id === segmentId)
+    ));
+    if (nextQueuedSegmentId) {
+      setSelectedSegmentId(nextQueuedSegmentId);
+      setShowBgRemover(true);
+      return;
+    }
+
     setShowBgRemover(false);
   };
+
+  const downloadJsonFile = (filename: string, payload: unknown) => {
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const buildProjectSnapshot = (): AnimationStudioProjectFile => ({
+    version: 1,
+    exportedAt: Date.now(),
+    project: normalizeProject(project),
+    selectedSegmentId,
+    cols,
+    rows,
+    showSubdivisionGrid,
+  });
+
+  const handleExportProject = () => {
+    downloadJsonFile(`${project.name || 'assetmaster'}_animation_project.json`, buildProjectSnapshot());
+  };
+
+  const handleImportProjectRequest = () => {
+    projectImportInputRef.current?.click();
+  };
+
+  const handleImportProjectFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text) as Partial<AnimationStudioProjectFile>;
+      if (!parsed.project) {
+        throw new Error('Missing project payload');
+      }
+
+      if (!window.confirm(`Replace the current animation project with "${parsed.project.name || file.name}"?`)) {
+        return;
+      }
+
+      setProject(normalizeProject(parsed.project));
+      setCols(parsed.cols ?? 4);
+      setRows(parsed.rows ?? 1);
+      setShowSubdivisionGrid(parsed.showSubdivisionGrid ?? false);
+      setSelectedSegmentId(parsed.selectedSegmentId ?? '');
+      setActiveFrameIndex(0);
+      setIsPlaying(false);
+    } catch (error) {
+      console.error('Failed to import animation project', error);
+      window.alert('The selected animation project file could not be loaded.');
+    } finally {
+      event.target.value = '';
+    }
+  };
+
+  const setActiveFramePivotPreset = (preset: 'center' | 'bottom-center' | 'top-center' | 'top-left') => {
+    if (!hasActiveFrame) return;
+
+    setProject((prev) => {
+      const frames = [...prev.frames];
+      const target = { ...frames[activeFrameIndex] };
+      const width = target.sliceW ?? target.originalSliceW ?? prev.width;
+      const height = target.sliceH ?? target.originalSliceH ?? prev.height;
+
+      if (preset === 'center') {
+        target.pivotX = Math.round(width / 2);
+        target.pivotY = Math.round(height / 2);
+      } else if (preset === 'bottom-center') {
+        target.pivotX = Math.round(width / 2);
+        target.pivotY = height;
+      } else if (preset === 'top-center') {
+        target.pivotX = Math.round(width / 2);
+        target.pivotY = 0;
+      } else {
+        target.pivotX = 0;
+        target.pivotY = 0;
+      }
+
+      frames[activeFrameIndex] = normalizeFrame(target, prev.width, prev.height);
+      return { ...prev, frames, updatedAt: Date.now() };
+    });
+  };
+
+  const nudgeActiveFramePivot = (dx: number, dy: number) => {
+    if (!hasActiveFrame) return;
+
+    setProject((prev) => {
+      const frames = [...prev.frames];
+      const target = { ...frames[activeFrameIndex] };
+      const width = target.sliceW ?? target.originalSliceW ?? prev.width;
+      const height = target.sliceH ?? target.originalSliceH ?? prev.height;
+      const currentPivotX = target.pivotX ?? target.originalPivotX ?? Math.round(width / 2);
+      const currentPivotY = target.pivotY ?? target.originalPivotY ?? Math.round(height / 2);
+
+      target.pivotX = currentPivotX + dx;
+      target.pivotY = currentPivotY + dy;
+
+      frames[activeFrameIndex] = normalizeFrame(target, prev.width, prev.height);
+      return { ...prev, frames, updatedAt: Date.now() };
+    });
+  };
+
+  const trimFrameAt = async (frameIndex: number): Promise<AnimationFrame | null> => {
+    const frame = project.frames[frameIndex];
+    if (!frame) {
+      return null;
+    }
+
+    const img = await loadImageElement(frame.thumbnailUrl);
+    const opaqueBounds = getOpaqueBoundsFromImage(img);
+    if (!opaqueBounds) {
+      return frame;
+    }
+
+    const trimWidth = opaqueBounds.maxX - opaqueBounds.minX + 1;
+    const trimHeight = opaqueBounds.maxY - opaqueBounds.minY + 1;
+    if (trimWidth === img.width && trimHeight === img.height) {
+      return frame;
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = trimWidth;
+    canvas.height = trimHeight;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      return frame;
+    }
+
+    ctx.clearRect(0, 0, trimWidth, trimHeight);
+    ctx.drawImage(
+      img,
+      opaqueBounds.minX,
+      opaqueBounds.minY,
+      trimWidth,
+      trimHeight,
+      0,
+      0,
+      trimWidth,
+      trimHeight
+    );
+
+    const currentPivot = getFramePivot(frame, img.width, img.height);
+
+    return normalizeFrame({
+      ...frame,
+      thumbnailUrl: canvas.toDataURL('image/png'),
+      pivotX: currentPivot.x - opaqueBounds.minX,
+      pivotY: currentPivot.y - opaqueBounds.minY,
+      originalPivotX: (frame.originalPivotX ?? currentPivot.x) - opaqueBounds.minX,
+      originalPivotY: (frame.originalPivotY ?? currentPivot.y) - opaqueBounds.minY,
+      sliceX: frame.sliceX !== undefined ? frame.sliceX + opaqueBounds.minX : frame.sliceX,
+      sliceY: frame.sliceY !== undefined ? frame.sliceY + opaqueBounds.minY : frame.sliceY,
+      sliceW: trimWidth,
+      sliceH: trimHeight,
+      trimmedBounds: {
+        x: opaqueBounds.minX,
+        y: opaqueBounds.minY,
+        width: trimWidth,
+        height: trimHeight,
+      },
+    }, project.width, project.height);
+  };
+
+  const trimActiveFrameTransparentPadding = async () => {
+    if (!hasActiveFrame) return;
+    const trimmedFrame = await trimFrameAt(activeFrameIndex);
+    if (!trimmedFrame) return;
+
+    setProject((prev) => {
+      const frames = [...prev.frames];
+      frames[activeFrameIndex] = trimmedFrame;
+      return { ...prev, frames, updatedAt: Date.now() };
+    });
+  };
+
+  const trimAllFramesTransparentPadding = async () => {
+    if (project.frames.length === 0) return;
+    const nextFrames = await Promise.all(project.frames.map((_, index) => trimFrameAt(index)));
+
+    setProject((prev) => ({
+      ...prev,
+      frames: nextFrames.map((frame, index) => frame ?? prev.frames[index]),
+      updatedAt: Date.now(),
+    }));
+  };
+
+  const renderFrameSignature = async (frame: AnimationFrame): Promise<string> => {
+    const canvas = document.createElement('canvas');
+    canvas.width = project.width;
+    canvas.height = project.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      return frame.thumbnailUrl;
+    }
+
+    const img = await loadImageElement(frame.thumbnailUrl);
+    const pivot = getFramePivot(frame, img.width, img.height);
+
+    ctx.clearRect(0, 0, project.width, project.height);
+    ctx.save();
+    ctx.translate(project.width / 2 + frame.offsetX, project.height / 2 + frame.offsetY);
+    ctx.scale(frame.scale, frame.scale);
+    ctx.drawImage(img, -pivot.x, -pivot.y);
+    ctx.restore();
+
+    return canvas.toDataURL('image/png');
+  };
+
+  const removeDuplicateFrames = async () => {
+    if (project.frames.length < 2) return;
+
+    const seen = new Set<string>();
+    const uniqueFrames: AnimationFrame[] = [];
+
+    for (const frame of project.frames) {
+      const signature = await renderFrameSignature(frame);
+      if (seen.has(signature)) {
+        continue;
+      }
+      seen.add(signature);
+      uniqueFrames.push(frame);
+    }
+
+    if (uniqueFrames.length === project.frames.length) {
+      return;
+    }
+
+    setProject((prev) => ({
+      ...prev,
+      frames: uniqueFrames,
+      updatedAt: Date.now(),
+    }));
+    setActiveFrameIndex((prev) => Math.min(prev, uniqueFrames.length - 1));
+  };
+
+  const buildSpriteMetadata = () => ({
+    version: 1,
+    exportedAt: Date.now(),
+    project: {
+      id: project.id,
+      name: project.name,
+      width: project.width,
+      height: project.height,
+      fps: project.fps,
+      loop: project.loop,
+      frameCount: project.frames.length,
+    },
+    frames: project.frames.map((frame, index) => {
+      const sourceSegment = savedSegments.find((segment) => segment.id === frame.sourceSegmentId);
+      const fallbackWidth = frame.sliceW ?? frame.originalSliceW ?? project.width;
+      const fallbackHeight = frame.sliceH ?? frame.originalSliceH ?? project.height;
+      return {
+        index,
+        id: frame.id,
+        filename: `${project.name}_frame_${String(index + 1).padStart(3, '0')}.png`,
+        spritesheet: {
+          x: index * project.width,
+          y: 0,
+          width: project.width,
+          height: project.height,
+        },
+        source: {
+          segmentId: frame.sourceSegmentId ?? null,
+          segmentName: sourceSegment?.name ?? null,
+          tags: sourceSegment?.tags ?? [],
+        },
+        slice: {
+          x: frame.sliceX ?? 0,
+          y: frame.sliceY ?? 0,
+          width: fallbackWidth,
+          height: fallbackHeight,
+        },
+        alignment: {
+          offsetX: frame.offsetX,
+          offsetY: frame.offsetY,
+          scale: frame.scale,
+        },
+        pivot: {
+          x: frame.pivotX ?? frame.originalPivotX ?? Math.round(fallbackWidth / 2),
+          y: frame.pivotY ?? frame.originalPivotY ?? Math.round(fallbackHeight / 2),
+        },
+        duration: frame.duration,
+        trimmedBounds: frame.trimmedBounds ?? null,
+      };
+    }),
+  });
+
+  const exportSpriteSheetPackage = async () => {
+    if (project.frames.length === 0) return;
+    setIsExporting(true);
+    try {
+      const sheetCanvas = document.createElement('canvas');
+      sheetCanvas.width = project.width * project.frames.length;
+      sheetCanvas.height = project.height;
+      const sheetCtx = sheetCanvas.getContext('2d');
+      if (!sheetCtx) throw new Error('Canvas rendering error');
+
+      sheetCtx.clearRect(0, 0, sheetCanvas.width, sheetCanvas.height);
+
+      for (let i = 0; i < project.frames.length; i += 1) {
+        const frame = project.frames[i];
+        const img = await loadImageElement(frame.thumbnailUrl);
+        const pivot = getFramePivot(frame, img.width, img.height);
+
+        sheetCtx.save();
+        sheetCtx.translate(i * project.width + project.width / 2 + frame.offsetX, project.height / 2 + frame.offsetY);
+        sheetCtx.scale(frame.scale, frame.scale);
+        sheetCtx.drawImage(img, -pivot.x, -pivot.y);
+        sheetCtx.restore();
+      }
+
+      const zip = new JSZip();
+      zip.file(`${project.name}_spritesheet.png`, sheetCanvas.toDataURL('image/png').split(',')[1], { base64: true });
+      zip.file(`${project.name}_spritesheet.json`, JSON.stringify(buildSpriteMetadata(), null, 2));
+
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${project.name}_spritesheet_package.zip`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Failed to export spritesheet package', error);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  useEffect(() => {
+    const handleStudioKeyDown = (event: KeyboardEvent) => {
+      if (showBgRemover) {
+        return;
+      }
+
+      const target = event.target as HTMLElement | null;
+      const isTypingTarget = target?.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target?.tagName ?? '');
+      if (isTypingTarget) {
+        return;
+      }
+
+      if (event.key === ' ') {
+        if (project.frames.length === 0) return;
+        event.preventDefault();
+        setIsPlaying((prev) => !prev);
+        return;
+      }
+
+      if (event.key === '[') {
+        event.preventDefault();
+        setActiveFrameIndex((prev) => Math.max(0, prev - 1));
+        return;
+      }
+
+      if (event.key === ']') {
+        event.preventDefault();
+        setActiveFrameIndex((prev) => Math.min(project.frames.length - 1, prev + 1));
+        return;
+      }
+
+      if (hasActiveFrame && event.key.startsWith('Arrow')) {
+        event.preventDefault();
+        const step = event.shiftKey ? 5 : 1;
+        if (event.key === 'ArrowLeft') void nudgeActiveFrame(-step, 0);
+        if (event.key === 'ArrowRight') void nudgeActiveFrame(step, 0);
+        if (event.key === 'ArrowUp') void nudgeActiveFrame(0, -step);
+        if (event.key === 'ArrowDown') void nudgeActiveFrame(0, step);
+        return;
+      }
+
+      if (hasActiveFrame && (event.key === 'Delete' || event.key === 'Backspace')) {
+        event.preventDefault();
+        removeFrameAt(activeFrameIndex);
+        return;
+      }
+
+      if (event.key.toLowerCase() === 'g') {
+        event.preventDefault();
+        setShowCrosshair((prev) => !prev);
+        return;
+      }
+
+      if (event.key.toLowerCase() === 'o') {
+        event.preventDefault();
+        setOnionSkin((prev) => !prev);
+        return;
+      }
+
+      if (event.key.toLowerCase() === 'c' && activeSegment) {
+        event.preventDefault();
+        setShowBgRemover(true);
+        return;
+      }
+
+      if (event.key.toLowerCase() === 'r' && activeSegment) {
+        event.preventDefault();
+        reassessSelectedSegment();
+      }
+    };
+
+    window.addEventListener('keydown', handleStudioKeyDown);
+    return () => window.removeEventListener('keydown', handleStudioKeyDown);
+  }, [activeFrameIndex, activeSegment, hasActiveFrame, project.frames.length, showBgRemover]);
 
   return (
     <div id="animation-studio-container" className="fixed inset-0 bg-slate-950 text-slate-100 font-sans z-40 flex flex-col overflow-hidden">
       {/* Invisible canvas for slices */}
       <canvas ref={sliceCanvasRef} className="hidden" />
+      <input
+        ref={projectImportInputRef}
+        type="file"
+        accept="application/json,.json"
+        className="hidden"
+        onChange={handleImportProjectFile}
+      />
 
       {/* 1. Header Toolbar */}
       <header className="min-h-16 border-b border-slate-800 bg-slate-950 flex items-center justify-between gap-3 px-3 py-2 sm:px-6 shrink-0">
@@ -1075,6 +1699,23 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
             />
             <span className="text-slate-500">px</span>
           </div>
+        </div>
+
+        <div className="hidden md:flex items-center space-x-2 shrink-0">
+          <button
+            onClick={handleExportProject}
+            className="flex items-center space-x-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg px-3 py-2 text-xs font-semibold text-slate-200 transition-all cursor-pointer"
+          >
+            <Save className="h-3.5 w-3.5 text-emerald-400" />
+            <span>Save Project</span>
+          </button>
+          <button
+            onClick={handleImportProjectRequest}
+            className="flex items-center space-x-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg px-3 py-2 text-xs font-semibold text-slate-200 transition-all cursor-pointer"
+          >
+            <Upload className="h-3.5 w-3.5 text-indigo-400" />
+            <span>Load Project</span>
+          </button>
         </div>
 
         {/* Right close button */}
@@ -1242,7 +1883,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
                     type="text"
                     value={sourceSearch}
                     onChange={(e) => setSourceSearch(e.target.value)}
-                    placeholder="Search by cutout name..."
+                    placeholder="Search by cutout name or tag..."
                     className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-indigo-500"
                   />
                   <div className="grid grid-cols-3 gap-2">
@@ -1346,6 +1987,18 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
                                   {seg.backgroundRemovedAt ? 'Cleaned' : 'Needs Cleanup'}
                                 </span>
                               </div>
+                              {seg.tags && seg.tags.length > 0 && (
+                                <div className="mt-1 flex flex-wrap gap-1">
+                                  {seg.tags.slice(0, 3).map((tag) => (
+                                    <span
+                                      key={`${seg.id}-${tag}`}
+                                      className="rounded-full border border-indigo-500/20 bg-indigo-500/10 px-1.5 py-0.5 text-[9px] text-indigo-200"
+                                    >
+                                      {tag}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
                             </div>
                             {isSelected && (
                               <Check className="h-4 w-4 text-indigo-400 shrink-0" />
@@ -1369,6 +2022,18 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
                         <p className="text-[10px] text-indigo-400 font-medium mt-1">
                           {isAutoDetectingGrid ? 'Analyzing transparent objects...' : autoDetectedGridLabel || 'Ready for animation'}
                         </p>
+                        {activeSegment.tags && activeSegment.tags.length > 0 && (
+                          <div className="mt-2 flex flex-wrap gap-1">
+                            {activeSegment.tags.map((tag) => (
+                              <span
+                                key={`${activeSegment.id}-${tag}`}
+                                className="rounded-full border border-indigo-500/20 bg-indigo-500/10 px-1.5 py-0.5 text-[9px] text-indigo-200"
+                              >
+                                {tag}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </div>
                     <button
@@ -1386,6 +2051,57 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
                       <RefreshCw className={`h-3.5 w-3.5 text-slate-500 ${isAutoDetectingGrid ? 'animate-spin' : ''}`} />
                       <span>{isAutoDetectingGrid ? 'Reassessing...' : 'Reassess Selected Cutout'}</span>
                     </button>
+                    <div className="rounded-xl border border-slate-800 bg-slate-900/30 p-3 space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center space-x-2">
+                          <Sparkles className="h-3.5 w-3.5 text-emerald-400" />
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Bulk Cleanup Queue</span>
+                        </div>
+                        <span className="text-[10px] font-mono text-slate-500">{queuedSegments.length} queued</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          onClick={addActiveSegmentToCleanupQueue}
+                          className="py-2 bg-slate-950 hover:bg-slate-800 border border-slate-800 rounded-xl text-[10px] font-semibold text-slate-300 cursor-pointer"
+                        >
+                          Queue Selected
+                        </button>
+                        <button
+                          onClick={queueVisibleNeedsCleanupSegments}
+                          className="py-2 bg-slate-950 hover:bg-slate-800 border border-slate-800 rounded-xl text-[10px] font-semibold text-slate-300 cursor-pointer"
+                        >
+                          Queue Visible
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          onClick={startQueuedCleanup}
+                          className="py-2 bg-emerald-600 hover:bg-emerald-500 rounded-xl text-[10px] font-semibold text-white cursor-pointer"
+                        >
+                          {queuedSegments.length > 0 ? 'Run Queue Cleanup' : 'Clean Current'}
+                        </button>
+                        <button
+                          onClick={() => setCleanupQueue([])}
+                          className="py-2 bg-slate-950 hover:bg-slate-800 border border-slate-800 rounded-xl text-[10px] font-semibold text-slate-300 cursor-pointer"
+                        >
+                          Clear Queue
+                        </button>
+                      </div>
+                      {queuedSegments.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5">
+                          {queuedSegments.slice(0, 6).map((segment) => (
+                            <button
+                              key={`queued-${segment.id}`}
+                              type="button"
+                              onClick={() => removeQueuedSegment(segment.id)}
+                              className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-1 text-[9px] text-emerald-200 cursor-pointer"
+                            >
+                              {segment.name}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
@@ -1510,6 +2226,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
                       alt="Onion Skin Prev"
                       className="object-contain"
                       style={{
+                        transformOrigin: `${project.frames[activeFrameIndex - 1].pivotX ?? 0}px ${project.frames[activeFrameIndex - 1].pivotY ?? 0}px`,
                         transform: `translate(${project.frames[activeFrameIndex - 1].offsetX * previewZoom}px, ${project.frames[activeFrameIndex - 1].offsetY * previewZoom}px) scale(${project.frames[activeFrameIndex - 1].scale})`,
                         maxWidth: '100%',
                         maxHeight: '100%',
@@ -1529,6 +2246,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
                       alt="Onion Skin Next"
                       className="object-contain"
                       style={{
+                        transformOrigin: `${project.frames[activeFrameIndex + 1].pivotX ?? 0}px ${project.frames[activeFrameIndex + 1].pivotY ?? 0}px`,
                         transform: `translate(${project.frames[activeFrameIndex + 1].offsetX * previewZoom}px, ${project.frames[activeFrameIndex + 1].offsetY * previewZoom}px) scale(${project.frames[activeFrameIndex + 1].scale})`,
                         maxWidth: '100%',
                         maxHeight: '100%',
@@ -1544,6 +2262,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
                     alt={`Frame ${activeFrameIndex}`}
                     className="object-contain"
                     style={{
+                      transformOrigin: `${project.frames[activeFrameIndex].pivotX ?? 0}px ${project.frames[activeFrameIndex].pivotY ?? 0}px`,
                       transform: `translate(${project.frames[activeFrameIndex].offsetX * previewZoom}px, ${project.frames[activeFrameIndex].offsetY * previewZoom}px) scale(${project.frames[activeFrameIndex].scale})`,
                       maxWidth: '100%',
                       maxHeight: '100%',
@@ -1577,6 +2296,23 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
                   Frame {activeFrameIndex + 1}
                 </span>
               )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={handleExportProject}
+                className="py-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-xl text-[10px] font-semibold text-slate-300 cursor-pointer flex items-center justify-center space-x-1.5"
+              >
+                <Save className="h-3.5 w-3.5 text-emerald-400" />
+                <span>Save Project</span>
+              </button>
+              <button
+                onClick={handleImportProjectRequest}
+                className="py-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-xl text-[10px] font-semibold text-slate-300 cursor-pointer flex items-center justify-center space-x-1.5"
+              >
+                <Upload className="h-3.5 w-3.5 text-indigo-400" />
+                <span>Load Project</span>
+              </button>
             </div>
 
             {!hasActiveFrame ? (
@@ -1661,6 +2397,27 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
                   </button>
                 </div>
 
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    onClick={trimActiveFrameTransparentPadding}
+                    className="py-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-xl text-[10px] font-semibold text-slate-300 cursor-pointer"
+                  >
+                    Trim Current
+                  </button>
+                  <button
+                    onClick={trimAllFramesTransparentPadding}
+                    className="py-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-xl text-[10px] font-semibold text-slate-300 cursor-pointer"
+                  >
+                    Trim All
+                  </button>
+                  <button
+                    onClick={removeDuplicateFrames}
+                    className="py-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-xl text-[10px] font-semibold text-slate-300 cursor-pointer"
+                  >
+                    Deduplicate
+                  </button>
+                </div>
+
                 <div className="grid grid-cols-1 gap-2">
                   <button
                     onClick={exportCenteredPngZip}
@@ -1677,6 +2434,14 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
                   >
                     <Grid className="h-4 w-4" />
                     <span>Export Aligned Spritesheet</span>
+                  </button>
+                  <button
+                    onClick={exportSpriteSheetPackage}
+                    disabled={isExporting}
+                    className="w-full py-2.5 px-4 bg-slate-900 hover:bg-slate-850 border border-slate-800 text-slate-300 rounded-xl text-xs font-semibold flex items-center justify-center space-x-2 transition-all cursor-pointer"
+                  >
+                    <Archive className="h-4 w-4" />
+                    <span>Export Sheet + JSON</span>
                   </button>
                 </div>
 
@@ -1699,7 +2464,43 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
                       <div>Visual X: <span className="font-bold text-emerald-400">{project.frames[activeFrameIndex].offsetX}px</span></div>
                       <div>Visual Y: <span className="font-bold text-emerald-400">{project.frames[activeFrameIndex].offsetY}px</span></div>
                       <div className="col-span-2">Zoom / Scale: <span className="font-bold text-indigo-400">{Math.round(project.frames[activeFrameIndex].scale * 100)}%</span></div>
+                      <div>Pivot X: <span className="font-bold text-amber-300">{project.frames[activeFrameIndex].pivotX}px</span></div>
+                      <div>Pivot Y: <span className="font-bold text-amber-300">{project.frames[activeFrameIndex].pivotY}px</span></div>
                     </div>
+                    {savedSegments.find((segment) => segment.id === project.frames[activeFrameIndex].sourceSegmentId)?.tags?.length ? (
+                      <div className="pt-1 border-t border-slate-800/80">
+                        <div className="text-indigo-400 font-semibold text-[9px] uppercase tracking-wider flex items-center space-x-1">
+                          <Tags className="h-3 w-3" />
+                          <span>Source Tags</span>
+                        </div>
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {(savedSegments.find((segment) => segment.id === project.frames[activeFrameIndex].sourceSegmentId)?.tags ?? []).map((tag) => (
+                            <span key={`desktop-tag-${tag}`} className="rounded-full border border-indigo-500/20 bg-indigo-500/10 px-1.5 py-0.5 text-[9px] text-indigo-200">
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+
+                <div className="space-y-2 p-3 bg-slate-900/30 border border-slate-900 rounded-xl">
+                  <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    <span>Pivot Anchor</span>
+                    <span className="font-mono text-amber-300">{project.frames[activeFrameIndex].pivotX}px, {project.frames[activeFrameIndex].pivotY}px</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button onClick={() => setActiveFramePivotPreset('center')} className="py-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-xl text-[10px] font-semibold text-slate-300 cursor-pointer">Center</button>
+                    <button onClick={() => setActiveFramePivotPreset('bottom-center')} className="py-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-xl text-[10px] font-semibold text-slate-300 cursor-pointer">Feet / Bottom</button>
+                    <button onClick={() => setActiveFramePivotPreset('top-center')} className="py-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-xl text-[10px] font-semibold text-slate-300 cursor-pointer">Top Center</button>
+                    <button onClick={() => setActiveFramePivotPreset('top-left')} className="py-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-xl text-[10px] font-semibold text-slate-300 cursor-pointer">Top Left</button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button onClick={() => nudgeActiveFramePivot(-1, 0)} className="py-1.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400 hover:text-white">Pivot -1 X</button>
+                    <button onClick={() => nudgeActiveFramePivot(1, 0)} className="py-1.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400 hover:text-white">Pivot +1 X</button>
+                    <button onClick={() => nudgeActiveFramePivot(0, -1)} className="py-1.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400 hover:text-white">Pivot -1 Y</button>
+                    <button onClick={() => nudgeActiveFramePivot(0, 1)} className="py-1.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400 hover:text-white">Pivot +1 Y</button>
                   </div>
                 </div>
 
@@ -1971,6 +2772,27 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
                   </button>
                 </div>
 
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    onClick={trimActiveFrameTransparentPadding}
+                    className="py-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-xl text-[10px] font-semibold text-slate-300 cursor-pointer"
+                  >
+                    Trim Current
+                  </button>
+                  <button
+                    onClick={trimAllFramesTransparentPadding}
+                    className="py-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-xl text-[10px] font-semibold text-slate-300 cursor-pointer"
+                  >
+                    Trim All
+                  </button>
+                  <button
+                    onClick={removeDuplicateFrames}
+                    className="py-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-xl text-[10px] font-semibold text-slate-300 cursor-pointer"
+                  >
+                    Deduplicate
+                  </button>
+                </div>
+
                 <button
                   onClick={exportCenteredPngZip}
                   disabled={isExporting}
@@ -1987,6 +2809,14 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
                 >
                   <Grid className="h-4 w-4" />
                   <span>Export Aligned Spritesheet</span>
+                </button>
+                <button
+                  onClick={exportSpriteSheetPackage}
+                  disabled={isExporting}
+                  className="w-full py-2.5 px-4 bg-slate-900 hover:bg-slate-850 border border-slate-800 text-slate-300 rounded-xl text-xs font-semibold flex items-center justify-center space-x-2 transition-all cursor-pointer"
+                >
+                  <Archive className="h-4 w-4" />
+                  <span>Export Sheet + JSON</span>
                 </button>
               </div>
             ) : (
@@ -2023,7 +2853,43 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
                     <div>Visual X: <span className="font-bold text-emerald-400">{project.frames[activeFrameIndex].offsetX}px</span></div>
                     <div>Visual Y: <span className="font-bold text-emerald-400">{project.frames[activeFrameIndex].offsetY}px</span></div>
                     <div className="col-span-2">Zoom / Scale: <span className="font-bold text-indigo-400">{Math.round(project.frames[activeFrameIndex].scale * 100)}%</span></div>
+                    <div>Pivot X: <span className="font-bold text-amber-300">{project.frames[activeFrameIndex].pivotX}px</span></div>
+                    <div>Pivot Y: <span className="font-bold text-amber-300">{project.frames[activeFrameIndex].pivotY}px</span></div>
                   </div>
+                  {savedSegments.find((segment) => segment.id === project.frames[activeFrameIndex].sourceSegmentId)?.tags?.length ? (
+                    <div className="pt-1 border-t border-slate-800/80">
+                      <div className="text-indigo-400 font-semibold text-[9px] uppercase tracking-wider flex items-center space-x-1">
+                        <Tags className="h-3 w-3" />
+                        <span>Source Tags</span>
+                      </div>
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {(savedSegments.find((segment) => segment.id === project.frames[activeFrameIndex].sourceSegmentId)?.tags ?? []).map((tag) => (
+                          <span key={`mobile-tag-${tag}`} className="rounded-full border border-indigo-500/20 bg-indigo-500/10 px-1.5 py-0.5 text-[9px] text-indigo-200">
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="space-y-2 p-3 bg-slate-900/30 border border-slate-900 rounded-xl">
+                <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  <span>Pivot Anchor</span>
+                  <span className="font-mono text-amber-300">{project.frames[activeFrameIndex].pivotX}px, {project.frames[activeFrameIndex].pivotY}px</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <button onClick={() => setActiveFramePivotPreset('center')} className="py-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-xl text-[10px] font-semibold text-slate-300 cursor-pointer">Center</button>
+                  <button onClick={() => setActiveFramePivotPreset('bottom-center')} className="py-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-xl text-[10px] font-semibold text-slate-300 cursor-pointer">Feet / Bottom</button>
+                  <button onClick={() => setActiveFramePivotPreset('top-center')} className="py-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-xl text-[10px] font-semibold text-slate-300 cursor-pointer">Top Center</button>
+                  <button onClick={() => setActiveFramePivotPreset('top-left')} className="py-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-xl text-[10px] font-semibold text-slate-300 cursor-pointer">Top Left</button>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <button onClick={() => nudgeActiveFramePivot(-1, 0)} className="py-1.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400 hover:text-white">Pivot -1 X</button>
+                  <button onClick={() => nudgeActiveFramePivot(1, 0)} className="py-1.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400 hover:text-white">Pivot +1 X</button>
+                  <button onClick={() => nudgeActiveFramePivot(0, -1)} className="py-1.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400 hover:text-white">Pivot -1 Y</button>
+                  <button onClick={() => nudgeActiveFramePivot(0, 1)} className="py-1.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400 hover:text-white">Pivot +1 Y</button>
                 </div>
               </div>
 

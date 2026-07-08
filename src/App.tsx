@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Point, SavedSegment, SelectionTool, RectBounds, AssetLibraryFile } from './types';
 import { findAxisSnapGuides, findSnappedPoint, createSegmentImage, getPathBounds } from './utils/canvasUtils';
+import { getIndexedDbRecord, setIndexedDbRecord } from './utils/indexedDbStorage';
 import { SAMPLE_IMAGES, SampleImage } from './data/samples';
 import SegmentList from './components/SegmentList';
 import AnimationStudio from './components/AnimationStudio';
@@ -86,6 +87,7 @@ export default function App() {
   const [showBgRemover, setShowBgRemover] = useState<boolean>(false);
   const [antsOffset, setAntsOffset] = useState<number>(0);
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
+  const [isLibraryHydrated, setIsLibraryHydrated] = useState<boolean>(false);
 
   // Auto-collapse sidebar on small screens on load
   useEffect(() => {
@@ -99,6 +101,7 @@ export default function App() {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const hiddenImageCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const hiddenImageCtxRef = useRef<CanvasRenderingContext2D | null>(null);
+  const libraryImportInputRef = useRef<HTMLInputElement | null>(null);
 
   // Pinch-to-zoom and multi-touch panning refs
   const touchStartDistRef = useRef<number | null>(null);
@@ -107,32 +110,156 @@ export default function App() {
   const touchStartMidpointRef = useRef<Point>({ x: 0, y: 0 });
   const isMultiTouchingRef = useRef<boolean>(false);
 
-  // Load saved cutouts from localStorage on mount
+  // Load saved cutouts from IndexedDB on mount, falling back to legacy browser storage once for migration.
   useEffect(() => {
-    const saved = localStorage.getItem('lasso_saved_segments');
-    if (saved) {
+    let cancelled = false;
+
+    const loadLibraryState = async () => {
+      const applySnapshot = (snapshot: Partial<AssetLibraryFile>) => {
+        if (cancelled) {
+          return;
+        }
+
+        setSavedSegments((snapshot.savedSegments ?? []).map(normalizeSavedSegment));
+        setLastCutoutIndex(snapshot.lastCutoutIndex ?? 1);
+      };
+
       try {
-        setSavedSegments(JSON.parse(saved));
-      } catch (e) {
-        console.error('Failed to parse saved segments', e);
+        const indexedDbState = await getIndexedDbRecord<AssetLibraryFile>(LIBRARY_STATE_KEY);
+        if (indexedDbState) {
+          applySnapshot(indexedDbState);
+          return;
+        }
+      } catch (error) {
+        console.error('Failed to read library state from IndexedDB', error);
       }
-    }
-    const index = localStorage.getItem('lasso_cutout_index');
-    if (index) {
-      setLastCutoutIndex(parseInt(index, 10));
-    }
+
+      let migratedSnapshot: Partial<AssetLibraryFile> | null = null;
+      const restoreLegacyBackup = () => {
+        const backupsRaw = localStorage.getItem(LIBRARY_BACKUPS_KEY);
+        if (!backupsRaw) {
+          return null;
+        }
+
+        try {
+          const backups = JSON.parse(backupsRaw) as Array<{ payload: string; savedAt: number }>;
+          const latestBackup = backups[0];
+          if (!latestBackup?.payload) {
+            return null;
+          }
+
+          return JSON.parse(latestBackup.payload) as Pick<AssetLibraryFile, 'savedSegments' | 'lastCutoutIndex'>;
+        } catch (error) {
+          console.error('Failed to restore legacy library backup', error);
+          return null;
+        }
+      };
+
+      const structuredState = localStorage.getItem(LIBRARY_STATE_KEY);
+      if (structuredState) {
+        try {
+          migratedSnapshot = JSON.parse(structuredState) as Partial<AssetLibraryFile>;
+        } catch (error) {
+          console.error('Failed to parse structured library state', error);
+          migratedSnapshot = restoreLegacyBackup();
+        }
+      } else {
+        const legacySaved = localStorage.getItem(LEGACY_SEGMENTS_KEY);
+        const legacyIndex = localStorage.getItem(LEGACY_INDEX_KEY);
+        if (legacySaved) {
+          try {
+            migratedSnapshot = {
+              savedSegments: (JSON.parse(legacySaved) as SavedSegment[]).map(normalizeSavedSegment),
+              lastCutoutIndex: legacyIndex ? parseInt(legacyIndex, 10) : 1,
+            };
+          } catch (error) {
+            console.error('Failed to parse saved segments', error);
+            migratedSnapshot = restoreLegacyBackup();
+          }
+        } else {
+          migratedSnapshot = restoreLegacyBackup();
+        }
+      }
+
+      if (migratedSnapshot) {
+        applySnapshot(migratedSnapshot);
+
+        try {
+          await setIndexedDbRecord(LIBRARY_STATE_KEY, {
+            version: 1,
+            exportedAt: Date.now(),
+            lastCutoutIndex: migratedSnapshot.lastCutoutIndex ?? 1,
+            savedSegments: (migratedSnapshot.savedSegments ?? []).map(normalizeSavedSegment),
+          } satisfies AssetLibraryFile);
+          await setIndexedDbRecord(LIBRARY_BACKUPS_KEY, [{
+            payload: JSON.stringify({
+              version: 1,
+              lastCutoutIndex: migratedSnapshot.lastCutoutIndex ?? 1,
+              savedSegments: (migratedSnapshot.savedSegments ?? []).map(normalizeSavedSegment),
+            }),
+            savedAt: Date.now(),
+          }]);
+        } catch (error) {
+          console.error('Failed to migrate legacy library state into IndexedDB', error);
+        }
+      }
+    };
+
+    void loadLibraryState().finally(() => {
+      if (!cancelled) {
+        setIsLibraryHydrated(true);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  // Save cutouts to localStorage when they change
+  // Update in-memory cutouts; IndexedDB persistence is handled by the autosave effect below.
   const updateSavedSegments = (newSegments: SavedSegment[]) => {
     setSavedSegments(newSegments);
-    localStorage.setItem('lasso_saved_segments', JSON.stringify(newSegments));
   };
 
   const updateCutoutIndex = (newIndex: number) => {
     setLastCutoutIndex(newIndex);
-    localStorage.setItem('lasso_cutout_index', newIndex.toString());
   };
+
+  useEffect(() => {
+    if (!isLibraryHydrated) {
+      return;
+    }
+
+    const normalizedSegments = savedSegments.map(normalizeSavedSegment);
+    const snapshotForStorage: AssetLibraryFile = {
+      version: 1,
+      exportedAt: Date.now(),
+      lastCutoutIndex,
+      savedSegments: normalizedSegments,
+    };
+    const snapshotPayload = JSON.stringify({
+      version: 1,
+      lastCutoutIndex,
+      savedSegments: normalizedSegments,
+    });
+
+    void (async () => {
+      try {
+        await setIndexedDbRecord(LIBRARY_STATE_KEY, snapshotForStorage);
+
+        const existingBackups = await getIndexedDbRecord<Array<{ payload: string; savedAt: number }>>(LIBRARY_BACKUPS_KEY) ?? [];
+        if (existingBackups[0]?.payload !== snapshotPayload) {
+          const nextBackups = [
+            { payload: snapshotPayload, savedAt: Date.now() },
+            ...existingBackups,
+          ].slice(0, MAX_LIBRARY_BACKUPS);
+          await setIndexedDbRecord(LIBRARY_BACKUPS_KEY, nextBackups);
+        }
+      } catch (error) {
+        console.error('Failed to persist library snapshot into IndexedDB', error);
+      }
+    })();
+  }, [isLibraryHydrated, lastCutoutIndex, savedSegments]);
 
   const createUniqueSegmentName = useCallback((baseName: string) => {
     const hasPngExtension = baseName.toLowerCase().endsWith('.png');
@@ -160,6 +287,7 @@ export default function App() {
       backgroundRemovedAt: timestamp,
       cleanupProcessedAt: timestamp,
       derivedFromSegmentId: sourceSegment.id,
+      tags: [...(sourceSegment.tags ?? [])],
     };
 
     updateSavedSegments([
@@ -757,6 +885,7 @@ export default function App() {
       createdAt: Date.now(),
       backgroundRemovedAt: undefined,
       cleanupProcessedAt: undefined,
+      tags: [],
     };
 
     updateSavedSegments([newSegment, ...savedSegments]);
@@ -1079,6 +1208,92 @@ export default function App() {
     updateSavedSegments(
       savedSegments.map((s) => (s.id === id ? { ...s, name: newName } : s))
     );
+  };
+
+  const handleUpdateSegmentTags = (id: string, tags: string[]) => {
+    const normalizedTags = Array.from(new Set(tags.map((tag) => tag.trim()).filter(Boolean)));
+    updateSavedSegments(
+      savedSegments.map((segment) => (
+        segment.id === id
+          ? { ...segment, tags: normalizedTags }
+          : segment
+      ))
+    );
+  };
+
+  const handleExportLibrary = () => {
+    const libraryFile: AssetLibraryFile = {
+      version: 1,
+      exportedAt: Date.now(),
+      lastCutoutIndex,
+      savedSegments: savedSegments.map(normalizeSavedSegment),
+    };
+    const blob = new Blob([JSON.stringify(libraryFile, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `assetmaster-library-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImportLibraryRequest = () => {
+    libraryImportInputRef.current?.click();
+  };
+
+  const handleImportLibraryFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text) as Partial<AssetLibraryFile>;
+      const importedSegments = Array.isArray(parsed.savedSegments)
+        ? parsed.savedSegments.map(normalizeSavedSegment)
+        : [];
+
+      if (!window.confirm(`Replace the current saved cutout library with ${importedSegments.length} imported items?`)) {
+        return;
+      }
+
+      setSavedSegments(importedSegments);
+      setLastCutoutIndex(parsed.lastCutoutIndex ?? Math.max(1, importedSegments.length + 1));
+      setPreviewSegment(null);
+    } catch (error) {
+      console.error('Failed to import library file', error);
+      window.alert('The selected library file could not be loaded.');
+    } finally {
+      event.target.value = '';
+    }
+  };
+
+  const handleRestoreLibraryBackup = () => {
+    void (async () => {
+      try {
+        const backups = await getIndexedDbRecord<Array<{ payload: string; savedAt: number }>>(LIBRARY_BACKUPS_KEY);
+        const latestBackup = backups?.[0];
+        if (!latestBackup?.payload) {
+          window.alert('No library backup is available yet.');
+          return;
+        }
+
+        const parsedBackup = JSON.parse(latestBackup.payload) as Pick<AssetLibraryFile, 'savedSegments' | 'lastCutoutIndex'>;
+        if (!window.confirm(`Restore the latest backup from ${new Date(latestBackup.savedAt).toLocaleString()}?`)) {
+          return;
+        }
+
+        setSavedSegments((parsedBackup.savedSegments ?? []).map(normalizeSavedSegment));
+        setLastCutoutIndex(parsedBackup.lastCutoutIndex ?? 1);
+        setPreviewSegment(null);
+      } catch (error) {
+        console.error('Failed to restore latest library backup', error);
+        window.alert('The latest backup could not be restored.');
+      }
+    })();
   };
 
   const handleClearAllSegments = () => {
@@ -1601,12 +1816,24 @@ export default function App() {
               segments={savedSegments}
               onDelete={handleDeleteSegment}
               onRename={handleRenameSegment}
+              onUpdateTags={handleUpdateSegmentTags}
               onClearAll={handleClearAllSegments}
               onSelectSegment={handleSelectSavedSegment}
+              onExportLibrary={handleExportLibrary}
+              onImportLibrary={handleImportLibraryRequest}
+              onRestoreBackup={handleRestoreLibraryBackup}
             />
           </div>
         </aside>
       </main>
+
+      <input
+        ref={libraryImportInputRef}
+        type="file"
+        accept="application/json,.json"
+        className="hidden"
+        onChange={handleImportLibraryFile}
+      />
 
       {/* 3. Modal / Popup Overlay to Preview any Saved Segment with zoom controls */}
       <AnimatePresence>
