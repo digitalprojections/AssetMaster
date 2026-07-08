@@ -24,7 +24,11 @@ import {
   AlertCircle,
   Eye,
   X,
-  Layers
+  Layers,
+  ChevronLeft,
+  ChevronRight,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -89,14 +93,28 @@ export default function App() {
   const [showBgRemover, setShowBgRemover] = useState<boolean>(false);
   const [antsOffset, setAntsOffset] = useState<number>(0);
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
+  const [isLeftToolbarCollapsed, setIsLeftToolbarCollapsed] = useState<boolean>(false);
   const [isLibraryHydrated, setIsLibraryHydrated] = useState<boolean>(false);
   const hasLoadedImage = Boolean(image) && !isLoading;
+  const [isMobileViewport, setIsMobileViewport] = useState<boolean>(false);
 
   // Auto-collapse sidebar on small screens on load
   useEffect(() => {
-    if (window.innerWidth < 768) {
-      setIsSidebarOpen(false);
-    }
+    const applyResponsiveUi = () => {
+      const isMobile = window.innerWidth < 768;
+      setIsMobileViewport(isMobile);
+      if (isMobile) {
+        setIsSidebarOpen(false);
+        setIsLeftToolbarCollapsed(true);
+      }
+    };
+
+    applyResponsiveUi();
+    window.addEventListener('resize', applyResponsiveUi);
+
+    return () => {
+      window.removeEventListener('resize', applyResponsiveUi);
+    };
   }, []);
 
   // Canvas refs
@@ -1445,76 +1463,106 @@ export default function App() {
         {/* 2.1 Left Tool Shelf */}
         <aside
           id="left-tools"
-          className="w-full md:w-16 h-14 md:h-auto border-b md:border-b-0 md:border-r border-slate-800 bg-slate-950 flex flex-row md:flex-col items-center justify-start md:justify-start py-1 md:py-4 px-3 md:px-0 gap-2 md:space-y-4 shrink-0 overflow-x-auto"
+          className={`border-b md:border-b-0 md:border-r border-slate-800 bg-slate-950 flex shrink-0 overflow-hidden transition-all duration-200 ${
+            isMobileViewport
+              ? 'w-full flex-row items-center px-3 py-1 gap-2 h-14'
+              : isLeftToolbarCollapsed
+                ? 'w-7 flex-col items-center py-4 px-0.5'
+                : 'w-16 flex-col items-center py-4 px-0'
+          }`}
         >
-          <div className="flex flex-row md:flex-col items-center justify-start md:justify-center gap-1 md:space-y-2 w-full max-w-md md:max-w-none md:px-2 shrink-0">
-            {[
-              { id: 'magnetic', icon: Sparkles, label: 'Magnetic Lasso (M)', desc: 'Snaps automatically to contrast boundaries.' },
-              { id: 'lasso', icon: Scissors, label: 'Freehand Lasso (L)', desc: 'Draw a custom selection area freely.' },
-              { id: 'rectangle', icon: Square, label: 'Rectangle (R)', desc: 'Drag a rectangular bounding crop.' },
-              { id: 'select', icon: MousePointer, label: 'Pan & Move (V)', desc: 'Pan or zoom without active drawing.' },
-            ].map((tool) => {
-              const IconComp = tool.icon;
-              const isEnabled = hasLoadedImage;
-              const isSelected = hasLoadedImage && activeTool === tool.id;
-              return (
+          <button
+            onClick={() => setIsLeftToolbarCollapsed((prev) => !prev)}
+            className={`w-10 h-10 border border-slate-800 bg-slate-900 text-slate-300 hover:bg-slate-800 transition-all cursor-pointer flex items-center justify-center shrink-0 ${
+              isMobileViewport
+                ? 'rounded-xl'
+                : isLeftToolbarCollapsed
+                  ? 'md:w-5 md:h-16 rounded-md'
+                  : 'md:w-11 md:h-11 rounded-xl'
+            }`}
+            title={isLeftToolbarCollapsed ? 'Expand selection tools' : 'Collapse selection tools'}
+          >
+            {isMobileViewport ? (
+              isLeftToolbarCollapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />
+            ) : isLeftToolbarCollapsed ? (
+              <ChevronRight className="h-4 w-4" />
+            ) : (
+              <ChevronLeft className="h-4 w-4" />
+            )}
+          </button>
+
+          {!isLeftToolbarCollapsed && (
+            <>
+              <div className={`flex items-center justify-start gap-1 shrink-0 ${
+                isMobileViewport
+                  ? 'flex-row w-full max-w-md'
+                  : 'flex-col md:space-y-2 w-full max-w-none md:px-2'
+              }`}>
+                {[
+                  { id: 'magnetic', icon: Sparkles, label: 'Magnetic Lasso (M)', desc: 'Snaps automatically to contrast boundaries.' },
+                  { id: 'lasso', icon: Scissors, label: 'Freehand Lasso (L)', desc: 'Draw a custom selection area freely.' },
+                  { id: 'rectangle', icon: Square, label: 'Rectangle (R)', desc: 'Drag a rectangular bounding crop.' },
+                  { id: 'select', icon: MousePointer, label: 'Pan & Move (V)', desc: 'Pan or zoom without active drawing.' },
+                ].map((tool) => {
+                  const IconComp = tool.icon;
+                  const isEnabled = hasLoadedImage;
+                  const isSelected = hasLoadedImage && activeTool === tool.id;
+                  return (
+                    <button
+                      key={tool.id}
+                      disabled={!isEnabled}
+                      onClick={() => {
+                        if (!isEnabled) return;
+                        setActiveTool(tool.id as SelectionTool);
+                        setRectStart(null);
+                        setRectEnd(null);
+                        setRectSnapPreview(null);
+                        setHoverPoint(null);
+                      }}
+                      className={`w-10 h-10 md:w-12 md:h-12 rounded-xl flex items-center justify-center transition-all group relative shrink-0 ${
+                        isSelected
+                          ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20'
+                          : isEnabled
+                            ? 'text-slate-400 hover:text-slate-100 hover:bg-slate-900 cursor-pointer'
+                            : 'text-slate-700 bg-transparent cursor-not-allowed opacity-60'
+                      }`}
+                      title={isEnabled ? tool.label : `${tool.label} - load an image first`}
+                    >
+                      <IconComp className="h-4.5 w-4.5 md:h-5 md:w-5" />
+                      <span className="absolute hidden md:block left-14 bg-slate-950 border border-slate-800 text-slate-200 text-[10px] py-1 px-2.5 rounded shadow-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-20 font-sans">
+                        <strong>{tool.label}</strong>: {isEnabled ? tool.desc : 'Load an image to enable this tool.'}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {!isMobileViewport && <div className="w-8 border-t border-slate-800 my-1" />}
+
+              {activePath.length > 0 && (
                 <button
-                  key={tool.id}
-                  disabled={!isEnabled}
                   onClick={() => {
-                    if (!isEnabled) return;
-                    setActiveTool(tool.id as SelectionTool);
-                    // Clear state when switching
+                    setActivePath([]);
                     setRectStart(null);
                     setRectEnd(null);
-                    setRectSnapPreview(null);
-                    setHoverPoint(null);
                   }}
-                  className={`w-10 h-10 md:w-12 md:h-12 rounded-xl flex items-center justify-center transition-all group relative ${
-                    isSelected
-                      ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20'
-                      : isEnabled
-                        ? 'text-slate-400 hover:text-slate-100 hover:bg-slate-900 cursor-pointer'
-                        : 'text-slate-700 bg-transparent cursor-not-allowed opacity-60'
-                  }`}
-                  title={isEnabled ? tool.label : `${tool.label} - load an image first`}
+                  className="w-10 h-10 md:w-11 md:h-11 rounded-lg hover:bg-rose-950/40 border border-transparent hover:border-rose-900/50 text-slate-400 hover:text-rose-400 flex items-center justify-center transition-all cursor-pointer shrink-0"
+                  title="Discard current selection (Esc)"
                 >
-                  <IconComp className="h-4.5 w-4.5 md:h-5 md:w-5" />
-                  {/* Custom elegant tooltip */}
-                  <span className="absolute hidden md:block left-14 bg-slate-950 border border-slate-800 text-slate-200 text-[10px] py-1 px-2.5 rounded shadow-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-20 font-sans">
-                    <strong>{tool.label}</strong>: {isEnabled ? tool.desc : 'Load an image to enable this tool.'}
-                  </span>
+                  <Trash2 className="h-4 w-4 md:h-4.5 md:w-4.5" />
                 </button>
-              );
-            })}
-          </div>
+              )}
 
-          <div className="hidden md:block w-8 border-t border-slate-800 my-1" />
-
-          {/* Quick Clear Current Path Button */}
-          {activePath.length > 0 && (
-            <button
-              onClick={() => {
-                setActivePath([]);
-                setRectStart(null);
-                setRectEnd(null);
-              }}
-              className="w-10 h-10 md:w-11 md:h-11 rounded-lg hover:bg-rose-950/40 border border-transparent hover:border-rose-900/50 text-slate-400 hover:text-rose-400 flex items-center justify-center transition-all cursor-pointer shrink-0"
-              title="Discard current selection (Esc)"
-            >
-              <Trash2 className="h-4 w-4 md:h-4.5 md:w-4.5" />
-            </button>
-          )}
-
-          {/* Magnetic backspace action */}
-          {activeTool === 'magnetic' && activePath.length > 0 && (
-            <button
-              onClick={() => setActivePath((prev) => prev.slice(0, -1))}
-              className="w-10 h-10 md:w-11 md:h-11 rounded-lg hover:bg-slate-900 border border-transparent hover:border-slate-800 text-slate-400 hover:text-slate-200 flex items-center justify-center transition-all cursor-pointer shrink-0"
-              title="Undo last point (Backspace)"
-            >
-              <Undo className="h-4 w-4 md:h-4.5 md:w-4.5" />
-            </button>
+              {activeTool === 'magnetic' && activePath.length > 0 && (
+                <button
+                  onClick={() => setActivePath((prev) => prev.slice(0, -1))}
+                  className="w-10 h-10 md:w-11 md:h-11 rounded-lg hover:bg-slate-900 border border-transparent hover:border-slate-800 text-slate-400 hover:text-slate-200 flex items-center justify-center transition-all cursor-pointer shrink-0"
+                  title="Undo last point (Backspace)"
+                >
+                  <Undo className="h-4 w-4 md:h-4.5 md:w-4.5" />
+                </button>
+              )}
+            </>
           )}
         </aside>
 
