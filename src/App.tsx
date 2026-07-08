@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Point, SavedSegment, SelectionTool, RectBounds } from './types';
-import { findSnappedPoint, createSegmentImage, getPathBounds } from './utils/canvasUtils';
+import { Point, SavedSegment, SelectionTool, RectBounds, AssetLibraryFile } from './types';
+import { findAxisSnapGuides, findSnappedPoint, createSegmentImage, getPathBounds } from './utils/canvasUtils';
 import { SAMPLE_IMAGES, SampleImage } from './data/samples';
 import SegmentList from './components/SegmentList';
 import AnimationStudio from './components/AnimationStudio';
@@ -17,7 +17,6 @@ import {
   Square,
   Sparkles,
   Scissors,
-  HelpCircle,
   Undo,
   Download,
   AlertCircle,
@@ -26,6 +25,28 @@ import {
   Layers
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+
+type GuideCandidate = {
+  value: number;
+  source: string;
+};
+
+type RectSnapPreview = {
+  point: Point;
+  guideX: GuideCandidate | null;
+  guideY: GuideCandidate | null;
+};
+
+const LEGACY_SEGMENTS_KEY = 'lasso_saved_segments';
+const LEGACY_INDEX_KEY = 'lasso_cutout_index';
+const LIBRARY_STATE_KEY = 'assetmaster.library.state.v1';
+const LIBRARY_BACKUPS_KEY = 'assetmaster.library.backups.v1';
+const MAX_LIBRARY_BACKUPS = 5;
+
+const normalizeSavedSegment = (segment: SavedSegment): SavedSegment => ({
+  ...segment,
+  tags: Array.isArray(segment.tags) ? segment.tags : [],
+});
 
 export default function App() {
   // Image states
@@ -45,6 +66,7 @@ export default function App() {
   const [isDrawing, setIsDrawing] = useState<boolean>(false);
   const [rectStart, setRectStart] = useState<Point | null>(null);
   const [rectEnd, setRectEnd] = useState<Point | null>(null);
+  const [rectSnapPreview, setRectSnapPreview] = useState<RectSnapPreview | null>(null);
   const [hoverPoint, setHoverPoint] = useState<Point | null>(null);
 
   // Pan and zoom states
@@ -59,24 +81,24 @@ export default function App() {
   const [lastCutoutIndex, setLastCutoutIndex] = useState<number>(1);
 
   // UI state
-  const [showHelp, setShowHelp] = useState<boolean>(true);
   const [previewSegment, setPreviewSegment] = useState<SavedSegment | null>(null);
   const [showAnimationStudio, setShowAnimationStudio] = useState<boolean>(false);
   const [showBgRemover, setShowBgRemover] = useState<boolean>(false);
   const [antsOffset, setAntsOffset] = useState<number>(0);
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
 
-  // Auto-collapse sidebar and help on small screens on load
+  // Auto-collapse sidebar on small screens on load
   useEffect(() => {
     if (window.innerWidth < 768) {
       setIsSidebarOpen(false);
-      setShowHelp(false);
     }
   }, []);
 
   // Canvas refs
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const hiddenImageCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const hiddenImageCtxRef = useRef<CanvasRenderingContext2D | null>(null);
 
   // Pinch-to-zoom and multi-touch panning refs
   const touchStartDistRef = useRef<number | null>(null);
@@ -112,6 +134,45 @@ export default function App() {
     localStorage.setItem('lasso_cutout_index', newIndex.toString());
   };
 
+  const createUniqueSegmentName = useCallback((baseName: string) => {
+    const hasPngExtension = baseName.toLowerCase().endsWith('.png');
+    const bareName = hasPngExtension ? baseName.slice(0, -4) : baseName;
+    let candidateName = `${bareName}_cleaned.png`;
+    let suffix = 2;
+
+    const existingNames = new Set(savedSegments.map((segment) => segment.name.toLowerCase()));
+    while (existingNames.has(candidateName.toLowerCase())) {
+      candidateName = `${bareName}_cleaned_${suffix}.png`;
+      suffix += 1;
+    }
+
+    return candidateName;
+  }, [savedSegments]);
+
+  const createCleanedSegment = useCallback((sourceSegment: SavedSegment, updatedUrl: string) => {
+    const timestamp = Date.now();
+    const newSegment: SavedSegment = {
+      ...sourceSegment,
+      id: `seg_${timestamp}_${Math.random().toString(36).slice(2, 8)}`,
+      name: createUniqueSegmentName(sourceSegment.name),
+      thumbnailUrl: updatedUrl,
+      createdAt: timestamp,
+      backgroundRemovedAt: timestamp,
+      cleanupProcessedAt: timestamp,
+      derivedFromSegmentId: sourceSegment.id,
+    };
+
+    updateSavedSegments([
+      newSegment,
+      ...savedSegments.map((segment) => (
+        segment.id === sourceSegment.id && !segment.backgroundRemovedAt
+          ? { ...segment, cleanupProcessedAt: timestamp }
+          : segment
+      )),
+    ]);
+    return newSegment;
+  }, [createUniqueSegmentName, savedSegments]);
+
   // Keep ants marching
   useEffect(() => {
     let frameId: number;
@@ -137,14 +198,200 @@ export default function App() {
     [offset, zoom]
   );
 
+  const getVisibleImageBounds = useCallback((): RectBounds | null => {
+    const canvas = canvasRef.current;
+    if (!canvas || !image) return null;
+
+    const visibleLeft = Math.max(0, (-offset.x) / zoom);
+    const visibleTop = Math.max(0, (-offset.y) / zoom);
+    const visibleRight = Math.min(image.width, (canvas.width - offset.x) / zoom);
+    const visibleBottom = Math.min(image.height, (canvas.height - offset.y) / zoom);
+
+    if (visibleRight <= visibleLeft || visibleBottom <= visibleTop) {
+      return null;
+    }
+
+    return {
+      x: visibleLeft,
+      y: visibleTop,
+      width: visibleRight - visibleLeft,
+      height: visibleBottom - visibleTop,
+    };
+  }, [image, offset, zoom]);
+
+  const intersectsBounds = useCallback((a: RectBounds, b: RectBounds) => {
+    return (
+      a.x < b.x + b.width &&
+      a.x + a.width > b.x &&
+      a.y < b.y + b.height &&
+      a.y + a.height > b.y
+    );
+  }, []);
+
+  useEffect(() => {
+    if (!image) {
+      hiddenImageCanvasRef.current = null;
+      hiddenImageCtxRef.current = null;
+      return;
+    }
+
+    const hiddenCanvas = document.createElement('canvas');
+    hiddenCanvas.width = image.width;
+    hiddenCanvas.height = image.height;
+    const hiddenCtx = hiddenCanvas.getContext('2d');
+
+    if (!hiddenCtx) {
+      hiddenImageCanvasRef.current = null;
+      hiddenImageCtxRef.current = null;
+      return;
+    }
+
+    hiddenCtx.drawImage(image, 0, 0);
+    hiddenImageCanvasRef.current = hiddenCanvas;
+    hiddenImageCtxRef.current = hiddenCtx;
+  }, [image]);
+
+  const getRectGuideCandidates = useCallback((): { x: GuideCandidate[]; y: GuideCandidate[] } => {
+    if (!image) {
+      return { x: [], y: [] };
+    }
+
+    const visibleBounds = getVisibleImageBounds();
+    const imageSpaceThreshold = snapRadius / zoom;
+    const expandedVisibleBounds = visibleBounds
+      ? {
+          x: Math.max(0, visibleBounds.x - imageSpaceThreshold),
+          y: Math.max(0, visibleBounds.y - imageSpaceThreshold),
+          width: Math.min(image.width, visibleBounds.x + visibleBounds.width + imageSpaceThreshold) - Math.max(0, visibleBounds.x - imageSpaceThreshold),
+          height: Math.min(image.height, visibleBounds.y + visibleBounds.height + imageSpaceThreshold) - Math.max(0, visibleBounds.y - imageSpaceThreshold),
+        }
+      : null;
+
+    const xCandidates: GuideCandidate[] = [
+      { value: 0, source: 'image left' },
+      { value: image.width, source: 'image right' },
+    ];
+    const yCandidates: GuideCandidate[] = [
+      { value: 0, source: 'image top' },
+      { value: image.height, source: 'image bottom' },
+    ];
+
+    savedSegments.forEach((segment, index) => {
+      if (expandedVisibleBounds && !intersectsBounds(segment.bounds, expandedVisibleBounds)) {
+        return;
+      }
+
+      const label = segment.name || `segment ${index + 1}`;
+      xCandidates.push(
+        { value: segment.bounds.x, source: `${label} left` },
+        { value: segment.bounds.x + segment.bounds.width, source: `${label} right` }
+      );
+      yCandidates.push(
+        { value: segment.bounds.y, source: `${label} top` },
+        { value: segment.bounds.y + segment.bounds.height, source: `${label} bottom` }
+      );
+    });
+
+    return { x: xCandidates, y: yCandidates };
+  }, [getVisibleImageBounds, image, intersectsBounds, savedSegments, snapRadius, zoom]);
+
+  const getBestGuide = useCallback(
+    (value: number, candidates: GuideCandidate[]): GuideCandidate | null => {
+      let bestCandidate: GuideCandidate | null = null;
+      let bestDistance = Infinity;
+
+      candidates.forEach((candidate) => {
+        const distance = Math.abs(candidate.value - value) * zoom;
+        if (distance <= snapRadius && distance < bestDistance) {
+          bestDistance = distance;
+          bestCandidate = candidate;
+        }
+      });
+
+      return bestCandidate;
+    },
+    [snapRadius, zoom]
+  );
+
+  const getRectSnapPreview = useCallback(
+    (cursor: Point): RectSnapPreview | null => {
+      if (!image) return null;
+
+      const { x, y } = getRectGuideCandidates();
+      const visibleBounds = getVisibleImageBounds();
+      const imageSpaceRadius = Math.max(6, (snapRadius / zoom) * 2);
+      const axisGuides = hiddenImageCtxRef.current
+        ? findAxisSnapGuides(
+            hiddenImageCtxRef.current,
+            cursor,
+            imageSpaceRadius,
+            image.width,
+            image.height,
+            visibleBounds ?? undefined
+          )
+        : { x: null, y: null };
+
+      if (axisGuides.x !== null) {
+        x.push({ value: axisGuides.x, source: 'visible vertical edge' });
+      }
+      if (axisGuides.y !== null) {
+        y.push({ value: axisGuides.y, source: 'visible horizontal edge' });
+      }
+
+      const guideX = getBestGuide(cursor.x, x);
+      const guideY = getBestGuide(cursor.y, y);
+
+      if (!guideX || !guideY) {
+        return null;
+      }
+
+      return {
+        point: {
+          x: guideX.value,
+          y: guideY.value,
+        },
+        guideX,
+        guideY,
+      };
+    },
+    [getBestGuide, getRectGuideCandidates, getVisibleImageBounds, image, snapRadius, zoom]
+  );
+
+  const getMagneticSnapPoint = useCallback(
+    (cursor: Point): Point => {
+      if (!image || !hiddenImageCtxRef.current) {
+        return cursor;
+      }
+
+      const visibleBounds = getVisibleImageBounds();
+      const imageSpaceRadius = Math.max(3, snapRadius / zoom);
+
+      return findSnappedPoint(
+        hiddenImageCtxRef.current,
+        cursor,
+        imageSpaceRadius,
+        image.width,
+        image.height,
+        visibleBounds ?? undefined
+      );
+    },
+    [getVisibleImageBounds, image, snapRadius, zoom]
+  );
+
   // Load an image safely (supporting CORS for presets)
-  const loadImage = (url: string, name: string, fallbackUrl?: string) => {
+  const loadImage = (
+    url: string,
+    name: string,
+    fallbackUrl?: string,
+    finalErrorMessage = 'Failed to load image. If this is a cross-origin image, it might be restricted by CORS. Try uploading a local image!'
+  ) => {
     setIsLoading(true);
     setErrorMsg(null);
     setActivePath([]);
     setIsClosed(false);
     setRectStart(null);
     setRectEnd(null);
+    setRectSnapPreview(null);
     setHoverPoint(null);
 
     const img = new Image();
@@ -169,21 +416,14 @@ export default function App() {
     img.onerror = () => {
       if (fallbackUrl) {
         console.warn(`Primary image failed to load, trying fallback: ${fallbackUrl}`);
-        loadImage(fallbackUrl, name);
+        loadImage(fallbackUrl, name, undefined, finalErrorMessage);
       } else {
         setIsLoading(false);
-        setErrorMsg('Failed to load image. If this is a cross-origin image, it might be restricted by CORS. Try uploading a local image!');
+        setErrorMsg(finalErrorMessage);
       }
     };
     img.src = url;
   };
-
-  // Load initial preset on mount if nothing loaded
-  useEffect(() => {
-    if (!image && !isLoading) {
-      loadImage(SAMPLE_IMAGES[0].url, 'parrot.jpg', SAMPLE_IMAGES[0].fallbackUrl);
-    }
-  }, []);
 
   // Set default draft name whenever a new selection is made
   useEffect(() => {
@@ -227,6 +467,7 @@ export default function App() {
           setIsClosed(false);
           setRectStart(null);
           setRectEnd(null);
+          setRectSnapPreview(null);
         }
         // Undo last magnetic lasso point
         if ((e.key === 'Backspace' || e.key === 'Delete') && activeTool === 'magnetic' && activePath.length > 0) {
@@ -334,6 +575,33 @@ export default function App() {
       ctx.restore();
     }
 
+    if (activeTool === 'rectangle' && rectSnapPreview) {
+      ctx.save();
+      ctx.setLineDash([6 / zoom, 6 / zoom]);
+      ctx.lineWidth = 1.5 / zoom;
+
+      ctx.strokeStyle = 'rgba(45, 212, 191, 0.95)';
+      ctx.beginPath();
+      ctx.moveTo(rectSnapPreview.guideX.value, 0);
+      ctx.lineTo(rectSnapPreview.guideX.value, image.height);
+      ctx.stroke();
+
+      ctx.strokeStyle = 'rgba(251, 191, 36, 0.95)';
+      ctx.beginPath();
+      ctx.moveTo(0, rectSnapPreview.guideY.value);
+      ctx.lineTo(image.width, rectSnapPreview.guideY.value);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.arc(rectSnapPreview.point.x, rectSnapPreview.point.y, 5 / zoom, 0, Math.PI * 2);
+      ctx.fillStyle = '#f97316';
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1.5 / zoom;
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    }
+
     // Draw Magnetic Lasso anchor dots and connecting guides
     if (activeTool === 'magnetic' && activePath.length > 0) {
       ctx.save();
@@ -436,7 +704,21 @@ export default function App() {
       }
       ctx.restore();
     }
-  }, [image, offset, zoom, activePath, activeTool, rectStart, rectEnd, hoverPoint, antsOffset, snapRadius]);
+    if (activeTool === 'rectangle' && rectSnapPreview) {
+      const screenX = rectSnapPreview.point.x * zoom + offset.x;
+      const screenY = rectSnapPreview.point.y * zoom + offset.y;
+      const label = 'Corner snap target';
+
+      ctx.save();
+      ctx.font = 'bold 11px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#f8fafc';
+      ctx.shadowColor = 'rgba(2, 6, 23, 0.95)';
+      ctx.shadowBlur = 5;
+      ctx.fillText(label, screenX, screenY - 14);
+      ctx.restore();
+    }
+  }, [image, offset, zoom, activePath, activeTool, rectStart, rectEnd, rectSnapPreview, hoverPoint, antsOffset, snapRadius]);
 
   // Redraw when elements update
   useEffect(() => {
@@ -473,6 +755,8 @@ export default function App() {
       feather,
       thumbnailUrl: dataUrl,
       createdAt: Date.now(),
+      backgroundRemovedAt: undefined,
+      cleanupProcessedAt: undefined,
     };
 
     updateSavedSegments([newSegment, ...savedSegments]);
@@ -483,6 +767,7 @@ export default function App() {
     setActivePath([]);
     setRectStart(null);
     setRectEnd(null);
+    setRectSnapPreview(null);
   };
 
   // Canvas interaction mouse handlers
@@ -496,6 +781,7 @@ export default function App() {
 
     // Pan with space or middle mouse or Select Tool
     if (activeTool === 'select' || e.button === 1) {
+      setRectSnapPreview(null);
       setIsPanning(true);
       setPanStart({ x: clientX - offset.x, y: clientY - offset.y });
       return;
@@ -507,47 +793,43 @@ export default function App() {
     }
 
     if (activeTool === 'rectangle') {
-      setRectStart(imgPt);
-      setRectEnd(imgPt);
+      const snappedPoint = rectSnapPreview?.point ?? imgPt;
+      setRectStart(snappedPoint);
+      setRectEnd(snappedPoint);
+      setRectSnapPreview(getRectSnapPreview(snappedPoint));
       setActivePath([]);
       setIsClosed(false);
     } else if (activeTool === 'lasso') {
+      setRectSnapPreview(null);
       setIsDrawing(true);
       setActivePath([imgPt]);
       setIsClosed(false);
     } else if (activeTool === 'magnetic') {
-      // Calculate real snapped point on high-contrast edge
-      const hiddenCanvas = document.createElement('canvas');
-      hiddenCanvas.width = image.width;
-      hiddenCanvas.height = image.height;
-      const hiddenCtx = hiddenCanvas.getContext('2d');
-      if (hiddenCtx) {
-        hiddenCtx.drawImage(image, 0, 0);
-        const snapped = findSnappedPoint(hiddenCtx, imgPt, snapRadius, image.width, image.height);
+      setRectSnapPreview(null);
+      const snapped = getMagneticSnapPoint(imgPt);
 
-        // If the path was already closed, start a fresh selection
-        if (isClosed) {
-          setIsClosed(false);
-          setActivePath([snapped]);
+      // If the path was already closed, start a fresh selection
+      if (isClosed) {
+        setIsClosed(false);
+        setActivePath([snapped]);
+        return;
+      }
+
+      // Check if close to start point to close path - scaled by zoom for perfect screen-space accuracy (32px radius)
+      if (activePath.length > 2) {
+        const distToStart = Math.sqrt(
+          Math.pow(snapped.x - activePath[0].x, 2) + Math.pow(snapped.y - activePath[0].y, 2)
+        );
+
+        if (distToStart * zoom < 32) {
+          // Close path
+          setIsClosed(true);
           return;
         }
-
-        // Check if close to start point to close path - scaled by zoom for perfect screen-space accuracy (32px radius)
-        if (activePath.length > 2) {
-          const distToStart = Math.sqrt(
-            Math.pow(snapped.x - activePath[0].x, 2) + Math.pow(snapped.y - activePath[0].y, 2)
-          );
-
-          if (distToStart * zoom < 32) {
-            // Close path
-            setIsClosed(true);
-            return;
-          }
-        }
-
-        // Add to anchor nodes
-        setActivePath((prev) => [...prev, snapped]);
       }
+
+      // Add to anchor nodes
+      setActivePath((prev) => [...prev, snapped]);
     }
   };
 
@@ -567,38 +849,43 @@ export default function App() {
     }
 
     const imgPt = getImgCoords(clientX, clientY, canvas);
+    const clampedImgPt = image
+      ? {
+          x: Math.max(0, Math.min(image.width, imgPt.x)),
+          y: Math.max(0, Math.min(image.height, imgPt.y)),
+        }
+      : imgPt;
 
-    if (activeTool === 'rectangle' && rectStart) {
-      setRectEnd(imgPt);
+    if (activeTool === 'rectangle') {
+      const snappedPreview = getRectSnapPreview(clampedImgPt);
+      setRectSnapPreview(snappedPreview);
+      if (rectStart) {
+        setRectEnd(snappedPreview?.point ?? clampedImgPt);
+      }
     } else if (activeTool === 'lasso' && isDrawing) {
+      setRectSnapPreview(null);
       // Append if moved a little
       setActivePath((prev) => [...prev, imgPt]);
     } else if (activeTool === 'magnetic') {
+      setRectSnapPreview(null);
       if (isClosed) {
         setHoverPoint(null);
         return;
       }
-      // Dynamic snapping calculation for hover circle
-      const hiddenCanvas = document.createElement('canvas');
-      hiddenCanvas.width = image.width;
-      hiddenCanvas.height = image.height;
-      const hiddenCtx = hiddenCanvas.getContext('2d');
-      if (hiddenCtx) {
-        hiddenCtx.drawImage(image, 0, 0);
-        const snapped = findSnappedPoint(hiddenCtx, imgPt, snapRadius, image.width, image.height);
 
-        // If close to the start point, snap the hover preview directly onto the start node (32px screen-space radius)
-        if (activePath.length > 2) {
-          const distToStart = Math.sqrt(
-            Math.pow(snapped.x - activePath[0].x, 2) + Math.pow(snapped.y - activePath[0].y, 2)
-          );
-          if (distToStart * zoom < 32) {
-            setHoverPoint(activePath[0]);
-            return;
-          }
+      const snapped = getMagneticSnapPoint(imgPt);
+
+      // If close to the start point, snap the hover preview directly onto the start node (32px screen-space radius)
+      if (activePath.length > 2) {
+        const distToStart = Math.sqrt(
+          Math.pow(snapped.x - activePath[0].x, 2) + Math.pow(snapped.y - activePath[0].y, 2)
+        );
+        if (distToStart * zoom < 32) {
+          setHoverPoint(activePath[0]);
+          return;
         }
-        setHoverPoint(snapped);
       }
+      setHoverPoint(snapped);
     }
   };
 
@@ -626,6 +913,7 @@ export default function App() {
       }
       setRectStart(null);
       setRectEnd(null);
+      setRectSnapPreview(null);
     } else if (activeTool === 'lasso' && isDrawing) {
       setIsDrawing(false);
       if (activePath.length > 2) {
@@ -635,6 +923,39 @@ export default function App() {
         setIsClosed(false);
       }
     }
+  };
+
+  const handleMouseLeave = () => {
+    if (!rectStart) {
+      setRectSnapPreview(null);
+    }
+
+    if (activeTool === 'magnetic') {
+      setHoverPoint(null);
+    }
+  };
+
+  const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas || !image) return;
+
+    e.preventDefault();
+
+    const rect = canvas.getBoundingClientRect();
+    const pointerX = e.clientX - rect.left;
+    const pointerY = e.clientY - rect.top;
+
+    const worldX = (pointerX - offset.x) / zoom;
+    const worldY = (pointerY - offset.y) / zoom;
+
+    const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
+    const newZoom = Math.max(0.1, Math.min(zoom * zoomFactor, 8));
+
+    setZoom(newZoom);
+    setOffset({
+      x: pointerX - worldX * newZoom,
+      y: pointerY - worldY * newZoom,
+    });
   };
 
   // Zoom helpers
@@ -772,28 +1093,39 @@ export default function App() {
     setPreviewSegment(segment);
   };
 
-  const handleSaveCleanedSegment = (id: string, updatedUrl: string) => {
-    updateSavedSegments(
-      savedSegments.map((s) => (s.id === id ? { ...s, thumbnailUrl: updatedUrl } : s))
-    );
-    // Also update previewSegment state so UI updates dynamically
-    setPreviewSegment((prev) => prev && prev.id === id ? { ...prev, thumbnailUrl: updatedUrl } : prev);
+  const handleSaveCleanedSegment = (sourceSegment: SavedSegment, updatedUrl: string) => {
+    const newSegment = createCleanedSegment(sourceSegment, updatedUrl);
+    setPreviewSegment(newSegment);
     setShowBgRemover(false);
+    return newSegment;
+  };
+
+  const handleSavePreviewSegmentCleanup = (updatedUrl: string) => {
+    if (!previewSegment) {
+      return;
+    }
+
+    handleSaveCleanedSegment(previewSegment, updatedUrl);
   };
 
   return (
-    <div id="app-root" className="h-screen w-screen flex flex-col bg-slate-950 text-slate-100 overflow-hidden font-sans select-none antialiased">
+    <div id="app-root" className="h-[100dvh] w-full flex flex-col bg-slate-950 text-slate-100 overflow-hidden font-sans select-none antialiased">
       {/* 1. Header Navigation Bar */}
-      <header id="main-header" className="h-16 border-b border-slate-800 bg-slate-950 flex items-center justify-between px-3 md:px-6 z-10 shrink-0">
-        <div className="flex items-center space-x-3 shrink-0">
+      <header id="main-header" className="min-h-16 border-b border-slate-800 bg-slate-950 flex items-center justify-between gap-3 px-3 py-2 md:px-6 z-10 shrink-0">
+        <div className="flex items-center space-x-3 shrink min-w-0">
           <div className="bg-gradient-to-br from-blue-500 to-indigo-600 p-2 rounded-xl shadow-lg shadow-indigo-500/10">
             <Scissors className="h-5 w-5 text-white" />
           </div>
-          <div>
+          <div className="min-w-0">
             <h1 className="font-bold text-sm md:text-base tracking-tight bg-gradient-to-r from-blue-100 to-indigo-100 bg-clip-text text-transparent">
               LassoCut
             </h1>
             <p className="hidden sm:block text-[10px] text-slate-400 font-medium">Smart Transparent Image Cutter</p>
+            {image && (
+              <p className="md:hidden text-[10px] text-slate-500 font-mono truncate">
+                {image.width} x {image.height}px
+              </p>
+            )}
           </div>
         </div>
 
@@ -808,18 +1140,25 @@ export default function App() {
           )}
         </div>
 
-        <div className="flex items-center space-x-2 md:space-x-3">
+        <div className="flex items-center justify-end gap-2 md:gap-3 flex-wrap">
           {/* Preset Selector */}
           <div className="relative">
             <select
               onChange={(e) => {
                 const sample = SAMPLE_IMAGES.find((s) => s.id === e.target.value);
-                if (sample) loadImage(sample.url, `${sample.id}.jpg`, sample.fallbackUrl);
+                if (sample) {
+                  loadImage(
+                    sample.url,
+                    `${sample.id}.jpg`,
+                    sample.fallbackUrl,
+                    `The "${sample.name}" sample could not be loaded from its remote source. Try another sample or upload a local image.`
+                  );
+                }
               }}
-              className="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-lg text-xs text-slate-300 px-2 md:px-3 py-2 cursor-pointer outline-none transition-all max-w-[120px] sm:max-w-none"
-              defaultValue="parrot"
+              className="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-lg text-xs text-slate-300 px-2 md:px-3 py-2 cursor-pointer outline-none transition-all max-w-[110px] sm:max-w-[160px]"
+              defaultValue=""
             >
-              <option disabled>Select Preset Image...</option>
+              <option value="" disabled>Select Preset Image...</option>
               {SAMPLE_IMAGES.map((sample) => (
                 <option key={sample.id} value={sample.id}>
                   Sample: {sample.name}
@@ -852,19 +1191,6 @@ export default function App() {
             />
           </label>
 
-          {/* Quick Help toggler */}
-          <button
-            onClick={() => setShowHelp(!showHelp)}
-            className={`p-2 rounded-lg border transition-all cursor-pointer ${
-              showHelp
-                ? 'bg-blue-900/20 border-blue-800 text-blue-400'
-                : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
-            }`}
-            title="Toggle Help Panel"
-          >
-            <HelpCircle className="h-4 w-4" />
-          </button>
-
           {/* Mobile settings toggle */}
           <button
             onClick={() => setIsSidebarOpen(!isSidebarOpen)}
@@ -886,13 +1212,13 @@ export default function App() {
       </header>
 
       {/* 2. Main Workstation Area */}
-      <main id="main-workstation" className="flex-1 flex flex-col md:flex-row overflow-hidden relative">
+      <main id="main-workstation" className="flex-1 min-h-0 flex flex-col md:flex-row overflow-hidden relative">
         {/* 2.1 Left Tool Shelf */}
         <aside
           id="left-tools"
-          className="w-full md:w-16 h-14 md:h-auto border-b md:border-b-0 md:border-r border-slate-800 bg-slate-950 flex flex-row md:flex-col items-center justify-center md:justify-start py-1 md:py-4 px-4 md:px-0 gap-2 md:space-y-4 shrink-0"
+          className="w-full md:w-16 h-14 md:h-auto border-b md:border-b-0 md:border-r border-slate-800 bg-slate-950 flex flex-row md:flex-col items-center justify-start md:justify-start py-1 md:py-4 px-3 md:px-0 gap-2 md:space-y-4 shrink-0 overflow-x-auto"
         >
-          <div className="flex flex-row md:flex-col items-center justify-center gap-1 md:space-y-2 w-full max-w-md md:max-w-none md:px-2">
+          <div className="flex flex-row md:flex-col items-center justify-start md:justify-center gap-1 md:space-y-2 w-full max-w-md md:max-w-none md:px-2 shrink-0">
             {[
               { id: 'magnetic', icon: Sparkles, label: 'Magnetic Lasso (M)', desc: 'Snaps automatically to contrast boundaries.' },
               { id: 'lasso', icon: Scissors, label: 'Freehand Lasso (L)', desc: 'Draw a custom selection area freely.' },
@@ -909,6 +1235,8 @@ export default function App() {
                     // Clear state when switching
                     setRectStart(null);
                     setRectEnd(null);
+                    setRectSnapPreview(null);
+                    setHoverPoint(null);
                   }}
                   className={`w-10 h-10 md:w-12 md:h-12 rounded-xl flex items-center justify-center transition-all cursor-pointer group relative ${
                     isSelected
@@ -957,7 +1285,7 @@ export default function App() {
         </aside>
 
         {/* 2.2 Interactive Canvas Area */}
-        <div id="canvas-workspace" ref={containerRef} className="flex-1 h-full relative overflow-hidden bg-slate-900">
+        <div id="canvas-workspace" ref={containerRef} className="flex-1 min-h-0 h-full relative overflow-hidden bg-slate-900">
           {isLoading && (
             <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-sm flex flex-col items-center justify-center z-10 space-y-3">
               <div className="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin" />
@@ -975,6 +1303,34 @@ export default function App() {
               <button onClick={() => setErrorMsg(null)} className="text-rose-400 hover:text-rose-200 p-1 rounded">
                 <X className="h-4 w-4" />
               </button>
+            </div>
+          )}
+
+          {!image && !isLoading && !errorMsg && (
+            <div className="absolute inset-0 flex items-center justify-center z-10 p-6">
+              <div className="max-w-md w-full rounded-3xl border border-slate-800 bg-slate-950/80 backdrop-blur-xl p-6 sm:p-8 text-center shadow-2xl space-y-4">
+                <div className="mx-auto w-14 h-14 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
+                  <ImageIcon className="h-7 w-7" />
+                </div>
+                <div className="space-y-2">
+                  <h2 className="text-lg font-semibold text-slate-100">Start with an image</h2>
+                  <p className="text-sm text-slate-400">
+                    Upload a local image or pick one of the sample presets to begin cutting out assets.
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-left">
+                  <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
+                    <p className="text-xs font-bold uppercase tracking-wider text-blue-300">Recommended</p>
+                    <p className="mt-1 text-sm font-medium text-slate-200">Upload your own image</p>
+                    <p className="mt-1 text-xs text-slate-500">Most reliable start, with no remote loading dependency.</p>
+                  </div>
+                  <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
+                    <p className="text-xs font-bold uppercase tracking-wider text-emerald-300">Optional</p>
+                    <p className="mt-1 text-sm font-medium text-slate-200">Use a sample preset</p>
+                    <p className="mt-1 text-xs text-slate-500">Good for testing tools quickly from the preset menu above.</p>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 
@@ -1023,6 +1379,8 @@ export default function App() {
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
+            onMouseLeave={handleMouseLeave}
+            onWheel={handleWheel}
             onDoubleClick={handleDoubleClick}
             onTouchStart={handleTouchStart}
             onTouchMove={handleTouchMove}
@@ -1037,7 +1395,8 @@ export default function App() {
           />
 
           {/* Zoom & Navigation Footer Hud */}
-          <div id="canvas-hud-footer" className="absolute bottom-4 left-4 bg-slate-950/90 border border-slate-800/80 backdrop-blur px-3 py-1.5 rounded-xl flex items-center space-x-2.5 shadow-xl">
+          {image && (
+            <div id="canvas-hud-footer" className="absolute bottom-4 left-4 right-4 sm:right-auto bg-slate-950/90 border border-slate-800/80 backdrop-blur px-3 py-1.5 rounded-xl flex items-center justify-between sm:justify-start gap-2 sm:gap-2.5 shadow-xl">
             <button
               onClick={handleZoomOut}
               className="p-1.5 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-slate-200 cursor-pointer"
@@ -1072,70 +1431,9 @@ export default function App() {
               <Minimize2 className="h-4 w-4" />
               <span className="text-[10px] font-medium hidden sm:inline">1:1</span>
             </button>
-          </div>
-
-          {/* Interactive Tutorial Banner */}
-          {showHelp && (
-            <div id="instruction-card" className="absolute top-4 left-4 right-4 sm:right-auto max-w-sm bg-slate-950/95 border border-slate-800/80 backdrop-blur rounded-xl p-4 shadow-xl text-xs space-y-2.5 z-10">
-              <div className="flex justify-between items-center">
-                <span className="font-semibold text-blue-400 tracking-wider uppercase text-[10px] font-mono">Quick Workflow Guide</span>
-                <button
-                  onClick={() => setShowHelp(false)}
-                  className="text-slate-500 hover:text-slate-300 cursor-pointer p-0.5"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </div>
-
-              {activeTool === 'magnetic' && (
-                <div className="space-y-1 text-slate-300">
-                  <p className="font-medium text-slate-200">🧲 Smart Magnetic Lasso Mode</p>
-                  <ul className="list-disc list-inside space-y-0.5 text-slate-400 pl-1 text-[11px]">
-                    <li>Click once on image edge to start drawing.</li>
-                    <li>Move mouse slowly along high-contrast boundaries.</li>
-                    <li>Click anywhere to place anchor nodes manually.</li>
-                    <li>Double-click or click start node to close.</li>
-                    <li>Press <kbd className="bg-slate-900 border border-slate-800 text-slate-300 px-1 py-0.5 rounded text-[9px] font-mono">Backspace</kbd> to undo last anchor node.</li>
-                  </ul>
-                </div>
-              )}
-
-              {activeTool === 'lasso' && (
-                <div className="space-y-1 text-slate-300">
-                  <p className="font-medium text-slate-200">✏️ Freehand Lasso Mode</p>
-                  <ul className="list-disc list-inside space-y-0.5 text-slate-400 pl-1 text-[11px]">
-                    <li>Hold and drag mouse to outline any shape.</li>
-                    <li>Release mouse click to automatically close path.</li>
-                  </ul>
-                </div>
-              )}
-
-              {activeTool === 'rectangle' && (
-                <div className="space-y-1 text-slate-300">
-                  <p className="font-medium text-slate-200">⬛ Rectangle Select Mode</p>
-                  <ul className="list-disc list-inside space-y-0.5 text-slate-400 pl-1 text-[11px]">
-                    <li>Drag box boundaries over desired parts.</li>
-                    <li>Release to save rectangular bounding path.</li>
-                  </ul>
-                </div>
-              )}
-
-              {activeTool === 'select' && (
-                <div className="space-y-1 text-slate-300">
-                  <p className="font-medium text-slate-200">🖐️ Pan & Zoom Workspace</p>
-                  <ul className="list-disc list-inside space-y-0.5 text-slate-400 pl-1 text-[11px]">
-                    <li>Drag on the screen to shift viewport.</li>
-                    <li>Use mouse scroll wheel to dynamically zoom.</li>
-                  </ul>
-                </div>
-              )}
-
-              <div className="pt-2 border-t border-slate-900 flex justify-between items-center text-[10px] text-slate-500 font-mono">
-                <span>Hold <span className="bg-slate-900 border border-slate-800 text-slate-300 px-1 rounded">Space</span> to Pan</span>
-                <span>Press <kbd className="bg-slate-900 border border-slate-800 text-slate-300 px-1 rounded">Esc</kbd> to Deselect</span>
-              </div>
             </div>
           )}
+
         </div>
 
         {/* Backdrop for mobile sidebar drawer */}
@@ -1149,7 +1447,7 @@ export default function App() {
         {/* 2.3 Right Configuration Panel */}
         <aside
           id="right-sidebar"
-          className={`fixed md:static top-0 right-0 h-full md:h-auto w-80 max-w-[85vw] border-l border-slate-800 bg-slate-950 flex flex-col shrink-0 z-40 shadow-2xl md:shadow-none transition-transform duration-300 md:transform-none ${
+          className={`fixed md:static top-0 right-0 h-full md:h-auto w-full sm:w-80 max-w-full sm:max-w-[85vw] border-l border-slate-800 bg-slate-950 flex flex-col shrink-0 z-40 shadow-2xl md:shadow-none transition-transform duration-300 md:transform-none ${
             isSidebarOpen ? 'translate-x-0' : 'translate-x-full md:translate-x-0'
           }`}
         >
@@ -1162,6 +1460,48 @@ export default function App() {
             >
               <X className="h-4 w-4" />
             </button>
+          </div>
+          <div className="p-4 border-b border-slate-800 bg-slate-950/95 backdrop-blur shrink-0 space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="font-semibold text-xs tracking-wide uppercase text-slate-300">Primary Actions</h2>
+                <p className="text-[10px] text-slate-500">
+                  Save and navigation controls stay pinned here while details scroll below.
+                </p>
+              </div>
+              {activePath.length > 1 && (
+                <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-1 rounded-full">
+                  Crop Ready
+                </span>
+              )}
+            </div>
+
+            {activePath.length > 1 ? (
+              <div className="space-y-2">
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="text"
+                    value={cutoutDraftName}
+                    onChange={(e) => setCutoutDraftName(e.target.value)}
+                    placeholder="Enter segment name..."
+                    className="flex-1 bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-blue-500 font-sans"
+                  />
+                  <span className="text-xs text-slate-500 font-mono">.png</span>
+                </div>
+                <button
+                  id="clip-segment-btn"
+                  onClick={handleSaveSegment}
+                  className="w-full flex items-center justify-center space-x-2 py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md hover:shadow-emerald-500/10 active:scale-[0.98] transition-all cursor-pointer"
+                >
+                  <Scissors className="h-4 w-4 animate-bounce-slow" />
+                  <span>Clip & Save Segment</span>
+                </button>
+              </div>
+            ) : (
+              <div className="rounded-xl border border-slate-800 bg-slate-900/40 px-3 py-2.5 text-[11px] text-slate-500">
+                Make a selection to unlock save controls here.
+              </div>
+            )}
           </div>
           {/* Active selection settings panel */}
           <div id="selection-settings-card" className="p-4 border-b border-slate-800 space-y-4">
@@ -1186,10 +1526,12 @@ export default function App() {
             </div>
 
             {/* Slider: Magnetic Snap Radius */}
-            {activeTool === 'magnetic' && (
+            {(activeTool === 'magnetic' || activeTool === 'rectangle') && (
               <div className="space-y-1.5 pt-1">
                 <div className="flex justify-between items-center">
-                  <label className="text-xs font-medium text-slate-300">Snap Radius (px)</label>
+                  <label className="text-xs font-medium text-slate-300">
+                    {activeTool === 'rectangle' ? 'Guide Snap Threshold (px)' : 'Snap Radius (px)'}
+                  </label>
                   <span className="text-xs font-mono font-bold text-emerald-400">{snapRadius}px</span>
                 </div>
                 <input
@@ -1201,7 +1543,11 @@ export default function App() {
                   onChange={(e) => setSnapRadius(parseInt(e.target.value, 10))}
                   className="w-full accent-emerald-500 cursor-pointer"
                 />
-                <p className="text-[10px] text-slate-500">Size of search envelope around cursor to sniff out edges.</p>
+                <p className="text-[10px] text-slate-500">
+                  {activeTool === 'rectangle'
+                    ? 'How close the cursor must be before flush guides lock to nearby edges.'
+                    : 'Size of search envelope around cursor to sniff out edges.'}
+                </p>
               </div>
             )}
           </div>
@@ -1236,29 +1582,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Input for name */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-slate-300">File Export Name</label>
-                <div className="flex items-center space-x-1">
-                  <input
-                    type="text"
-                    value={cutoutDraftName}
-                    onChange={(e) => setCutoutDraftName(e.target.value)}
-                    placeholder="Enter segment name..."
-                    className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-blue-500 font-sans"
-                  />
-                  <span className="text-xs text-slate-500 font-mono pr-2">.png</span>
-                </div>
-              </div>
-
-              <button
-                id="clip-segment-btn"
-                onClick={handleSaveSegment}
-                className="w-full flex items-center justify-center space-x-2 py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md hover:shadow-emerald-500/10 active:scale-[0.98] transition-all cursor-pointer"
-              >
-                <Scissors className="h-4 w-4 animate-bounce-slow" />
-                <span>Clip & Save Segment</span>
-              </button>
             </div>
           ) : (
             <div className="p-4 bg-slate-900/20 border-b border-slate-800 text-center text-xs text-slate-500 flex flex-col items-center justify-center py-6 space-y-1">
@@ -1293,23 +1616,23 @@ export default function App() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-50 flex items-center justify-center p-6"
+            className="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-50 flex items-center justify-center p-3 sm:p-6"
           >
             <motion.div
               initial={{ scale: 0.95, y: 15 }}
               animate={{ scale: 1, y: 0 }}
               exit={{ scale: 0.95, y: 15 }}
-              className="w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl flex flex-col"
+              className="w-full max-w-2xl max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl flex flex-col"
             >
               {/* Header */}
-              <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-950/40">
-                <div className="flex items-center space-x-2">
+              <div className="p-4 border-b border-slate-800 flex justify-between items-start sm:items-center gap-3 bg-slate-950/40">
+                <div className="flex items-center space-x-2 min-w-0">
                   <div className="bg-blue-500/10 p-1.5 rounded-lg border border-blue-500/20 text-blue-400">
                     <Eye className="h-4.5 w-4.5" />
                   </div>
-                  <div>
-                    <h3 className="font-bold text-sm text-slate-200">{previewSegment.name}</h3>
-                    <p className="text-[10px] text-slate-500 font-mono font-medium">
+                  <div className="min-w-0">
+                    <h3 className="font-bold text-sm text-slate-200 truncate">{previewSegment.name}</h3>
+                    <p className="text-[10px] text-slate-500 font-mono font-medium break-words">
                       Dimensions: {previewSegment.bounds.width} × {previewSegment.bounds.height} px | Tool: {previewSegment.type}
                     </p>
                   </div>
@@ -1323,7 +1646,7 @@ export default function App() {
               </div>
 
               {/* Body Showcase Checkerboard */}
-              <div className="flex-1 h-96 bg-checkerboard flex items-center justify-center p-12 relative overflow-hidden border-b border-slate-800">
+              <div className="flex-1 min-h-[240px] sm:h-96 bg-checkerboard flex items-center justify-center p-4 sm:p-12 relative overflow-hidden border-b border-slate-800">
                 <img
                   src={previewSegment.thumbnailUrl}
                   alt={previewSegment.name}
@@ -1333,14 +1656,14 @@ export default function App() {
               </div>
 
               {/* Action Footer */}
-              <div className="p-4 bg-slate-950/60 flex items-center justify-between">
+              <div className="p-4 bg-slate-950/60 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
                 <span className="text-[10px] text-slate-500 font-mono">
                   Saved: {new Date(previewSegment.createdAt).toLocaleTimeString()}
                 </span>
-                <div className="flex space-x-2.5">
+                <div className="flex flex-col sm:flex-row gap-2.5">
                   <button
                     onClick={() => setShowBgRemover(true)}
-                    className="flex items-center space-x-1.5 px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-semibold shadow shadow-emerald-500/10 active:scale-[0.98] transition-all cursor-pointer"
+                    className="w-full sm:w-auto flex items-center justify-center space-x-1.5 px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-semibold shadow shadow-emerald-500/10 active:scale-[0.98] transition-all cursor-pointer"
                   >
                     <Sparkles className="h-4 w-4" />
                     <span>Clean & Polish Background</span>
@@ -1352,14 +1675,14 @@ export default function App() {
                       link.download = previewSegment.name;
                       link.click();
                     }}
-                    className="flex items-center space-x-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-semibold shadow shadow-blue-500/10 active:scale-[0.98] transition-all cursor-pointer"
+                    className="w-full sm:w-auto flex items-center justify-center space-x-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-semibold shadow shadow-blue-500/10 active:scale-[0.98] transition-all cursor-pointer"
                   >
                     <Download className="h-4 w-4" />
                     <span>Download PNG</span>
                   </button>
                   <button
                     onClick={() => setPreviewSegment(null)}
-                    className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold border border-slate-700 cursor-pointer"
+                    className="w-full sm:w-auto px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold border border-slate-700 cursor-pointer"
                   >
                     Close Preview
                   </button>
@@ -1376,7 +1699,7 @@ export default function App() {
           <AnimationStudio
             savedSegments={savedSegments}
             workspaceImage={image}
-            onUpdateSegment={handleSaveCleanedSegment}
+            onCreateSegment={createCleanedSegment}
             onClose={() => setShowAnimationStudio(false)}
           />
         )}
@@ -1387,7 +1710,7 @@ export default function App() {
         {showBgRemover && previewSegment && (
           <BackgroundRemover
             segment={previewSegment}
-            onSave={handleSaveCleanedSegment}
+            onSave={handleSavePreviewSegmentCleanup}
             onClose={() => setShowBgRemover(false)}
           />
         )}

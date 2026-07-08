@@ -1,10 +1,19 @@
 import { Point, RectBounds } from '../types';
 
+export type AxisGuideResult = {
+  x: number | null;
+  y: number | null;
+};
+
 /**
  * Calculates the luminance of an RGB pixel.
  */
 function getLuminance(r: number, g: number, b: number): number {
   return 0.299 * r + 0.587 * g + 0.114 * b;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
 }
 
 /**
@@ -16,13 +25,19 @@ export function findSnappedPoint(
   cursor: Point,
   searchRadius: number,
   imageWidth: number,
-  imageHeight: number
+  imageHeight: number,
+  searchBounds?: RectBounds
 ): Point {
-  // Ensure we stay within image bounds
-  const startX = Math.max(0, Math.floor(cursor.x - searchRadius));
-  const startY = Math.max(0, Math.floor(cursor.y - searchRadius));
-  const endX = Math.min(imageWidth - 1, Math.ceil(cursor.x + searchRadius));
-  const endY = Math.min(imageHeight - 1, Math.ceil(cursor.y + searchRadius));
+  const boundsMinX = searchBounds ? searchBounds.x : 0;
+  const boundsMinY = searchBounds ? searchBounds.y : 0;
+  const boundsMaxX = searchBounds ? searchBounds.x + searchBounds.width : imageWidth;
+  const boundsMaxY = searchBounds ? searchBounds.y + searchBounds.height : imageHeight;
+
+  // Ensure we stay within both image bounds and the requested search bounds
+  const startX = Math.max(0, boundsMinX, Math.floor(cursor.x - searchRadius));
+  const startY = Math.max(0, boundsMinY, Math.floor(cursor.y - searchRadius));
+  const endX = Math.min(imageWidth - 1, Math.ceil(boundsMaxX) - 1, Math.ceil(cursor.x + searchRadius));
+  const endY = Math.min(imageHeight - 1, Math.ceil(boundsMaxY) - 1, Math.ceil(cursor.y + searchRadius));
 
   const width = endX - startX + 1;
   const height = endY - startY + 1;
@@ -93,6 +108,105 @@ export function findSnappedPoint(
 
   // Only snap if we found a reasonable edge, otherwise return original cursor
   return maxScore > 10 ? bestPoint : cursor;
+}
+
+/**
+ * Finds likely vertical/horizontal straight-edge guides near the cursor.
+ * Scores local columns and rows by aggregated gradient strength so zoomed-in
+ * viewport snapping can lock onto visible object edges and intersections.
+ */
+export function findAxisSnapGuides(
+  ctx: CanvasRenderingContext2D,
+  cursor: Point,
+  searchRadius: number,
+  imageWidth: number,
+  imageHeight: number,
+  searchBounds?: RectBounds
+): AxisGuideResult {
+  const boundsMinX = searchBounds ? searchBounds.x : 0;
+  const boundsMinY = searchBounds ? searchBounds.y : 0;
+  const boundsMaxX = searchBounds ? searchBounds.x + searchBounds.width : imageWidth;
+  const boundsMaxY = searchBounds ? searchBounds.y + searchBounds.height : imageHeight;
+
+  const startX = Math.max(0, boundsMinX, Math.floor(cursor.x - searchRadius));
+  const startY = Math.max(0, boundsMinY, Math.floor(cursor.y - searchRadius));
+  const endX = Math.min(imageWidth - 1, Math.ceil(boundsMaxX) - 1, Math.ceil(cursor.x + searchRadius));
+  const endY = Math.min(imageHeight - 1, Math.ceil(boundsMaxY) - 1, Math.ceil(cursor.y + searchRadius));
+
+  const width = endX - startX + 1;
+  const height = endY - startY + 1;
+
+  if (width <= 2 || height <= 2) {
+    return { x: null, y: null };
+  }
+
+  let imgData: ImageData;
+  try {
+    imgData = ctx.getImageData(startX, startY, width, height);
+  } catch (e) {
+    return { x: null, y: null };
+  }
+
+  const data = imgData.data;
+  const luminance = new Float32Array(width * height);
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = (y * width + x) * 4;
+      luminance[y * width + x] = getLuminance(data[idx], data[idx + 1], data[idx + 2]);
+    }
+  }
+
+  const getL = (x: number, y: number): number => {
+    const rx = clamp(x, 0, width - 1);
+    const ry = clamp(y, 0, height - 1);
+    return luminance[ry * width + rx];
+  };
+
+  let bestXScore = 0;
+  let bestYScore = 0;
+  let bestX: number | null = null;
+  let bestY: number | null = null;
+
+  for (let x = 1; x < width - 1; x++) {
+    let edgeStrength = 0;
+    for (let y = 1; y < height - 1; y++) {
+      const gx = getL(x + 1, y) - getL(x - 1, y);
+      edgeStrength += Math.abs(gx);
+    }
+
+    const globalX = startX + x;
+    const distanceWeight = Math.max(0, 1 - Math.abs(globalX - cursor.x) / (searchRadius * 1.25));
+    const score = edgeStrength * distanceWeight;
+    if (score > bestXScore) {
+      bestXScore = score;
+      bestX = globalX;
+    }
+  }
+
+  for (let y = 1; y < height - 1; y++) {
+    let edgeStrength = 0;
+    for (let x = 1; x < width - 1; x++) {
+      const gy = getL(x, y + 1) - getL(x, y - 1);
+      edgeStrength += Math.abs(gy);
+    }
+
+    const globalY = startY + y;
+    const distanceWeight = Math.max(0, 1 - Math.abs(globalY - cursor.y) / (searchRadius * 1.25));
+    const score = edgeStrength * distanceWeight;
+    if (score > bestYScore) {
+      bestYScore = score;
+      bestY = globalY;
+    }
+  }
+
+  const minXScore = height * 12;
+  const minYScore = width * 12;
+
+  return {
+    x: bestXScore >= minXScore ? bestX : null,
+    y: bestYScore >= minYScore ? bestY : null,
+  };
 }
 
 /**

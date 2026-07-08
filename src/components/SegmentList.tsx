@@ -84,22 +84,35 @@ export default function SegmentList({
   return (
     <div id="segment-list-container" className="flex flex-col h-full bg-slate-900 border-l border-slate-800 text-slate-100 font-sans">
       {/* Header section */}
-      <div id="segment-list-header" className="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/50">
-        <div className="flex items-center space-x-2">
-          <FolderOpen className="h-5 w-5 text-blue-400" />
-          <h2 className="font-semibold text-sm tracking-wide uppercase">Saved Cuts</h2>
-          <span className="bg-blue-500/20 text-blue-300 text-xs px-2 py-0.5 rounded-full font-mono font-bold">
-            {segments.length}
-          </span>
+      <div id="segment-list-header" className="p-4 border-b border-slate-800 bg-slate-900/50 space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center space-x-2 min-w-0">
+            <FolderOpen className="h-5 w-5 text-blue-400 shrink-0" />
+            <h2 className="font-semibold text-sm tracking-wide uppercase truncate">Saved Cuts</h2>
+            <span className="bg-blue-500/20 text-blue-300 text-xs px-2 py-0.5 rounded-full font-mono font-bold shrink-0">
+              {segments.length}
+            </span>
+          </div>
         </div>
         {segments.length > 0 && (
-          <button
-            id="clear-all-btn"
-            onClick={onClearAll}
-            className="text-xs text-slate-400 hover:text-rose-400 transition-colors cursor-pointer py-1 px-2 hover:bg-rose-950/20 rounded border border-transparent hover:border-rose-900/30"
-          >
-            Clear All
-          </button>
+          <div className="grid grid-cols-[1fr_auto] gap-2">
+            <button
+              id="batch-zip-export-btn"
+              onClick={exportAllToZip}
+              disabled={isExporting}
+              className="flex items-center justify-center space-x-1 py-2.5 px-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-lg text-xs font-semibold shadow-lg hover:shadow-indigo-500/20 active:scale-[0.98] transition-all disabled:opacity-50 cursor-pointer"
+            >
+              <Archive className="h-3.5 w-3.5" />
+              <span>{isExporting ? 'Packaging...' : 'Export ZIP'}</span>
+            </button>
+            <button
+              id="clear-all-btn"
+              onClick={onClearAll}
+              className="text-xs text-slate-400 hover:text-rose-400 transition-colors cursor-pointer py-2.5 px-3 hover:bg-rose-950/20 rounded-lg border border-slate-800 hover:border-rose-900/30"
+            >
+              Clear All
+            </button>
+          </div>
         )}
       </div>
 
@@ -177,7 +190,7 @@ export default function SegmentList({
                       </h3>
                       <button
                         onClick={() => startRename(segment)}
-                        className="opacity-0 group-hover:opacity-100 p-1 hover:bg-slate-800 text-slate-400 hover:text-blue-400 rounded transition-all cursor-pointer"
+                        className="opacity-100 md:opacity-0 md:group-hover:opacity-100 p-1 hover:bg-slate-800 text-slate-400 hover:text-blue-400 rounded transition-all cursor-pointer"
                         title="Rename file"
                       >
                         <Edit3 className="h-3.5 w-3.5" />
@@ -207,24 +220,6 @@ export default function SegmentList({
           </div>
         )}
       </div>
-
-      {/* Batch Export ZIP Button Footer */}
-      {segments.length > 0 && (
-        <div id="segment-list-footer" className="p-4 border-t border-slate-800 bg-slate-950/50 space-y-2">
-          <button
-            id="batch-zip-export-btn"
-            onClick={exportAllToZip}
-            disabled={isExporting}
-            className="w-full flex items-center justify-center space-x-2 py-3 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-xl text-sm font-semibold shadow-lg hover:shadow-indigo-500/20 active:scale-[0.98] transition-all disabled:opacity-50 cursor-pointer"
-          >
-            <Archive className="h-4.5 w-4.5 animate-bounce-slow" />
-            <span>{isExporting ? 'Packaging ZIP...' : 'Export Batch ZIP'}</span>
-          </button>
-          <p className="text-[10px] text-center text-slate-500 font-mono">
-            Downloads all {segments.length} cuts in transparent high-res PNG
-          </p>
-        </div>
-      )}
     </div>
   );
 }

@@ -19,6 +19,10 @@ export interface SavedSegment {
   feather: number; // Feather radius in pixels
   thumbnailUrl: string; // Transparent PNG data URL
   createdAt: number;
+  backgroundRemovedAt?: number; // Present when the cutout has been processed in cleanup/bg removal
+  cleanupProcessedAt?: number; // Present when the original source has already been reviewed/processed for cleanup
+  derivedFromSegmentId?: string; // Original cutout ID when this segment was created from a cleanup pass
+  tags?: string[];
 }
 
 export type SelectionTool = 'select' | 'rectangle' | 'lasso' | 'magnetic';
@@ -30,6 +34,8 @@ export interface AnimationFrame {
   offsetY: number; // visual nudge Y
   scale: number; // visual zoom (defaults to 1.0)
   duration: number; // frame duration multiplier or ms
+  pivotX?: number; // Pixel pivot from the frame's top-left corner
+  pivotY?: number; // Pixel pivot from the frame's top-left corner
   sourceSegmentId?: string; // Original segment ID if sliced
   sliceX?: number; // X coordinate on the original segment image
   sliceY?: number; // Y coordinate on the original segment image
@@ -37,6 +43,11 @@ export interface AnimationFrame {
   sliceH?: number; // height of slice on the original segment image
   originalSliceX?: number; // original X coordinate for reset reference
   originalSliceY?: number; // original Y coordinate for reset reference
+  originalSliceW?: number; // original width before trim/crop changes
+  originalSliceH?: number; // original height before trim/crop changes
+  originalPivotX?: number; // original pivot X before user adjustments
+  originalPivotY?: number; // original pivot Y before user adjustments
+  trimmedBounds?: RectBounds; // Last transparent trim rect applied to this frame
 }
 
 export interface AnimationProject {
@@ -47,4 +58,22 @@ export interface AnimationProject {
   loop: boolean;
   width: number; // Playback bounding canvas width
   height: number; // Playback bounding canvas height
+  updatedAt?: number;
+}
+
+export interface AssetLibraryFile {
+  version: number;
+  exportedAt: number;
+  lastCutoutIndex: number;
+  savedSegments: SavedSegment[];
+}
+
+export interface AnimationStudioProjectFile {
+  version: number;
+  exportedAt: number;
+  project: AnimationProject;
+  selectedSegmentId?: string;
+  cols: number;
+  rows: number;
+  showSubdivisionGrid: boolean;
 }

@@ -16,6 +16,12 @@ import {
   RefreshCw,
   Move,
   Maximize,
+  AlignCenterHorizontal,
+  AlignCenterVertical,
+  ArrowLeftToLine,
+  ArrowRightToLine,
+  ArrowUpToLine,
+  ArrowDownToLine,
   Sparkles,
   Layers,
   Check,
@@ -29,14 +35,33 @@ import { motion, AnimatePresence } from 'motion/react';
 import BackgroundRemover from './BackgroundRemover';
 import { createSegmentImage } from '../utils/canvasUtils';
 
+type DetectedSpriteComponent = {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+  width: number;
+  height: number;
+  area: number;
+  centerX: number;
+  centerY: number;
+};
+
+type SegmentImageCacheEntry = {
+  image: HTMLImageElement;
+  src: string;
+};
+
+type SourceFilter = 'all' | 'needs-cleanup' | 'cleaned';
+
 interface AnimationStudioProps {
   savedSegments: SavedSegment[];
   workspaceImage?: HTMLImageElement | null;
-  onUpdateSegment?: (id: string, updatedUrl: string) => void;
+  onCreateSegment?: (sourceSegment: SavedSegment, updatedUrl: string) => SavedSegment | undefined;
   onClose: () => void;
 }
 
-export default function AnimationStudio({ savedSegments, workspaceImage, onUpdateSegment, onClose }: AnimationStudioProps) {
+export default function AnimationStudio({ savedSegments, workspaceImage, onCreateSegment, onClose }: AnimationStudioProps) {
   // Current animation project
   const [project, setProject] = useState<AnimationProject>({
     id: 'anim_proj',
@@ -54,6 +79,8 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onUpdat
   const [showBgRemover, setShowBgRemover] = useState<boolean>(false);
   const [activeStudioTab, setActiveStudioTab] = useState<'player' | 'source' | 'nudge'>('player');
   const [isDropdownOpen, setIsDropdownOpen] = useState<boolean>(false);
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all');
+  const [sourceSearch, setSourceSearch] = useState<string>('');
   const dropdownRef = useRef<HTMLDivElement | null>(null);
   
   // Grid subdivision config
@@ -66,6 +93,9 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onUpdat
   const [onionSkin, setOnionSkin] = useState<boolean>(true);
   const [onionSkinOpacity, setOnionSkinOpacity] = useState<number>(0.3);
   const [previewZoom, setPreviewZoom] = useState<number>(1.5);
+  const [isAutoDetectingGrid, setIsAutoDetectingGrid] = useState<boolean>(false);
+  const [isAutoCenteringFrames, setIsAutoCenteringFrames] = useState<boolean>(false);
+  const [autoDetectedGridLabel, setAutoDetectedGridLabel] = useState<string>('');
 
   const [isExporting, setIsExporting] = useState<boolean>(false);
 
@@ -73,20 +103,258 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onUpdat
   const sliceCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   // Cache for segment images to ensure synchronous, buttery-smooth on-the-fly re-slicing
-  const segmentImageCacheRef = useRef<Record<string, HTMLImageElement>>({});
+  const segmentImageCacheRef = useRef<Record<string, SegmentImageCacheEntry>>({});
+  const [gridAssessmentNonce, setGridAssessmentNonce] = useState<number>(0);
+
+  const loadSegmentImage = (segment: SavedSegment): Promise<HTMLImageElement> => {
+    const cached = segmentImageCacheRef.current[segment.id];
+    if (cached && cached.src === segment.thumbnailUrl) {
+      return Promise.resolve(cached.image);
+    }
+
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        segmentImageCacheRef.current[segment.id] = {
+          image: img,
+          src: segment.thumbnailUrl,
+        };
+        resolve(img);
+      };
+      img.onerror = () => reject(new Error(`Failed to load segment image: ${segment.name}`));
+      img.src = segment.thumbnailUrl;
+    });
+  };
+
+  const loadImageElement = (src: string): Promise<HTMLImageElement> => {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error('Failed to load frame image'));
+      img.src = src;
+    });
+  };
+
+  const groupAxisValues = (values: number[], tolerance: number): number[][] => {
+    if (values.length === 0) return [];
+
+    const sorted = [...values].sort((a, b) => a - b);
+    const groups: number[][] = [[sorted[0]]];
+
+    for (let i = 1; i < sorted.length; i++) {
+      const value = sorted[i];
+      const currentGroup = groups[groups.length - 1];
+      const currentAverage = currentGroup.reduce((sum, item) => sum + item, 0) / currentGroup.length;
+
+      if (Math.abs(value - currentAverage) <= tolerance) {
+        currentGroup.push(value);
+      } else {
+        groups.push([value]);
+      }
+    }
+
+    return groups;
+  };
+
+  const detectGridFromTransparency = async (segment: SavedSegment) => {
+    const img = await loadSegmentImage(segment);
+    const canvas = document.createElement('canvas');
+    canvas.width = img.width;
+    canvas.height = img.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0);
+
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const { data, width, height } = imageData;
+    const visited = new Uint8Array(width * height);
+    const components: DetectedSpriteComponent[] = [];
+    const alphaThreshold = 16;
+    const queueX = new Int32Array(width * height);
+    const queueY = new Int32Array(width * height);
+
+    const indexFor = (x: number, y: number) => y * width + x;
+    const isOpaque = (x: number, y: number) => data[indexFor(x, y) * 4 + 3] > alphaThreshold;
+
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const startIndex = indexFor(x, y);
+        if (visited[startIndex] || !isOpaque(x, y)) {
+          continue;
+        }
+
+        let head = 0;
+        let tail = 0;
+        queueX[tail] = x;
+        queueY[tail] = y;
+        tail += 1;
+        visited[startIndex] = 1;
+
+        let minX = x;
+        let maxX = x;
+        let minY = y;
+        let maxY = y;
+        let area = 0;
+
+        while (head < tail) {
+          const currentX = queueX[head];
+          const currentY = queueY[head];
+          head += 1;
+          area += 1;
+
+          if (currentX < minX) minX = currentX;
+          if (currentX > maxX) maxX = currentX;
+          if (currentY < minY) minY = currentY;
+          if (currentY > maxY) maxY = currentY;
+
+          const neighbors = [
+            [currentX - 1, currentY],
+            [currentX + 1, currentY],
+            [currentX, currentY - 1],
+            [currentX, currentY + 1],
+          ];
+
+          neighbors.forEach(([nextX, nextY]) => {
+            if (nextX < 0 || nextX >= width || nextY < 0 || nextY >= height) {
+              return;
+            }
+
+            const nextIndex = indexFor(nextX, nextY);
+            if (visited[nextIndex] || !isOpaque(nextX, nextY)) {
+              return;
+            }
+
+            visited[nextIndex] = 1;
+            queueX[tail] = nextX;
+            queueY[tail] = nextY;
+            tail += 1;
+          });
+        }
+
+        const componentWidth = maxX - minX + 1;
+        const componentHeight = maxY - minY + 1;
+        components.push({
+          minX,
+          minY,
+          maxX,
+          maxY,
+          width: componentWidth,
+          height: componentHeight,
+          area,
+          centerX: minX + componentWidth / 2,
+          centerY: minY + componentHeight / 2,
+        });
+      }
+    }
+
+    if (components.length === 0) {
+      return { cols: 1, rows: 1, count: 0 };
+    }
+
+    const largestArea = Math.max(...components.map((component) => component.area));
+    const filteredComponents = components.filter((component) => component.area >= Math.max(12, largestArea * 0.08));
+
+    if (filteredComponents.length === 0) {
+      return { cols: 1, rows: 1, count: 0 };
+    }
+
+    const averageWidth = filteredComponents.reduce((sum, component) => sum + component.width, 0) / filteredComponents.length;
+    const averageHeight = filteredComponents.reduce((sum, component) => sum + component.height, 0) / filteredComponents.length;
+    const columnGroups = groupAxisValues(
+      filteredComponents.map((component) => component.centerX),
+      Math.max(8, averageWidth * 0.6)
+    );
+    const rowGroups = groupAxisValues(
+      filteredComponents.map((component) => component.centerY),
+      Math.max(8, averageHeight * 0.6)
+    );
+
+    const detectedCols = Math.max(1, columnGroups.length);
+    const detectedRows = Math.max(1, rowGroups.length);
+
+    return {
+      cols: detectedCols,
+      rows: detectedRows,
+      count: filteredComponents.length,
+    };
+  };
+
+  const getOpaqueBoundsFromImage = (img: HTMLImageElement) => {
+    const canvas = document.createElement('canvas');
+    canvas.width = img.width;
+    canvas.height = img.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0);
+    const { data, width, height } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+    let minX = width;
+    let minY = height;
+    let maxX = -1;
+    let maxY = -1;
+
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const alpha = data[(y * width + x) * 4 + 3];
+        if (alpha <= 16) continue;
+
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+
+    if (maxX < minX || maxY < minY) {
+      return null;
+    }
+
+    return {
+      minX,
+      minY,
+      maxX,
+      maxY,
+      centerX: (minX + maxX) / 2,
+      centerY: (minY + maxY) / 2,
+    };
+  };
 
   useEffect(() => {
     savedSegments.forEach((segment) => {
-      if (!segmentImageCacheRef.current[segment.id]) {
+      const cached = segmentImageCacheRef.current[segment.id];
+      if (!cached || cached.src !== segment.thumbnailUrl) {
         const img = new Image();
         img.crossOrigin = 'anonymous';
         img.onload = () => {
-          segmentImageCacheRef.current[segment.id] = img;
+          segmentImageCacheRef.current[segment.id] = {
+            image: img,
+            src: segment.thumbnailUrl,
+          };
         };
         img.src = segment.thumbnailUrl;
       }
     });
   }, [savedSegments]);
+
+  useEffect(() => {
+    if (savedSegments.length === 0) {
+      if (selectedSegmentId !== '') {
+        setSelectedSegmentId('');
+      }
+      return;
+    }
+
+    const selectedStillExists = savedSegments.some((segment) => segment.id === selectedSegmentId);
+    if (!selectedSegmentId || !selectedStillExists) {
+      setSelectedSegmentId(savedSegments[0].id);
+    }
+  }, [savedSegments, selectedSegmentId]);
 
   // Close custom dropdown when clicking outside
   useEffect(() => {
@@ -128,6 +396,123 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onUpdat
     }
   }, [project.frames.length, activeFrameIndex]);
 
+  const activeSegment = savedSegments.find((s) => s.id === selectedSegmentId);
+  const hasActiveFrame = project.frames.length > 0 && Boolean(project.frames[activeFrameIndex]);
+  const normalizedSourceSearch = sourceSearch.trim().toLowerCase();
+  const filteredSegments = savedSegments.filter((segment) => {
+    const matchesFilter =
+      (sourceFilter === 'all' && (Boolean(segment.backgroundRemovedAt) || !segment.cleanupProcessedAt)) ||
+      (sourceFilter === 'needs-cleanup' && !segment.backgroundRemovedAt && !segment.cleanupProcessedAt) ||
+      (sourceFilter === 'cleaned' && Boolean(segment.backgroundRemovedAt));
+    const matchesSearch =
+      normalizedSourceSearch.length === 0 ||
+      segment.name.toLowerCase().includes(normalizedSourceSearch);
+
+    return matchesFilter && matchesSearch;
+  });
+  const filterCounts = {
+    all: savedSegments.filter((segment) => Boolean(segment.backgroundRemovedAt) || !segment.cleanupProcessedAt).length,
+    'needs-cleanup': savedSegments.filter((segment) => !segment.backgroundRemovedAt && !segment.cleanupProcessedAt).length,
+    cleaned: savedSegments.filter((segment) => Boolean(segment.backgroundRemovedAt)).length,
+  };
+  const previewGuideControls = (
+    <div className="space-y-3 rounded-xl border border-slate-800 bg-slate-900/35 p-3">
+      <div className="flex items-center space-x-2">
+        <Settings className="h-4 w-4 text-purple-400" />
+        <span className="text-xs font-bold uppercase tracking-wider text-slate-300">Preview Guides</span>
+      </div>
+
+      <label className="flex items-center justify-between gap-3 cursor-pointer">
+        <span className="text-xs text-slate-300">Target Crosshair</span>
+        <input
+          type="checkbox"
+          checked={showCrosshair}
+          onChange={(e) => setShowCrosshair(e.target.checked)}
+          className="rounded text-indigo-600 focus:ring-indigo-500 bg-slate-900 border-slate-800 h-4 w-4 cursor-pointer"
+        />
+      </label>
+
+      <div className="space-y-2 rounded-lg border border-slate-800 bg-slate-950/60 p-3">
+        <label className="flex items-center justify-between gap-3 cursor-pointer">
+          <span className="text-xs text-slate-300">Onion Skinning</span>
+          <input
+            type="checkbox"
+            checked={onionSkin}
+            onChange={(e) => setOnionSkin(e.target.checked)}
+            className="rounded text-indigo-600 focus:ring-indigo-500 bg-slate-900 border-slate-800 h-4 w-4 cursor-pointer"
+          />
+        </label>
+        {onionSkin && (
+          <div className="space-y-1">
+            <div className="flex justify-between text-[9px] text-slate-500 font-mono">
+              <span>Opacity</span>
+              <span>{Math.round(onionSkinOpacity * 100)}%</span>
+            </div>
+            <input
+              type="range"
+              min="0.1"
+              max="0.8"
+              step="0.05"
+              value={onionSkinOpacity}
+              onChange={(e) => setOnionSkinOpacity(parseFloat(e.target.value))}
+              className="w-full accent-indigo-500 h-1 cursor-pointer"
+            />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  useEffect(() => {
+    const isFilterActive = sourceFilter !== 'all' || normalizedSourceSearch.length > 0;
+    if (!isFilterActive || filteredSegments.length === 0) {
+      return;
+    }
+
+    const selectedVisible = filteredSegments.some((segment) => segment.id === selectedSegmentId);
+    if (!selectedVisible) {
+      setSelectedSegmentId(filteredSegments[0].id);
+    }
+  }, [filteredSegments, normalizedSourceSearch, selectedSegmentId, sourceFilter]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!activeSegment) {
+      setAutoDetectedGridLabel('');
+      return;
+    }
+
+    setIsAutoDetectingGrid(true);
+    detectGridFromTransparency(activeSegment)
+      .then((detectedGrid) => {
+        if (cancelled || !detectedGrid) return;
+
+        setCols(detectedGrid.cols);
+        setRows(detectedGrid.rows);
+        setAutoDetectedGridLabel(
+          detectedGrid.count > 0
+            ? `Auto-detected ${detectedGrid.count} object${detectedGrid.count === 1 ? '' : 's'} as ${detectedGrid.cols} col${detectedGrid.cols === 1 ? '' : 's'} × ${detectedGrid.rows} row${detectedGrid.rows === 1 ? '' : 's'}`
+            : 'No separate objects detected, defaulted to 1 × 1'
+        );
+      })
+      .catch((error) => {
+        console.error('Failed to auto-detect sprite grid', error);
+        if (!cancelled) {
+          setAutoDetectedGridLabel('Auto-detect failed, keeping manual grid values');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsAutoDetectingGrid(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSegment, gridAssessmentNonce]);
+
   // Load a single cutout and auto-subdivide or load as single frame
   const loadSegmentAsFrames = (segment: SavedSegment) => {
     const img = new Image();
@@ -150,7 +535,10 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onUpdat
       srcImg.crossOrigin = 'anonymous';
       srcImg.onload = () => {
         // Store in cache
-        segmentImageCacheRef.current[segment.id] = srcImg;
+        segmentImageCacheRef.current[segment.id] = {
+          image: srcImg,
+          src: segment.thumbnailUrl,
+        };
 
         for (let r = 0; r < rows; r++) {
           for (let c = 0; c < cols; c++) {
@@ -163,7 +551,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onUpdat
             const sy = r * frameH;
             
             let subFrameUrl = '';
-            if (workspaceImage) {
+            if (workspaceImage && !segment.backgroundRemovedAt) {
               const frameBounds = {
                 x: segment.bounds.x + sx,
                 y: segment.bounds.y + sy,
@@ -258,7 +646,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onUpdat
       }
 
       // If workspaceImage is provided, regenerate from the original full image to avoid any clipping issues!
-      if (workspaceImage) {
+      if (workspaceImage && !segment.backgroundRemovedAt) {
         const frameBounds = {
           x: segment.bounds.x + sx,
           y: segment.bounds.y + sy,
@@ -288,19 +676,30 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onUpdat
         }
       };
 
-      const cachedImg = segmentImageCacheRef.current[segment.id];
-      if (cachedImg) {
-        updateWithImg(cachedImg);
+      const cachedEntry = segmentImageCacheRef.current[segment.id];
+      if (cachedEntry && cachedEntry.src === segment.thumbnailUrl) {
+        updateWithImg(cachedEntry.image);
       } else {
         const img = new Image();
         img.crossOrigin = 'anonymous';
         img.onload = () => {
-          segmentImageCacheRef.current[segment.id] = img;
+          segmentImageCacheRef.current[segment.id] = {
+            image: img,
+            src: segment.thumbnailUrl,
+          };
           updateWithImg(img);
         };
         img.src = segment.thumbnailUrl;
       }
     });
+  };
+
+  const reassessSelectedSegment = () => {
+    if (!activeSegment) return;
+
+    delete segmentImageCacheRef.current[activeSegment.id];
+    setAutoDetectedGridLabel('Reassessing cleaned cutout...');
+    setGridAssessmentNonce((prev) => prev + 1);
   };
 
   // Nudge selected frame position offsets or source slicing rectangle
@@ -438,6 +837,61 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onUpdat
     }));
   };
 
+  const alignAllFrames = async (
+    horizontal: 'left' | 'center' | 'right' | null,
+    vertical: 'top' | 'center' | 'bottom' | null
+  ) => {
+    if (project.frames.length === 0 || isAutoCenteringFrames) return;
+
+    setIsAutoCenteringFrames(true);
+    try {
+      const alignedFrames = await Promise.all(
+        project.frames.map(async (frame) => {
+          const img = await loadImageElement(frame.thumbnailUrl);
+          const opaqueBounds = getOpaqueBoundsFromImage(img);
+
+          if (!opaqueBounds) {
+            return frame;
+          }
+
+          let nextOffsetX = frame.offsetX;
+          let nextOffsetY = frame.offsetY;
+
+          if (horizontal === 'left') {
+            nextOffsetX = Math.round(img.width / 2 - project.width / 2 - opaqueBounds.minX);
+          } else if (horizontal === 'center') {
+            nextOffsetX = Math.round(img.width / 2 - opaqueBounds.centerX);
+          } else if (horizontal === 'right') {
+            nextOffsetX = Math.round(project.width / 2 + img.width / 2 - opaqueBounds.maxX);
+          }
+
+          if (vertical === 'top') {
+            nextOffsetY = Math.round(img.height / 2 - project.height / 2 - opaqueBounds.minY);
+          } else if (vertical === 'center') {
+            nextOffsetY = Math.round(img.height / 2 - opaqueBounds.centerY);
+          } else if (vertical === 'bottom') {
+            nextOffsetY = Math.round(project.height / 2 + img.height / 2 - opaqueBounds.maxY);
+          }
+
+          return {
+            ...frame,
+            offsetX: nextOffsetX,
+            offsetY: nextOffsetY,
+          };
+        })
+      );
+
+      setProject((prev) => ({
+        ...prev,
+        frames: alignedFrames,
+      }));
+    } catch (error) {
+      console.error('Failed to align frames', error);
+    } finally {
+      setIsAutoCenteringFrames(false);
+    }
+  };
+
   // Download centered frames as ZIP package
   const exportCenteredPngZip = async () => {
     if (project.frames.length === 0) return;
@@ -552,36 +1006,22 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onUpdat
     }
   };
 
-  const handleSaveCleanedSegmentLocally = (id: string, updatedUrl: string) => {
-    if (onUpdateSegment) {
-      onUpdateSegment(id, updatedUrl);
+  const handleSaveCleanedSegmentLocally = (updatedUrl: string) => {
+    if (!activeSegment) {
+      return;
     }
 
-    // Refresh any frames that contain the segment reference
-    setProject((prev) => {
-      const updatedFrames = prev.frames.map((frame) => {
-        if (frame.id.includes(`frame_${id}`) || frame.id.startsWith(`slice_${id}`)) {
-          // Since sliced frames are generated procedurally on demand,
-          // updating the base segment means a fresh slice operation will pick up the cleaned version immediately.
-          // For single frames or frames that refer directly to segment, let's update their url:
-          return {
-            ...frame,
-            thumbnailUrl: updatedUrl
-          };
-        }
-        return frame;
-      });
-      return {
-        ...prev,
-        frames: updatedFrames
-      };
-    });
+    delete segmentImageCacheRef.current[activeSegment.id];
+
+    const newSegment = onCreateSegment?.(activeSegment, updatedUrl);
+    if (newSegment) {
+      setSelectedSegmentId(newSegment.id);
+      setAutoDetectedGridLabel('Reassessing cleaned cutout...');
+      setGridAssessmentNonce((prev) => prev + 1);
+    }
 
     setShowBgRemover(false);
   };
-
-  // Find currently selected segment
-  const activeSegment = savedSegments.find((s) => s.id === selectedSegmentId);
 
   return (
     <div id="animation-studio-container" className="fixed inset-0 bg-slate-950 text-slate-100 font-sans z-40 flex flex-col overflow-hidden">
@@ -589,15 +1029,15 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onUpdat
       <canvas ref={sliceCanvasRef} className="hidden" />
 
       {/* 1. Header Toolbar */}
-      <header className="h-16 border-b border-slate-800 bg-slate-950 flex items-center justify-between px-3 sm:px-6 shrink-0">
-        <div className="flex items-center space-x-2 sm:space-x-3">
+      <header className="min-h-16 border-b border-slate-800 bg-slate-950 flex items-center justify-between gap-3 px-3 py-2 sm:px-6 shrink-0">
+        <div className="flex items-center space-x-2 sm:space-x-3 min-w-0">
           <div className="bg-gradient-to-br from-indigo-500 to-purple-600 p-1.5 sm:p-2 rounded-xl shadow-lg shrink-0">
             <Layers className="h-4 w-4 sm:h-5 sm:w-5 text-white" />
           </div>
           <div className="min-w-0">
             <h1 className="font-bold text-xs sm:text-base tracking-tight text-slate-100 truncate">
-              <span className="hidden xs:inline">Animation & Spritesheet Studio</span>
-              <span className="xs:hidden">Anim Studio</span>
+              <span className="hidden sm:inline">Animation & Spritesheet Studio</span>
+              <span className="sm:hidden">Anim Studio</span>
             </h1>
             <p className="text-[9px] sm:text-[10px] text-indigo-400 font-mono truncate">
               <span className="hidden sm:inline">Visual Perfect Centering & Onion Skinning Guides</span>
@@ -648,7 +1088,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onUpdat
       </header>
 
       {/* 2. Main Studio workspace */}
-      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
+      <div className="flex-1 min-h-0 flex flex-col lg:flex-row overflow-hidden">
         {/* Mobile Tab Switcher */}
         <div className="flex lg:hidden bg-slate-950 border-b border-slate-800 shrink-0 z-20">
           <button
@@ -671,22 +1111,83 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onUpdat
           >
             ✂️ Source & Slice
           </button>
-          <button
-            onClick={() => setActiveStudioTab('nudge')}
-            className={`flex-1 py-3 text-center text-xs font-semibold border-b-2 transition-all ${
-              activeStudioTab === 'nudge'
-                ? 'border-indigo-500 text-white bg-slate-900/30'
-                : 'border-transparent text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            🎯 Align & Export
-          </button>
         </div>
         
         {/* 2.1 Left Panel: Cutouts importer / Subdivision Tools */}
-        <aside className={`w-full lg:w-80 border-r border-slate-800 bg-slate-950 flex flex-col overflow-y-auto p-4 shrink-0 space-y-5 ${
+        <aside className={`w-full lg:w-80 min-h-0 border-r border-slate-800 bg-slate-950 flex flex-col overflow-hidden shrink-0 ${
           activeStudioTab === 'source' ? 'flex' : 'hidden lg:flex'
         }`}>
+          <div className="p-4 border-b border-slate-800 bg-slate-950/95 backdrop-blur shrink-0 space-y-3">
+            <div>
+              <h2 className="text-xs font-bold uppercase tracking-wider text-slate-300">Source Actions</h2>
+              <p className="text-[10px] text-slate-500">
+                Source selection and slice controls stay pinned here while options scroll below.
+              </p>
+            </div>
+
+            {activeSegment ? (
+              <div className="space-y-2">
+                <div className="rounded-xl border border-indigo-500/20 bg-indigo-500/5 px-3 py-2 text-[10px] text-slate-400">
+                  {isAutoDetectingGrid ? 'Detecting object grid from transparency...' : autoDetectedGridLabel || 'Grid will be auto-detected from the transparent cutout'}
+                </div>
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div className="space-y-1">
+                    <label className="text-[11px] text-slate-400">Columns (X)</label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="32"
+                      value={cols}
+                      onChange={(e) => setCols(Math.max(1, parseInt(e.target.value) || 1))}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-lg py-1.5 px-2.5 text-xs text-center font-mono text-white outline-none focus:border-indigo-500"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[11px] text-slate-400">Rows (Y)</label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="32"
+                      value={rows}
+                      onChange={(e) => setRows(Math.max(1, parseInt(e.target.value) || 1))}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-lg py-1.5 px-2.5 text-xs text-center font-mono text-white outline-none focus:border-indigo-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-2">
+                  <button
+                    onClick={() => loadSegmentAsFrames(activeSegment)}
+                    disabled={isAutoDetectingGrid}
+                    className="w-full py-2.5 px-3 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 disabled:text-slate-500 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-1.5 shadow-md shadow-indigo-600/10 cursor-pointer"
+                  >
+                    <Sparkles className="h-4 w-4" />
+                    <span>{isAutoDetectingGrid ? 'Detecting Grid...' : 'Slice & View Playing Back'}</span>
+                  </button>
+                  <button
+                    onClick={() => appendSegmentAsFrame(activeSegment)}
+                    className="w-full py-2 px-3 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 rounded-xl text-xs font-semibold flex items-center justify-center space-x-1.5 cursor-pointer"
+                  >
+                    <Plus className="h-4 w-4 text-slate-500" />
+                    <span>Append as Single Frame</span>
+                  </button>
+                  <button
+                    onClick={reassessSelectedSegment}
+                    disabled={isAutoDetectingGrid}
+                    className="w-full py-2 px-3 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-800 disabled:text-slate-500 border border-slate-800 text-slate-300 rounded-xl text-xs font-semibold flex items-center justify-center space-x-1.5 cursor-pointer"
+                  >
+                    <RefreshCw className={`h-4 w-4 text-slate-500 ${isAutoDetectingGrid ? 'animate-spin' : ''}`} />
+                    <span>{isAutoDetectingGrid ? 'Reassessing...' : 'Reassess Transparency'}</span>
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-xl border border-slate-800 bg-slate-900/40 px-3 py-2.5 text-[11px] text-slate-500">
+                Pick a saved cutout to enable slicing actions here.
+              </div>
+            )}
+          </div>
+          <div className="flex-1 overflow-y-auto p-4 space-y-5">
           {/* Mobile-only Project Properties inside Left Panel */}
           <div className="block lg:hidden bg-slate-900/40 border border-slate-800 p-3.5 rounded-xl space-y-3 shrink-0">
             <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Project Configuration</h3>
@@ -732,6 +1233,41 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onUpdat
               </div>
             ) : (
               <div className="space-y-3">
+                <div className="space-y-2 rounded-xl border border-slate-800 bg-slate-900/40 p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Filter Source Cutouts</span>
+                    <span className="text-[10px] text-slate-500 font-mono">{filteredSegments.length} shown</span>
+                  </div>
+                  <input
+                    type="text"
+                    value={sourceSearch}
+                    onChange={(e) => setSourceSearch(e.target.value)}
+                    placeholder="Search by cutout name..."
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-indigo-500"
+                  />
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      { id: 'all' as SourceFilter, label: 'All', count: filterCounts.all },
+                      { id: 'needs-cleanup' as SourceFilter, label: 'Needs Cleanup', count: filterCounts['needs-cleanup'] },
+                      { id: 'cleaned' as SourceFilter, label: 'Cleaned', count: filterCounts.cleaned },
+                    ].map((filterOption) => (
+                      <button
+                        key={filterOption.id}
+                        type="button"
+                        onClick={() => setSourceFilter(filterOption.id)}
+                        className={`rounded-xl border px-2 py-2 text-[10px] font-semibold transition-all cursor-pointer ${
+                          sourceFilter === filterOption.id
+                            ? 'border-indigo-500 bg-indigo-500/15 text-indigo-200'
+                            : 'border-slate-800 bg-slate-950 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+                        }`}
+                      >
+                        <div>{filterOption.label}</div>
+                        <div className="mt-1 font-mono text-[9px] opacity-80">{filterOption.count}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 <div className="space-y-2 relative" ref={dropdownRef}>
                   {/* Custom Dropdown Trigger Button */}
                   <button
@@ -751,6 +1287,15 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onUpdat
                         </div>
                         <span className="truncate font-medium">{activeSegment.name}</span>
                         <span className="text-[10px] text-slate-500 font-mono shrink-0">({activeSegment.bounds.width}×{activeSegment.bounds.height})</span>
+                        <span
+                          className={`hidden sm:inline text-[9px] px-1.5 py-0.5 rounded-full border shrink-0 ${
+                            activeSegment.backgroundRemovedAt
+                              ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                              : 'border-amber-500/30 bg-amber-500/10 text-amber-300'
+                          }`}
+                        >
+                          {activeSegment.backgroundRemovedAt ? 'Cleaned' : 'Needs Cleanup'}
+                        </span>
                       </div>
                     ) : (
                       <span className="text-slate-400">Select a saved cut...</span>
@@ -761,7 +1306,11 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onUpdat
                   {/* Dropdown Options List */}
                   {isDropdownOpen && (
                     <div className="absolute left-0 right-0 mt-1 bg-slate-950 border border-slate-800 rounded-xl shadow-2xl z-30 max-h-60 overflow-y-auto py-1 divide-y divide-slate-900">
-                      {savedSegments.map((seg) => {
+                      {filteredSegments.length === 0 ? (
+                        <div className="px-3 py-4 text-center text-xs text-slate-500">
+                          No cutouts match the current search and filter.
+                        </div>
+                      ) : filteredSegments.map((seg) => {
                         const isSelected = seg.id === selectedSegmentId;
                         return (
                           <button
@@ -785,7 +1334,18 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onUpdat
                             </div>
                             <div className="flex-1 min-w-0">
                               <p className="text-xs font-semibold truncate text-slate-200">{seg.name}</p>
-                              <p className="text-[10px] text-slate-500 font-mono mt-0.5">{seg.bounds.width} × {seg.bounds.height} px</p>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                <p className="text-[10px] text-slate-500 font-mono">{seg.bounds.width} × {seg.bounds.height} px</p>
+                                <span
+                                  className={`text-[9px] px-1.5 py-0.5 rounded-full border ${
+                                    seg.backgroundRemovedAt
+                                      ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                                      : 'border-amber-500/30 bg-amber-500/10 text-amber-300'
+                                  }`}
+                                >
+                                  {seg.backgroundRemovedAt ? 'Cleaned' : 'Needs Cleanup'}
+                                </span>
+                              </div>
                             </div>
                             {isSelected && (
                               <Check className="h-4 w-4 text-indigo-400 shrink-0" />
@@ -806,7 +1366,9 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onUpdat
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-bold truncate text-slate-200">{activeSegment.name}</p>
                         <p className="text-[10px] text-slate-500 font-mono mt-0.5">{activeSegment.bounds.width} × {activeSegment.bounds.height} px</p>
-                        <p className="text-[10px] text-indigo-400 font-medium mt-1">Ready for animation</p>
+                        <p className="text-[10px] text-indigo-400 font-medium mt-1">
+                          {isAutoDetectingGrid ? 'Analyzing transparent objects...' : autoDetectedGridLabel || 'Ready for animation'}
+                        </p>
                       </div>
                     </div>
                     <button
@@ -815,6 +1377,14 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onUpdat
                     >
                       <Sparkles className="h-3.5 w-3.5" />
                       <span>Clean / Polish Background</span>
+                    </button>
+                    <button
+                      onClick={reassessSelectedSegment}
+                      disabled={isAutoDetectingGrid}
+                      className="w-full py-2 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-800 disabled:text-slate-500 border border-slate-800 text-slate-300 rounded-xl text-xs font-semibold flex items-center justify-center space-x-1.5 transition-all cursor-pointer"
+                    >
+                      <RefreshCw className={`h-3.5 w-3.5 text-slate-500 ${isAutoDetectingGrid ? 'animate-spin' : ''}`} />
+                      <span>{isAutoDetectingGrid ? 'Reassessing...' : 'Reassess Selected Cutout'}</span>
                     </button>
                   </div>
                 )}
@@ -829,48 +1399,6 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onUpdat
                 <Columns className="h-4 w-4 text-emerald-400" />
                 <span>2. Subdivide / Slice Sprite Sheet</span>
               </h3>
-              
-              <div className="grid grid-cols-2 gap-2.5">
-                <div className="space-y-1">
-                  <label className="text-[11px] text-slate-400">Columns (X)</label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="32"
-                    value={cols}
-                    onChange={(e) => setCols(Math.max(1, parseInt(e.target.value) || 1))}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-lg py-1.5 px-2.5 text-xs text-center font-mono text-white outline-none focus:border-indigo-500"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[11px] text-slate-400">Rows (Y)</label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="32"
-                    value={rows}
-                    onChange={(e) => setRows(Math.max(1, parseInt(e.target.value) || 1))}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-lg py-1.5 px-2.5 text-xs text-center font-mono text-white outline-none focus:border-indigo-500"
-                  />
-                </div>
-              </div>
-
-              <div className="flex flex-col space-y-2 pt-2">
-                <button
-                  onClick={() => loadSegmentAsFrames(activeSegment)}
-                  className="w-full py-2.5 px-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-1.5 shadow-md shadow-indigo-600/10 cursor-pointer"
-                >
-                  <Sparkles className="h-4 w-4" />
-                  <span>Slice & View Playing Back</span>
-                </button>
-                <button
-                  onClick={() => appendSegmentAsFrame(activeSegment)}
-                  className="w-full py-2 px-3 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 rounded-xl text-xs font-semibold flex items-center justify-center space-x-1.5 cursor-pointer"
-                >
-                  <Plus className="h-4 w-4 text-slate-500" />
-                  <span>Append as single Frame</span>
-                </button>
-              </div>
 
               <p className="text-[10px] text-slate-500 leading-relaxed">
                 If the saved cutout contains a grid of animation states (e.g. walk cycle), divide it to instantly preview the animation loop. Adjust columns/rows to match the sprites sheet grid.
@@ -878,63 +1406,16 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onUpdat
             </div>
           )}
 
-          {/* Timeline Viewport Configuration */}
-          <div className="border-t border-slate-900 pt-4 space-y-3">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center space-x-2">
-              <Settings className="h-4 w-4 text-purple-400" />
-              <span>Studio Guides</span>
-            </h3>
-
-            {/* Crosshair guide toggle */}
-            <label className="flex items-center justify-between p-2 hover:bg-slate-900/60 rounded-lg cursor-pointer transition-colors">
-              <span className="text-xs text-slate-300">Target Crosshair (Center)</span>
-              <input
-                type="checkbox"
-                checked={showCrosshair}
-                onChange={(e) => setShowCrosshair(e.target.checked)}
-                className="rounded text-indigo-600 focus:ring-indigo-500 bg-slate-900 border-slate-800 h-4 w-4 cursor-pointer"
-              />
-            </label>
-
-            {/* Onion Skin toggle */}
-            <div className="space-y-1.5 p-2 bg-slate-900/20 border border-slate-900 rounded-lg">
-              <label className="flex items-center justify-between cursor-pointer">
-                <span className="text-xs text-slate-300">Onion Skinning</span>
-                <input
-                  type="checkbox"
-                  checked={onionSkin}
-                  onChange={(e) => setOnionSkin(e.target.checked)}
-                  className="rounded text-indigo-600 focus:ring-indigo-500 bg-slate-900 border-slate-800 h-4 w-4 cursor-pointer"
-                />
-              </label>
-              {onionSkin && (
-                <div className="space-y-1">
-                  <div className="flex justify-between text-[9px] text-slate-500 font-mono">
-                    <span>Opacity</span>
-                    <span>{Math.round(onionSkinOpacity * 100)}%</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="0.1"
-                    max="0.8"
-                    step="0.05"
-                    value={onionSkinOpacity}
-                    onChange={(e) => setOnionSkinOpacity(parseFloat(e.target.value))}
-                    className="w-full accent-indigo-500 h-1 cursor-pointer"
-                  />
-                </div>
-              )}
-            </div>
-          </div>
+        </div>
         </aside>
 
         {/* 2.2 Middle: Live Loop Player Workspace */}
-        <section className={`flex-1 flex flex-col bg-slate-900 relative ${
+        <section className={`flex-1 min-h-0 flex flex-col bg-slate-900 relative overflow-y-auto lg:overflow-hidden ${
           activeStudioTab === 'player' ? 'flex' : 'hidden lg:flex'
         }`}>
           
           {/* Top playback hud */}
-          <div className="h-12 border-b border-slate-800 bg-slate-950/40 flex items-center justify-between px-3 sm:px-6 shrink-0 text-slate-300">
+          <div className="min-h-12 border-b border-slate-800 bg-slate-950/40 flex flex-wrap items-center justify-between gap-2 px-3 py-2 sm:px-6 shrink-0 text-slate-300">
             <div className="flex items-center space-x-1.5 sm:space-x-3 shrink-0">
               <button
                 onClick={() => setIsPlaying(!isPlaying)}
@@ -972,7 +1453,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onUpdat
 
             {/* Playback FPS selector slider */}
             <div className="flex items-center space-x-1.5 sm:space-x-3 min-w-0">
-              <span className="text-[10px] sm:text-xs font-medium text-slate-400 hidden xs:inline">FPS:</span>
+              <span className="hidden sm:inline text-[10px] sm:text-xs font-medium text-slate-400">FPS:</span>
               <span className="text-[11px] sm:text-xs font-mono font-bold text-indigo-400 w-5 text-center">{project.fps}</span>
               <input
                 type="range"
@@ -981,7 +1462,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onUpdat
                 step="1"
                 value={project.fps}
                 onChange={(e) => setProject({ ...project, fps: parseInt(e.target.value, 10) })}
-                className="w-14 xs:w-20 sm:w-28 accent-indigo-500 cursor-pointer h-1"
+                className="w-20 sm:w-28 accent-indigo-500 cursor-pointer h-1"
               />
             </div>
 
@@ -994,8 +1475,12 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onUpdat
             </div>
           </div>
 
+          <div className="hidden lg:block px-3 sm:px-6 pt-3 shrink-0">
+            {previewGuideControls}
+          </div>
+
           {/* Animation rendering stage */}
-          <div className="flex-1 flex items-center justify-center p-8 overflow-hidden relative">
+          <div className="flex-1 min-h-[240px] sm:min-h-0 flex items-center justify-center p-3 sm:p-8 overflow-hidden relative">
             {project.frames.length === 0 ? (
               <div className="text-center max-w-sm space-y-3 p-6 bg-slate-950/40 rounded-2xl border border-slate-800/40">
                 <div className="p-4 bg-slate-900/60 rounded-full inline-block border border-slate-800/60 text-slate-500">
@@ -1078,6 +1563,220 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onUpdat
                   </div>
                 )}
               </div>
+            )}
+          </div>
+
+          <div className="lg:hidden border-t border-slate-800 bg-slate-950/70 p-4 space-y-4 shrink-0">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center space-x-2">
+                <Move className="h-4 w-4 text-emerald-400" />
+                <span>Loop Controls</span>
+              </h3>
+              {hasActiveFrame && (
+                <span className="text-[10px] font-mono text-indigo-400">
+                  Frame {activeFrameIndex + 1}
+                </span>
+              )}
+            </div>
+
+            {!hasActiveFrame ? (
+              <div className="rounded-xl border border-slate-800 bg-slate-900/40 px-3 py-2.5 text-[11px] text-slate-500">
+                Load frames to unlock alignment and export controls here.
+              </div>
+            ) : (
+              <>
+                {previewGuideControls}
+
+                <div className="space-y-2 rounded-xl border border-slate-800 bg-slate-900/30 p-3">
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Align All Frames</div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      onClick={() => alignAllFrames('left', null)}
+                      disabled={isAutoCenteringFrames}
+                      className="py-2 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-800 disabled:text-slate-500 border border-slate-800 rounded-xl text-slate-300 flex items-center justify-center cursor-pointer"
+                    >
+                      <ArrowLeftToLine className="h-4 w-4" />
+                    </button>
+                    <button
+                      onClick={() => alignAllFrames('center', null)}
+                      disabled={isAutoCenteringFrames}
+                      className="py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 disabled:text-slate-500 text-white rounded-xl cursor-pointer flex items-center justify-center"
+                    >
+                      <AlignCenterHorizontal className="h-4 w-4" />
+                    </button>
+                    <button
+                      onClick={() => alignAllFrames('right', null)}
+                      disabled={isAutoCenteringFrames}
+                      className="py-2 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-800 disabled:text-slate-500 border border-slate-800 rounded-xl text-slate-300 flex items-center justify-center cursor-pointer"
+                    >
+                      <ArrowRightToLine className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      onClick={() => alignAllFrames(null, 'top')}
+                      disabled={isAutoCenteringFrames}
+                      className="py-2 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-800 disabled:text-slate-500 border border-slate-800 rounded-xl text-slate-300 flex items-center justify-center cursor-pointer"
+                    >
+                      <ArrowUpToLine className="h-4 w-4" />
+                    </button>
+                    <button
+                      onClick={() => alignAllFrames(null, 'center')}
+                      disabled={isAutoCenteringFrames}
+                      className="py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 disabled:text-slate-500 text-white rounded-xl cursor-pointer flex items-center justify-center"
+                    >
+                      <AlignCenterVertical className="h-4 w-4" />
+                    </button>
+                    <button
+                      onClick={() => alignAllFrames(null, 'bottom')}
+                      disabled={isAutoCenteringFrames}
+                      className="py-2 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-800 disabled:text-slate-500 border border-slate-800 rounded-xl text-slate-300 flex items-center justify-center cursor-pointer"
+                    >
+                      <ArrowDownToLine className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <button
+                    onClick={() => alignAllFrames('center', 'center')}
+                    disabled={isAutoCenteringFrames}
+                    className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-500 text-white rounded-xl flex items-center justify-center transition-all cursor-pointer"
+                  >
+                    <Maximize className="h-4 w-4" />
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={resetActiveFrameCenter}
+                    className="py-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-xl text-[11px] text-slate-400 font-medium flex items-center justify-center space-x-1 cursor-pointer"
+                  >
+                    <RotateCcw className="h-3 w-3" />
+                    <span>Reset Current</span>
+                  </button>
+                  <button
+                    onClick={resetAllFramesCenter}
+                    className="py-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-xl text-[11px] text-slate-400 font-medium flex items-center justify-center space-x-1 cursor-pointer"
+                  >
+                    <RefreshCw className="h-3 w-3 animate-spin-slow" />
+                    <span>Reset All</span>
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 gap-2">
+                  <button
+                    onClick={exportCenteredPngZip}
+                    disabled={isExporting}
+                    className="w-full py-3 px-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-2 shadow-lg shadow-emerald-600/10 active:scale-[0.98] transition-all cursor-pointer"
+                  >
+                    <Archive className="h-4.5 w-4.5" />
+                    <span>{isExporting ? 'Packaging ZIP...' : 'Export Centered PNGs ZIP'}</span>
+                  </button>
+                  <button
+                    onClick={exportSpriteSheet}
+                    disabled={isExporting}
+                    className="w-full py-2.5 px-4 bg-slate-900 hover:bg-slate-850 border border-slate-800 text-indigo-400 rounded-xl text-xs font-semibold flex items-center justify-center space-x-2 transition-all cursor-pointer"
+                  >
+                    <Grid className="h-4 w-4" />
+                    <span>Export Aligned Spritesheet</span>
+                  </button>
+                </div>
+
+                <div className="bg-slate-900/60 border border-slate-850 p-3 rounded-xl space-y-1 font-mono text-[11px] text-slate-400">
+                  <p className="font-semibold text-slate-200">Frame #{activeFrameIndex + 1} Stats:</p>
+                  <div className="space-y-1 pt-1 text-slate-300">
+                    {project.frames[activeFrameIndex].sourceSegmentId ? (
+                      <>
+                        <div className="text-indigo-400 font-semibold text-[9px] uppercase tracking-wider">Source Slice (Crop Box):</div>
+                        <div className="grid grid-cols-2 gap-1 pb-1.5 text-xs border-b border-slate-800/80 mb-1.5">
+                          <div>Slice X: <span className="font-bold text-emerald-400">{project.frames[activeFrameIndex].sliceX}px</span></div>
+                          <div>Slice Y: <span className="font-bold text-emerald-400">{project.frames[activeFrameIndex].sliceY}px</span></div>
+                          <div>Width: <span className="font-bold text-slate-400">{project.frames[activeFrameIndex].sliceW}px</span></div>
+                          <div>Height: <span className="font-bold text-slate-400">{project.frames[activeFrameIndex].sliceH}px</span></div>
+                        </div>
+                      </>
+                    ) : null}
+                    <div className="text-indigo-400 font-semibold text-[9px] uppercase tracking-wider">Visual Alignment:</div>
+                    <div className="grid grid-cols-2 gap-1 text-xs">
+                      <div>Visual X: <span className="font-bold text-emerald-400">{project.frames[activeFrameIndex].offsetX}px</span></div>
+                      <div>Visual Y: <span className="font-bold text-emerald-400">{project.frames[activeFrameIndex].offsetY}px</span></div>
+                      <div className="col-span-2">Zoom / Scale: <span className="font-bold text-indigo-400">{Math.round(project.frames[activeFrameIndex].scale * 100)}%</span></div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-col items-center space-y-1.5 p-3 bg-slate-900/30 border border-slate-900 rounded-xl">
+                  <span className="text-[10px] text-slate-400 tracking-wider uppercase font-bold mb-2">
+                    {project.frames[activeFrameIndex].sourceSegmentId ? 'Source Slice Adjuster' : 'Align Offset Nudge'}
+                  </span>
+                  <button
+                    onClick={() => nudgeActiveFrame(0, -1)}
+                    className="w-10 h-10 bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 text-slate-200 rounded-lg flex items-center justify-center font-bold text-xs shadow cursor-pointer active:scale-95 transition-all"
+                  >
+                    ▲
+                  </button>
+                  <div className="flex space-x-6">
+                    <button
+                      onClick={() => nudgeActiveFrame(-1, 0)}
+                      className="w-10 h-10 bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 text-slate-200 rounded-lg flex items-center justify-center font-bold text-xs shadow cursor-pointer active:scale-95 transition-all"
+                    >
+                      ◀
+                    </button>
+                    <button
+                      onClick={() => nudgeActiveFrame(1, 0)}
+                      className="w-10 h-10 bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 text-slate-200 rounded-lg flex items-center justify-center font-bold text-xs shadow cursor-pointer active:scale-95 transition-all"
+                    >
+                      ▶
+                    </button>
+                  </div>
+                  <button
+                    onClick={() => nudgeActiveFrame(0, 1)}
+                    className="w-10 h-10 bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 text-slate-200 rounded-lg flex items-center justify-center font-bold text-xs shadow cursor-pointer active:scale-95 transition-all"
+                  >
+                    ▼
+                  </button>
+                  <div className="grid grid-cols-2 gap-2 w-full pt-3">
+                    <button
+                      onClick={() => nudgeActiveFrame(-5, 0)}
+                      className="py-1 px-2 bg-slate-900 border border-slate-800 rounded text-[10px] font-mono text-slate-400 hover:text-white"
+                    >
+                      Nudge -5px X
+                    </button>
+                    <button
+                      onClick={() => nudgeActiveFrame(5, 0)}
+                      className="py-1 px-2 bg-slate-900 border border-slate-800 rounded text-[10px] font-mono text-slate-400 hover:text-white"
+                    >
+                      Nudge +5px X
+                    </button>
+                    <button
+                      onClick={() => nudgeActiveFrame(0, -5)}
+                      className="py-1 px-2 bg-slate-900 border border-slate-800 rounded text-[10px] font-mono text-slate-400 hover:text-white"
+                    >
+                      Nudge -5px Y
+                    </button>
+                    <button
+                      onClick={() => nudgeActiveFrame(0, 5)}
+                      className="py-1 px-2 bg-slate-900 border border-slate-800 rounded text-[10px] font-mono text-slate-400 hover:text-white"
+                    >
+                      Nudge +5px Y
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5 p-3 bg-slate-900/30 border border-slate-900 rounded-xl">
+                  <div className="flex justify-between text-xs font-semibold text-slate-300">
+                    <span>Frame Scale</span>
+                    <span className="text-indigo-400 font-mono">{Math.round(project.frames[activeFrameIndex].scale * 100)}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0.3"
+                    max="2.5"
+                    step="0.05"
+                    value={project.frames[activeFrameIndex].scale}
+                    onChange={(e) => adjustActiveFrameScale(parseFloat(e.target.value))}
+                    className="w-full accent-indigo-500 h-1 cursor-pointer"
+                  />
+                </div>
+              </>
             )}
           </div>
 
@@ -1170,18 +1869,133 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onUpdat
         </section>
 
         {/* 2.3 Right Panel: Visual Perfect Alignment Nudge Controls */}
-        <aside className={`w-full lg:w-80 border-l border-slate-800 bg-slate-950 flex flex-col p-4 overflow-y-auto shrink-0 space-y-4 ${
-          activeStudioTab === 'nudge' ? 'flex' : 'hidden lg:flex'
-        }`}>
-          <div className="space-y-1">
-            <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center space-x-2">
-              <Move className="h-4 w-4 text-emerald-400" />
-              <span>3. Visual Centering Nudges</span>
-            </h2>
-            <p className="text-[10px] text-slate-500">
-              Align frame centers to eliminate camera wobble or drift during loop playback.
-            </p>
+        <aside className="hidden lg:flex lg:w-80 min-h-0 border-l border-slate-800 bg-slate-950 flex-col overflow-hidden shrink-0">
+          <div className="p-4 border-b border-slate-800 bg-slate-950/95 backdrop-blur shrink-0 space-y-3">
+            <div className="space-y-1">
+              <h2 className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center space-x-2">
+                <Move className="h-4 w-4 text-emerald-400" />
+                <span>Alignment Actions</span>
+              </h2>
+              <p className="text-[10px] text-slate-500">
+                Keep export and reset controls pinned here while frame adjustments scroll below.
+              </p>
+            </div>
+
+            {project.frames.length > 0 ? (
+              <div className="space-y-2">
+                <div className="space-y-2 rounded-xl border border-slate-800 bg-slate-900/30 p-3">
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Align All Frames</div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      onClick={() => alignAllFrames('left', null)}
+                      disabled={isAutoCenteringFrames}
+                      title="Align Left"
+                      aria-label="Align Left"
+                      className="py-2 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-800 disabled:text-slate-500 border border-slate-800 rounded-xl text-slate-300 flex items-center justify-center cursor-pointer"
+                    >
+                      <ArrowLeftToLine className="h-4 w-4" />
+                    </button>
+                    <button
+                      onClick={() => alignAllFrames('center', null)}
+                      disabled={isAutoCenteringFrames}
+                      title="Center Horizontally"
+                      aria-label="Center Horizontally"
+                      className="py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 disabled:text-slate-500 text-white rounded-xl cursor-pointer flex items-center justify-center"
+                    >
+                      <AlignCenterHorizontal className="h-4 w-4" />
+                    </button>
+                    <button
+                      onClick={() => alignAllFrames('right', null)}
+                      disabled={isAutoCenteringFrames}
+                      title="Align Right"
+                      aria-label="Align Right"
+                      className="py-2 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-800 disabled:text-slate-500 border border-slate-800 rounded-xl text-slate-300 flex items-center justify-center cursor-pointer"
+                    >
+                      <ArrowRightToLine className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      onClick={() => alignAllFrames(null, 'top')}
+                      disabled={isAutoCenteringFrames}
+                      title="Align Top"
+                      aria-label="Align Top"
+                      className="py-2 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-800 disabled:text-slate-500 border border-slate-800 rounded-xl text-slate-300 flex items-center justify-center cursor-pointer"
+                    >
+                      <ArrowUpToLine className="h-4 w-4" />
+                    </button>
+                    <button
+                      onClick={() => alignAllFrames(null, 'center')}
+                      disabled={isAutoCenteringFrames}
+                      title="Center Vertically"
+                      aria-label="Center Vertically"
+                      className="py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 disabled:text-slate-500 text-white rounded-xl cursor-pointer flex items-center justify-center"
+                    >
+                      <AlignCenterVertical className="h-4 w-4" />
+                    </button>
+                    <button
+                      onClick={() => alignAllFrames(null, 'bottom')}
+                      disabled={isAutoCenteringFrames}
+                      title="Align Bottom"
+                      aria-label="Align Bottom"
+                      className="py-2 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-800 disabled:text-slate-500 border border-slate-800 rounded-xl text-slate-300 flex items-center justify-center cursor-pointer"
+                    >
+                      <ArrowDownToLine className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <button
+                    onClick={() => alignAllFrames('center', 'center')}
+                    disabled={isAutoCenteringFrames}
+                    title="Center Both Axes"
+                    aria-label="Center Both Axes"
+                    className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-500 text-white rounded-xl flex items-center justify-center transition-all cursor-pointer"
+                  >
+                    <Maximize className="h-4 w-4" />
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={resetActiveFrameCenter}
+                    className="py-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-xl text-[11px] text-slate-400 font-medium flex items-center justify-center space-x-1 cursor-pointer"
+                  >
+                    <RotateCcw className="h-3 w-3" />
+                    <span>Reset Current</span>
+                  </button>
+                  <button
+                    onClick={resetAllFramesCenter}
+                    className="py-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-xl text-[11px] text-slate-400 font-medium flex items-center justify-center space-x-1 cursor-pointer"
+                  >
+                    <RefreshCw className="h-3 w-3 animate-spin-slow" />
+                    <span>Reset All</span>
+                  </button>
+                </div>
+
+                <button
+                  onClick={exportCenteredPngZip}
+                  disabled={isExporting}
+                  className="w-full py-3 px-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-2 shadow-lg shadow-emerald-600/10 active:scale-[0.98] transition-all cursor-pointer"
+                >
+                  <Archive className="h-4.5 w-4.5" />
+                  <span>{isExporting ? 'Packaging ZIP...' : 'Export Centered PNGs ZIP'}</span>
+                </button>
+
+                <button
+                  onClick={exportSpriteSheet}
+                  disabled={isExporting}
+                  className="w-full py-2.5 px-4 bg-slate-900 hover:bg-slate-850 border border-slate-800 text-indigo-400 rounded-xl text-xs font-semibold flex items-center justify-center space-x-2 transition-all cursor-pointer"
+                >
+                  <Grid className="h-4 w-4" />
+                  <span>Export Aligned Spritesheet</span>
+                </button>
+              </div>
+            ) : (
+              <div className="rounded-xl border border-slate-800 bg-slate-900/40 px-3 py-2.5 text-[11px] text-slate-500">
+                Load frames to unlock alignment and export actions here.
+              </div>
+            )}
           </div>
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
 
           {project.frames.length === 0 || !project.frames[activeFrameIndex] ? (
             <div className="p-4 bg-slate-900/40 border border-slate-800 rounded-xl text-center text-xs text-slate-500">
@@ -1300,55 +2114,14 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onUpdat
                   className="w-full accent-indigo-500 h-1 cursor-pointer"
                 />
               </div>
-
-              {/* Reset Controls */}
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  onClick={resetActiveFrameCenter}
-                  className="py-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-xl text-[11px] text-slate-400 font-medium flex items-center justify-center space-x-1 cursor-pointer"
-                >
-                  <RotateCcw className="h-3 w-3" />
-                  <span>Reset Current</span>
-                </button>
-                <button
-                  onClick={resetAllFramesCenter}
-                  className="py-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-xl text-[11px] text-slate-400 font-medium flex items-center justify-center space-x-1 cursor-pointer"
-                >
-                  <RefreshCw className="h-3 w-3 animate-spin-slow" />
-                  <span>Reset All</span>
-                </button>
-              </div>
             </div>
           )}
-
-          {/* 2.4 Download Centered Exports */}
           {project.frames.length > 0 && (
-            <div className="pt-4 border-t border-slate-900 space-y-2.5 mt-auto">
-              <span className="text-[10px] text-slate-400 tracking-wider uppercase font-bold">4. Export Animated Asset</span>
-              
-              <button
-                onClick={exportCenteredPngZip}
-                disabled={isExporting}
-                className="w-full py-3 px-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-2 shadow-lg shadow-emerald-600/10 active:scale-[0.98] transition-all cursor-pointer"
-              >
-                <Archive className="h-4.5 w-4.5" />
-                <span>{isExporting ? 'Packaging ZIP...' : 'Export Centered PNGs ZIP'}</span>
-              </button>
-
-              <button
-                onClick={exportSpriteSheet}
-                disabled={isExporting}
-                className="w-full py-2.5 px-4 bg-slate-900 hover:bg-slate-850 border border-slate-800 text-indigo-400 rounded-xl text-xs font-semibold flex items-center justify-center space-x-2 transition-all cursor-pointer"
-              >
-                <Grid className="h-4 w-4" />
-                <span>Export aligned Spritesheet</span>
-              </button>
-              
-              <p className="text-[9px] text-center text-slate-500 leading-relaxed font-mono">
-                PNGs will be scaled and padded to exactly {project.width}x{project.height}px with transparency preserved.
-              </p>
-            </div>
+            <p className="text-[9px] text-center text-slate-500 leading-relaxed font-mono">
+              PNGs will be scaled and padded to exactly {project.width}x{project.height}px with transparency preserved.
+            </p>
           )}
+          </div>
         </aside>
 
       </div>

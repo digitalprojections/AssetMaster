@@ -10,7 +10,6 @@ import {
   RotateCcw,
   Sparkles,
   MousePointer,
-  HelpCircle,
   Eye,
   Settings,
   Grid
@@ -18,9 +17,25 @@ import {
 
 interface BackgroundRemoverProps {
   segment: SavedSegment;
-  onSave: (id: string, updatedUrl: string) => void;
+  onSave: (updatedUrl: string) => void;
   onClose: () => void;
 }
+
+type RgbColor = {
+  r: number;
+  g: number;
+  b: number;
+};
+
+type PixelPoint = {
+  x: number;
+  y: number;
+};
+
+type EdgeKeyDetection = {
+  color: RgbColor;
+  point: PixelPoint | null;
+};
 
 export default function BackgroundRemover({ segment, onSave, onClose }: BackgroundRemoverProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -40,8 +55,11 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
   const [isContiguous, setIsContiguous] = useState<boolean>(true);
 
   // Eye-dropper/wand picked color
-  const [pickedColor, setPickedColor] = useState<{ r: number; g: number; b: number } | null>(null);
-  const [pickedPoint, setPickedPoint] = useState<{ x: number; y: number } | null>(null);
+  const [pickedColor, setPickedColor] = useState<RgbColor | null>(null);
+  const [pickedPoint, setPickedPoint] = useState<PixelPoint | null>(null);
+  const [edgeSeedPoint, setEdgeSeedPoint] = useState<PixelPoint | null>(null);
+  const [manualKeyColor, setManualKeyColor] = useState<string>('#ffffff');
+  const [isAutoDetectedKeyColor, setIsAutoDetectedKeyColor] = useState<boolean>(true);
 
   // Drawing state for manual eraser
   const [isDrawing, setIsDrawing] = useState<boolean>(false);
@@ -58,6 +76,148 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
       setIsControlsOpen(false);
     }
   }, []);
+
+  const rgbToHex = (color: RgbColor) => `#${[color.r, color.g, color.b]
+    .map((value) => value.toString(16).padStart(2, '0'))
+    .join('')}`;
+
+  const hexToRgb = (hex: string): RgbColor => {
+    const normalized = hex.replace('#', '');
+    const safeHex = normalized.length === 3
+      ? normalized.split('').map((char) => `${char}${char}`).join('')
+      : normalized.padEnd(6, '0').slice(0, 6);
+
+    return {
+      r: parseInt(safeHex.slice(0, 2), 16),
+      g: parseInt(safeHex.slice(2, 4), 16),
+      b: parseInt(safeHex.slice(4, 6), 16),
+    };
+  };
+
+  const detectEdgeKeyColor = (imageUrl: string): Promise<EdgeKeyDetection | null> => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(null);
+          return;
+        }
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0);
+
+        const { data, width, height } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const band = Math.max(1, Math.min(4, Math.floor(Math.min(width, height) / 12)));
+        const bins = new Map<string, { count: number; rSum: number; gSum: number; bSum: number; firstPoint: PixelPoint }>();
+        const quantize = (value: number) => Math.round(value / 16) * 16;
+
+        const addPixel = (x: number, y: number) => {
+          const idx = (y * width + x) * 4;
+          const alpha = data[idx + 3];
+          if (alpha === 0) {
+            return;
+          }
+
+          const r = data[idx];
+          const g = data[idx + 1];
+          const b = data[idx + 2];
+          const key = `${quantize(r)}-${quantize(g)}-${quantize(b)}`;
+          const entry = bins.get(key) ?? { count: 0, rSum: 0, gSum: 0, bSum: 0, firstPoint: { x, y } };
+          entry.count += 1;
+          entry.rSum += r;
+          entry.gSum += g;
+          entry.bSum += b;
+          bins.set(key, entry);
+        };
+
+        for (let y = 0; y < height; y += 1) {
+          for (let x = 0; x < width; x += 1) {
+            if (x < band || x >= width - band || y < band || y >= height - band) {
+              addPixel(x, y);
+            }
+          }
+        }
+
+        let bestEntry: { count: number; rSum: number; gSum: number; bSum: number; firstPoint: PixelPoint } | null = null;
+        bins.forEach((entry) => {
+          if (!bestEntry || entry.count > bestEntry.count) {
+            bestEntry = entry;
+          }
+        });
+
+        if (!bestEntry || bestEntry.count === 0) {
+          resolve(null);
+          return;
+        }
+
+        resolve({
+          color: {
+            r: Math.round(bestEntry.rSum / bestEntry.count),
+            g: Math.round(bestEntry.gSum / bestEntry.count),
+            b: Math.round(bestEntry.bSum / bestEntry.count),
+          },
+          point: bestEntry.firstPoint,
+        });
+      };
+
+      img.onerror = () => resolve(null);
+      img.src = imageUrl;
+    });
+  };
+
+  const activateKeyColor = (color: RgbColor, point: PixelPoint | null) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    if (pickedColor) {
+      const currentURL = canvas.toDataURL('image/png');
+      setHistory((prev) => [...prev, baseImage]);
+      setBaseImage(currentURL);
+    } else {
+      setHistory((prev) => [...prev, baseImage]);
+    }
+
+    setPickedColor(color);
+    setPickedPoint(point);
+    setManualKeyColor(rgbToHex(color));
+    setIsAutoDetectedKeyColor(false);
+  };
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    setBaseImage(segment.thumbnailUrl);
+    setHistory([]);
+    setPickedColor(null);
+    setPickedPoint(null);
+    setEdgeSeedPoint(null);
+    setIsAutoDetectedKeyColor(true);
+
+    detectEdgeKeyColor(segment.thumbnailUrl).then((detection) => {
+      if (isCancelled) {
+        return;
+      }
+
+      if (!detection) {
+        setManualKeyColor('#ffffff');
+        return;
+      }
+
+      setManualKeyColor(rgbToHex(detection.color));
+      setPickedColor(detection.color);
+      setPickedPoint(detection.point);
+      setEdgeSeedPoint(detection.point);
+    });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [segment.id, segment.thumbnailUrl]);
 
   const handleTouchStart = (e: React.TouchEvent<HTMLCanvasElement>) => {
     if (e.touches.length > 0) {
@@ -129,6 +289,7 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
     setBaseImage(previous);
     setPickedColor(null);
     setPickedPoint(null);
+    setIsAutoDetectedKeyColor(false);
   };
 
   // Sample pixel color from mouse coordinate
@@ -163,16 +324,7 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
         const cx = Math.floor(((e.clientX - rect.left) / rect.width) * canvas.width);
         const cy = Math.floor(((e.clientY - rect.top) / rect.height) * canvas.height);
 
-        // If we already had a pickedColor active, we bake it into baseImage first so we stack the keys!
-        if (pickedColor) {
-          const currentURL = canvas.toDataURL('image/png');
-          setHistory((prev) => [...prev, baseImage]);
-          setBaseImage(currentURL);
-        } else {
-          setHistory((prev) => [...prev, baseImage]);
-        }
-        setPickedColor({ r: color.r, g: color.g, b: color.b });
-        setPickedPoint({ x: cx, y: cy });
+        activateKeyColor({ r: color.r, g: color.g, b: color.b }, { x: cx, y: cy });
       }
     } else if (activeTool === 'eraser') {
       // Bake the magic wand if active
@@ -182,6 +334,7 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
         setBaseImage(currentURL);
         setPickedColor(null);
         setPickedPoint(null);
+        setIsAutoDetectedKeyColor(false);
       } else {
         setHistory((prev) => [...prev, baseImage]);
       }
@@ -435,6 +588,7 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
     setBaseImage(postShaveURL);
     setPickedColor(null);
     setPickedPoint(null);
+    setIsAutoDetectedKeyColor(false);
   };
 
   // Quick reset to original segment cutout
@@ -445,6 +599,19 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
     setBaseImage(segment.thumbnailUrl);
     setPickedColor(null);
     setPickedPoint(null);
+    setIsAutoDetectedKeyColor(true);
+
+    detectEdgeKeyColor(segment.thumbnailUrl).then((detection) => {
+      if (!detection) {
+        setManualKeyColor('#ffffff');
+        return;
+      }
+
+      setManualKeyColor(rgbToHex(detection.color));
+      setPickedColor(detection.color);
+      setPickedPoint(detection.point);
+      setEdgeSeedPoint(detection.point);
+    });
   };
 
   // Apply changes back to app state
@@ -452,7 +619,12 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
     const canvas = canvasRef.current;
     if (!canvas) return;
     const finalUrl = canvas.toDataURL('image/png');
-    onSave(segment.id, finalUrl);
+    onSave(finalUrl);
+  };
+
+  const handleApplyManualKeyColor = () => {
+    activateKeyColor(hexToRgb(manualKeyColor), isContiguous ? edgeSeedPoint : null);
+    setActiveTool('magic-wand');
   };
 
   return (
@@ -460,13 +632,13 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
       <div className="w-full max-w-5xl h-full md:h-[85vh] bg-slate-900 border-0 md:border border-slate-800 rounded-none md:rounded-3xl flex flex-col overflow-hidden shadow-2xl relative">
         
         {/* Header */}
-        <header className="h-16 border-b border-slate-800 bg-slate-950/50 flex items-center justify-between px-4 md:px-6 shrink-0">
-          <div className="flex items-center space-x-3">
+        <header className="min-h-16 border-b border-slate-800 bg-slate-950/50 flex items-center justify-between gap-3 px-4 py-2 md:px-6 shrink-0">
+          <div className="flex items-center space-x-3 min-w-0">
             <div className="bg-emerald-500/10 p-2 border border-emerald-500/20 rounded-xl text-emerald-400">
               <Scissors className="h-5 w-5 animate-pulse" />
             </div>
-            <div>
-              <h1 className="font-bold text-xs sm:text-sm text-slate-100">Cutout Boundary & Background Polish Workshop</h1>
+            <div className="min-w-0">
+              <h1 className="font-bold text-xs sm:text-sm text-slate-100 truncate">Cutout Boundary & Background Polish Workshop</h1>
               <p className="hidden sm:block text-[10px] text-slate-500 font-mono">Erase halos, background artifacts & solid color backing</p>
             </div>
           </div>
@@ -501,13 +673,13 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
         </header>
 
         {/* Content workspace split panel */}
-        <div className="flex-1 flex overflow-hidden relative">
+        <div className="flex-1 min-h-0 flex overflow-hidden relative">
           
           {/* Main Visual interactive Canvas Area */}
-          <div className="flex-1 bg-checkerboard relative flex items-center justify-center p-4 md:p-8 overflow-hidden select-none">
+          <div className="flex-1 min-h-0 bg-checkerboard relative flex items-center justify-center p-3 pb-24 md:p-8 overflow-hidden select-none">
             
             {/* Visual Canvas and guides */}
-            <div className="relative border border-slate-800/80 rounded-2xl shadow-2xl max-w-full max-h-full overflow-hidden flex items-center justify-center">
+            <div className="relative border border-slate-800/80 rounded-none shadow-2xl max-w-full max-h-full overflow-hidden flex items-center justify-center">
               <canvas
                 ref={canvasRef}
                 onMouseDown={handleCanvasMouseDown}
@@ -540,15 +712,40 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
               )}
             </div>
 
-            {/* Quick Helper Banner */}
-            <div className="absolute bottom-4 left-4 bg-slate-950/85 backdrop-blur-sm border border-slate-800/80 rounded-xl px-4 py-2 text-[11px] text-slate-400 flex items-center space-x-2 shadow-xl">
-              <HelpCircle className="h-4 w-4 text-emerald-400" />
-              <span>
-                {activeTool === 'magic-wand' && 'Click anywhere on the cutout to key out (erase) that background color instantly.'}
-                {activeTool === 'eraser' && 'Click and drag to manually scrub out leftover background edges.'}
-                {activeTool === 'shave' && 'Adjust pixel width on the right, then click "Shave Border" to erode boundaries.'}
-              </span>
-            </div>
+            {!isControlsOpen && (
+              <div className="absolute bottom-3 left-3 right-3 md:hidden z-20">
+                <div className="rounded-2xl border border-slate-800 bg-slate-950/92 backdrop-blur px-3 py-3 shadow-2xl space-y-2">
+                  <div className="flex items-center justify-between gap-2 text-[10px] text-slate-400">
+                    <span className="font-semibold uppercase tracking-wider text-emerald-400">Cleanup Actions</span>
+                    <span>{activeTool === 'magic-wand' ? 'Magic Eraser' : activeTool === 'eraser' ? 'Brush Eraser' : 'Border Shave'}</span>
+                  </div>
+                  <div className="grid grid-cols-[1fr_auto] gap-2">
+                    <button
+                      onClick={handleApply}
+                      className="py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-2 shadow-lg shadow-emerald-600/10 active:scale-[0.98] transition-all cursor-pointer"
+                    >
+                      <Check className="h-4.5 w-4.5" />
+                      <span>Save Cleaned Cutout</span>
+                    </button>
+                    <button
+                      onClick={() => setIsControlsOpen(true)}
+                      className="px-3 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 rounded-xl text-xs font-semibold flex items-center justify-center space-x-1.5 transition-all cursor-pointer"
+                    >
+                      <Settings className="h-3.5 w-3.5 text-emerald-400" />
+                      <span>Tools</span>
+                    </button>
+                  </div>
+                  <button
+                    onClick={handleReset}
+                    className="w-full py-2 bg-slate-900 hover:bg-slate-850 border border-slate-800 text-slate-400 hover:text-slate-200 rounded-xl text-xs font-semibold flex items-center justify-center space-x-1.5 transition-all cursor-pointer"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" />
+                    <span>Reset to Original</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
           </div>
 
           {/* Backdrop for mobile bottom sheet */}
@@ -560,15 +757,41 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
           )}
 
           {/* Right Control Sidebar */}
-          <aside className={`fixed md:static bottom-0 left-0 right-0 md:right-auto md:w-80 h-[65vh] md:h-auto border-t md:border-t-0 md:border-l border-slate-800 bg-slate-950 flex flex-col p-5 space-y-5 shrink-0 z-40 transition-transform duration-300 md:transform-none ${
+          <aside className={`fixed md:static bottom-0 left-0 right-0 md:right-auto md:w-80 h-[70dvh] md:h-auto border-t md:border-t-0 md:border-l border-slate-800 bg-slate-950 flex flex-col shrink-0 z-40 transition-transform duration-300 md:transform-none ${
             isControlsOpen ? 'translate-y-0' : 'translate-y-full md:translate-y-0'
-          } overflow-y-auto`}>
+          } overflow-hidden`}>
             
             {/* Mobile Bottom Sheet Handle */}
             <div className="flex md:hidden justify-center shrink-0 -mt-2 mb-2">
               <div className="w-12 h-1 bg-slate-800 rounded-full" />
             </div>
             
+            <div className="p-5 border-b border-slate-800 bg-slate-950/95 backdrop-blur shrink-0 space-y-3">
+              <div>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300">Cleanup Actions</h3>
+                <p className="text-[10px] text-slate-500">
+                  Save and reset stay pinned here while tool settings scroll below.
+                </p>
+              </div>
+              <div className="grid grid-cols-1 gap-2">
+                <button
+                  onClick={handleApply}
+                  className="w-full py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-2 shadow-lg shadow-emerald-600/10 active:scale-[0.98] transition-all cursor-pointer"
+                >
+                  <Check className="h-4.5 w-4.5" />
+                  <span>Save Cleaned Cutout</span>
+                </button>
+                <button
+                  onClick={handleReset}
+                  className="w-full py-2 bg-slate-900 hover:bg-slate-850 border border-slate-800 text-slate-400 hover:text-slate-200 rounded-xl text-xs font-semibold flex items-center justify-center space-x-1.5 transition-all cursor-pointer"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  <span>Reset to Original</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-5 space-y-5">
             {/* Toolbox Selector */}
             <div className="space-y-2">
               <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center space-x-2">
@@ -659,6 +882,33 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
                     </p>
                   </div>
 
+                  <div className="space-y-2 rounded-xl border border-slate-850 bg-slate-900 p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-[10px] text-slate-300 font-semibold">Selected Key Color</p>
+                        <p className="text-[9px] text-slate-500">
+                          Auto-detected from edge pixels, then still editable if you want to override it.
+                        </p>
+                      </div>
+                      <input
+                        type="color"
+                        value={manualKeyColor}
+                        onChange={(e) => setManualKeyColor(e.target.value)}
+                        className="h-10 w-14 cursor-pointer rounded-lg border border-slate-700 bg-transparent p-1"
+                        aria-label="Select key color"
+                      />
+                    </div>
+                    <div className="flex items-center justify-between gap-3 text-[10px] font-mono text-slate-400">
+                      <span>{manualKeyColor.toUpperCase()}</span>
+                      <button
+                        onClick={handleApplyManualKeyColor}
+                        className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1.5 text-[10px] font-semibold text-emerald-300 transition-all hover:bg-emerald-500/20 cursor-pointer"
+                      >
+                        Apply This Color
+                      </button>
+                    </div>
+                  </div>
+
                   <div className="flex items-center justify-between p-2.5 bg-slate-900 border border-slate-850 rounded-xl cursor-pointer transition-all hover:bg-slate-850/50">
                     <div className="flex flex-col">
                       <span className="text-xs font-semibold text-slate-200">Border Detection</span>
@@ -674,7 +924,7 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
 
                   {pickedColor && (
                     <div className="p-3 bg-slate-900 border border-slate-850 rounded-xl space-y-2">
-                      <p className="text-[10px] text-slate-400">Selected Key Color:</p>
+                      <p className="text-[10px] text-slate-400">Active Key Color:</p>
                       <div className="flex items-center space-x-2.5">
                         <div
                           className="w-7 h-7 rounded-lg border border-slate-700 shadow"
@@ -686,17 +936,19 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
                           RGB: {pickedColor.r}, {pickedColor.g}, {pickedColor.b}
                         </div>
                       </div>
+                      {isAutoDetectedKeyColor && (
+                        <p className="text-[9px] text-emerald-400 leading-relaxed">
+                          Auto-detected from the image edge and seeded from the border, so the border-only toggle works again without a fresh background click.
+                        </p>
+                      )}
+                      {!isAutoDetectedKeyColor && !pickedPoint && (
+                        <p className="text-[9px] text-emerald-400 leading-relaxed">
+                          This pass is using the selected color globally, so tolerance works even without a new canvas click.
+                        </p>
+                      )}
                     </div>
                   )}
 
-                  <div className="bg-slate-900/40 p-3 border border-slate-850 rounded-xl space-y-1.5 text-[10px] text-slate-500">
-                    <p className="font-bold text-slate-400">💡 Quick Guide:</p>
-                    <ul className="list-disc pl-3.5 space-y-1 leading-relaxed">
-                      <li>Click anywhere on background parts inside the canvas.</li>
-                      <li>Adjust Tolerance to fine-tune how much color bleed gets wiped out.</li>
-                      <li>Use Undo if parts of the foreground character are erased.</li>
-                    </ul>
-                  </div>
                 </div>
               )}
 
@@ -720,13 +972,6 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
                     />
                   </div>
 
-                  <div className="bg-slate-900/40 p-3 border border-slate-850 rounded-xl space-y-1.5 text-[10px] text-slate-500">
-                    <p className="font-bold text-slate-400">💡 How to use:</p>
-                    <ul className="list-disc pl-3.5 space-y-1 leading-relaxed">
-                      <li>Hover cursor over the cutout frame to view the circular brush size guide.</li>
-                      <li>Drag your mouse to erase jagged leftover edges or isolated pixel specks.</li>
-                    </ul>
-                  </div>
                 </div>
               )}
 
@@ -764,24 +1009,6 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
               )}
 
             </div>
-
-            {/* Bottom Footer Actions */}
-            <div className="space-y-2 pt-4 border-t border-slate-900 mt-auto">
-              <button
-                onClick={handleReset}
-                className="w-full py-2 bg-slate-900 hover:bg-slate-850 border border-slate-800 text-slate-400 hover:text-slate-200 rounded-xl text-xs font-semibold flex items-center justify-center space-x-1.5 transition-all cursor-pointer"
-              >
-                <RotateCcw className="h-3.5 w-3.5" />
-                <span>Reset to Original</span>
-              </button>
-
-              <button
-                onClick={handleApply}
-                className="w-full py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-2 shadow-lg shadow-emerald-600/10 active:scale-[0.98] transition-all cursor-pointer"
-              >
-                <Check className="h-4.5 w-4.5" />
-                <span>Save Cleaned Cutout</span>
-              </button>
             </div>
 
           </aside>

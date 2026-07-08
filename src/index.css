@@ -5,6 +5,26 @@
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+body {
+  position: fixed;
+  inset: 0;
+  touch-action: manipulation;
+  -webkit-text-size-adjust: 100%;
+}
+
+canvas {
+  touch-action: none;
+}
+
 /* Classic checkerboard pattern for transparent PNG backgrounds */
 .bg-checkerboard {
   background-color: #ffffff;
