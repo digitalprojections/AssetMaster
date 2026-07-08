@@ -70,6 +70,16 @@ const BLEND_MODE_OPTIONS: Array<{ value: CollageBlendMode; label: string }> = [
   { value: 'darken', label: 'Darken' },
   { value: 'lighten', label: 'Lighten' },
 ];
+const TRANSFORM_HANDLE_POSITIONS = [
+  { key: 'top-left', className: 'left-0 top-0 -translate-x-1/2 -translate-y-1/2 cursor-nwse-resize' },
+  { key: 'top', className: 'left-1/2 top-0 -translate-x-1/2 -translate-y-1/2 cursor-ns-resize' },
+  { key: 'top-right', className: 'right-0 top-0 translate-x-1/2 -translate-y-1/2 cursor-nesw-resize' },
+  { key: 'right', className: 'right-0 top-1/2 translate-x-1/2 -translate-y-1/2 cursor-ew-resize' },
+  { key: 'bottom-right', className: 'right-0 bottom-0 translate-x-1/2 translate-y-1/2 cursor-nwse-resize' },
+  { key: 'bottom', className: 'left-1/2 bottom-0 -translate-x-1/2 translate-y-1/2 cursor-ns-resize' },
+  { key: 'bottom-left', className: 'left-0 bottom-0 -translate-x-1/2 translate-y-1/2 cursor-nesw-resize' },
+  { key: 'left', className: 'left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 cursor-ew-resize' },
+] as const;
 
 type CollageStudioProps = {
   savedSegments: SavedSegment[];
@@ -102,12 +112,20 @@ type InteractionState =
       startY: number;
     }
   | {
-      mode: 'resize';
+      mode: 'scale';
       itemId: string;
       centerX: number;
       centerY: number;
       startDistance: number;
       startScale: number;
+    }
+  | {
+      mode: 'rotate';
+      itemId: string;
+      centerX: number;
+      centerY: number;
+      startAngle: number;
+      startRotation: number;
     };
 
 const createDefaultProject = (): CollageProject => ({
@@ -286,12 +304,15 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
   const [sourceSearch, setSourceSearch] = useState<string>('');
   const [isExporting, setIsExporting] = useState<boolean>(false);
   const [customFonts, setCustomFonts] = useState<StoredFontRecord[]>([]);
+  const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
+  const [isSavePulseActive, setIsSavePulseActive] = useState<boolean>(false);
   const [collapsedSections, setCollapsedSections] = useState({
     project: false,
     canvas: false,
     savedCutouts: false,
     layers: false,
     selectedItem: false,
+    text: false,
   });
   const projectImportInputRef = useRef<HTMLInputElement | null>(null);
   const imageImportInputRef = useRef<HTMLInputElement | null>(null);
@@ -513,9 +534,13 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
       project: normalizeProject(project),
       selectedItemId,
       stageZoom,
-    }).catch((error) => {
-      console.error('Failed to persist collage project', error);
-    });
+    })
+      .then(() => {
+        setLastSavedAt(Date.now());
+      })
+      .catch((error) => {
+        console.error('Failed to persist collage project', error);
+      });
   }, [isProjectHydrated, project, selectedItemId, stageZoom]);
 
   useEffect(() => {
@@ -528,6 +553,29 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
       setSelectedItemId(null);
     }
   }, [project.items, selectedItemId]);
+
+  useEffect(() => {
+    if (!lastSavedAt) {
+      return;
+    }
+
+    setIsSavePulseActive(true);
+    const timeoutId = window.setTimeout(() => setIsSavePulseActive(false), 2200);
+    return () => window.clearTimeout(timeoutId);
+  }, [lastSavedAt]);
+
+  useEffect(() => {
+    if (!lastSavedAt) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      setIsSavePulseActive(true);
+      window.setTimeout(() => setIsSavePulseActive(false), 1800);
+    }, 12000);
+
+    return () => window.clearInterval(intervalId);
+  }, [lastSavedAt]);
 
   useEffect(() => {
     const textItems = project.items.filter((item) => item.kind === 'text' && item.visible !== false);
@@ -609,7 +657,7 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
             y: clamp(interaction.startY + dy, 0, prev.height),
           } : item),
         }));
-      } else {
+      } else if (interaction.mode === 'scale') {
         const currentDistance = Math.max(8, Math.hypot(stageX - interaction.centerX, stageY - interaction.centerY));
         const scaleRatio = currentDistance / interaction.startDistance;
         setProject((prev) => ({
@@ -618,6 +666,17 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
           items: prev.items.map((item) => item.id === interaction.itemId ? {
             ...item,
             scale: clamp(interaction.startScale * scaleRatio, 0.05, 8),
+          } : item),
+        }));
+      } else {
+        const currentAngle = Math.atan2(stageY - interaction.centerY, stageX - interaction.centerX);
+        const angleDelta = ((currentAngle - interaction.startAngle) * 180) / Math.PI;
+        setProject((prev) => ({
+          ...prev,
+          updatedAt: Date.now(),
+          items: prev.items.map((item) => item.id === interaction.itemId ? {
+            ...item,
+            rotation: interaction.startRotation + angleDelta,
           } : item),
         }));
       }
@@ -1015,7 +1074,7 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
     };
   };
 
-  const beginResize = (event: React.PointerEvent<HTMLButtonElement>, item: CollageItem) => {
+  const beginScale = (event: React.PointerEvent<HTMLButtonElement>, item: CollageItem) => {
     if (item.locked) {
       return;
     }
@@ -1028,12 +1087,34 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
     event.stopPropagation();
     setSelectedItemId(item.id);
     interactionRef.current = {
-      mode: 'resize',
+      mode: 'scale',
       itemId: item.id,
       centerX: item.x,
       centerY: item.y,
       startDistance: Math.max(8, Math.hypot(point.x - item.x, point.y - item.y)),
       startScale: item.scale,
+    };
+  };
+
+  const beginRotate = (event: React.PointerEvent<HTMLButtonElement>, item: CollageItem) => {
+    if (item.locked) {
+      return;
+    }
+
+    const point = getStagePoint(event.clientX, event.clientY);
+    if (!point) {
+      return;
+    }
+
+    event.stopPropagation();
+    setSelectedItemId(item.id);
+    interactionRef.current = {
+      mode: 'rotate',
+      itemId: item.id,
+      centerX: item.x,
+      centerY: item.y,
+      startAngle: Math.atan2(point.y - item.y, point.x - item.x),
+      startRotation: item.rotation,
     };
   };
 
@@ -1407,6 +1488,17 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
           </div>
 
           <div className="flex items-center gap-2">
+            <div
+              className={`hidden sm:flex items-center gap-2 rounded-full border px-3 py-1 text-[10px] font-semibold transition-all ${
+                isSavePulseActive
+                  ? 'border-emerald-400/60 bg-emerald-500/15 text-emerald-200 shadow-[0_0_18px_rgba(52,211,153,0.25)]'
+                  : 'border-emerald-900/50 bg-emerald-500/5 text-emerald-400/80'
+              }`}
+              title={lastSavedAt ? `Last saved ${new Date(lastSavedAt).toLocaleTimeString()}` : 'Project saves locally automatically'}
+            >
+              <span className={`h-2 w-2 rounded-full ${isSavePulseActive ? 'bg-emerald-300' : 'bg-emerald-500/80'}`} />
+              <span>{lastSavedAt ? 'Saved locally' : 'Auto-saving locally'}</span>
+            </div>
             <button
               onClick={() => setStageZoom((prev) => clamp(prev - 0.1, 0.25, 2))}
               className="p-2 rounded-lg border border-slate-800 bg-slate-900 text-slate-300 hover:bg-slate-800 cursor-pointer"
@@ -1534,12 +1626,31 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
                           <div className={`absolute inset-0 rounded border-2 pointer-events-none ${item.locked ? 'border-amber-400' : 'border-orange-400'}`} />
                         )}
 
+                        {item.locked && (
+                          <div className="absolute -top-3 -left-3 px-1.5 py-1 rounded-full border border-amber-300/40 bg-amber-500/90 text-slate-950 shadow-lg shadow-amber-500/20 pointer-events-none">
+                            <Lock className="h-3 w-3" />
+                          </div>
+                        )}
+
                         {isSelected && !item.locked && (
-                          <button
-                            onPointerDown={(event) => beginResize(event, item)}
-                            className="absolute -right-3 -bottom-3 h-6 w-6 rounded-full border border-orange-200 bg-orange-400 shadow-lg cursor-nwse-resize"
-                            title="Resize item"
-                          />
+                          <>
+                            <div className="absolute left-1/2 -top-8 h-5 w-px -translate-x-1/2 bg-orange-300/60 pointer-events-none" />
+                            <button
+                              onPointerDown={(event) => beginRotate(event, item)}
+                              className="absolute left-1/2 -top-10 h-5 w-5 -translate-x-1/2 rounded-full border border-orange-200 bg-slate-950 text-orange-300 shadow-lg shadow-orange-500/10 cursor-alias"
+                              title="Rotate item"
+                            >
+                              <span className="block -translate-y-px text-[10px]">↻</span>
+                            </button>
+                            {TRANSFORM_HANDLE_POSITIONS.map((handle) => (
+                              <button
+                                key={`${item.id}-${handle.key}`}
+                                onPointerDown={(event) => beginScale(event, item)}
+                                className={`absolute h-3.5 w-3.5 rounded-sm border border-orange-200 bg-orange-400 shadow-lg shadow-orange-500/15 ${handle.className}`}
+                                title="Resize item"
+                              />
+                            ))}
+                          </>
                         )}
                       </div>
                     );
@@ -1966,107 +2077,6 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
                       />
                     </div>
 
-                    {selectedItem.kind === 'text' && (
-                      <div className="space-y-2 rounded-lg border border-slate-800 bg-slate-900/60 p-2.5">
-                        <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Text</div>
-                        <label className="space-y-1 block">
-                          <span className="text-[10px] text-slate-500">Content</span>
-                          <textarea
-                            value={selectedItem.text ?? 'Text'}
-                            onChange={(event) => updateSelectedItem((item) => ({ ...item, text: event.target.value }))}
-                            rows={3}
-                            className="w-full resize-y bg-slate-950 border border-slate-800 rounded-md px-2 py-1.5 text-[11px] text-slate-100 outline-none focus:border-orange-500"
-                          />
-                        </label>
-                        <div className="grid grid-cols-2 gap-2">
-                          <label className="space-y-1">
-                            <span className="text-[10px] text-slate-500">Font</span>
-                            <select
-                              value={selectedItem.fontFamily ?? 'Arial'}
-                              onChange={(event) => { void handleSelectedTextFontChange(event.target.value); }}
-                              className="w-full bg-slate-950 border border-slate-800 rounded-md px-2 py-1.5 text-[11px] text-slate-100 outline-none focus:border-orange-500"
-                            >
-                              <optgroup label="System">
-                                {SYSTEM_FONT_OPTIONS.map((font) => (
-                                  <option key={font} value={font}>{font}</option>
-                                ))}
-                              </optgroup>
-                              <optgroup label="Starter">
-                                {STARTER_FONT_OPTIONS.map((font) => (
-                                  <option key={font.family} value={font.family}>{font.label}</option>
-                                ))}
-                              </optgroup>
-                              {customFonts.length > 0 && (
-                                <optgroup label="Imported">
-                                  {customFonts.map((font) => (
-                                    <option key={font.id} value={font.family}>{font.family}</option>
-                                  ))}
-                                </optgroup>
-                              )}
-                            </select>
-                          </label>
-                          <label className="space-y-1">
-                            <span className="text-[10px] text-slate-500">Weight</span>
-                            <select
-                              value={selectedItem.fontWeight ?? 700}
-                              onChange={(event) => updateSelectedItem((item) => ({ ...item, fontWeight: Number(event.target.value) }))}
-                              className="w-full bg-slate-950 border border-slate-800 rounded-md px-2 py-1.5 text-[11px] text-slate-100 outline-none focus:border-orange-500"
-                            >
-                              <option value={400}>Regular</option>
-                              <option value={700}>Bold</option>
-                              <option value={900}>Black</option>
-                            </select>
-                          </label>
-                        </div>
-                        <button
-                          onClick={handleImportFontsRequest}
-                          className="w-full rounded-md border border-slate-800 bg-slate-950 px-2 py-1.5 text-[10px] font-semibold text-slate-200 flex items-center justify-center gap-1 cursor-pointer"
-                        >
-                          <Upload className="h-3 w-3" />
-                          <span>Import Fonts</span>
-                          {customFonts.length > 0 ? <span className="text-slate-500">({customFonts.length})</span> : null}
-                        </button>
-                        <div className="grid grid-cols-2 gap-2">
-                          <label className="space-y-1">
-                            <span className="text-[10px] text-slate-500">Text Color</span>
-                            <input
-                              type="color"
-                              value={selectedItem.textColor ?? '#ffffff'}
-                              onChange={(event) => updateSelectedItem((item) => ({ ...item, textColor: event.target.value }))}
-                              className="h-8 w-full rounded-md border border-slate-700 bg-transparent p-1"
-                            />
-                          </label>
-                          <label className="space-y-1">
-                            <span className="text-[10px] text-slate-500">Align</span>
-                            <select
-                              value={selectedItem.textAlign ?? 'center'}
-                              onChange={(event) => updateSelectedItem((item) => ({ ...item, textAlign: event.target.value as 'left' | 'center' | 'right' }))}
-                              className="w-full bg-slate-950 border border-slate-800 rounded-md px-2 py-1.5 text-[11px] text-slate-100 outline-none focus:border-orange-500"
-                            >
-                              <option value="left">Left</option>
-                              <option value="center">Center</option>
-                              <option value="right">Right</option>
-                            </select>
-                          </label>
-                        </div>
-                        <div className="space-y-1.5">
-                          <div className="flex items-center justify-between text-[11px] text-slate-300">
-                            <span>Font Size</span>
-                            <span className="font-mono text-orange-300">{Math.round(selectedItem.fontSize ?? 72)}px</span>
-                          </div>
-                          <input
-                            type="range"
-                            min="12"
-                            max="240"
-                            step="1"
-                            value={Math.round(selectedItem.fontSize ?? 72)}
-                            onChange={(event) => updateSelectedItem((item) => ({ ...item, fontSize: Number(event.target.value) }))}
-                            className="w-full accent-orange-500 cursor-pointer"
-                          />
-                        </div>
-                      </div>
-                    )}
-
                     {selectedItem.kind === 'shape' && (
                       <div className="space-y-2 rounded-lg border border-slate-800 bg-slate-900/60 p-2.5">
                         <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Shape</div>
@@ -2343,6 +2353,117 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
                 </div>
                 )}
               </section>
+
+              {selectedItem?.kind === 'text' && (
+                <section className="border-b border-slate-800">
+                  <button
+                    onClick={() => toggleSection('text')}
+                    className="w-full px-3 py-2 flex items-center justify-between text-left hover:bg-slate-900/60 transition-colors cursor-pointer"
+                  >
+                    <h3 className="text-[10px] font-bold uppercase tracking-[0.22em] text-slate-400">Text</h3>
+                    {collapsedSections.text ? <ChevronRight className="h-3.5 w-3.5 text-slate-500" /> : <ChevronDown className="h-3.5 w-3.5 text-slate-500" />}
+                  </button>
+                  {!collapsedSections.text && (
+                    <div className="px-3 pb-3 space-y-2.5">
+                      <label className="space-y-1 block">
+                        <span className="text-[10px] text-slate-500">Content</span>
+                        <textarea
+                          value={selectedItem.text ?? 'Text'}
+                          onChange={(event) => updateSelectedItem((item) => ({ ...item, text: event.target.value }))}
+                          rows={4}
+                          className="w-full resize-y bg-slate-950 border border-slate-800 rounded-md px-2 py-1.5 text-[11px] text-slate-100 outline-none focus:border-orange-500"
+                        />
+                      </label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <label className="space-y-1">
+                          <span className="text-[10px] text-slate-500">Font</span>
+                          <select
+                            value={selectedItem.fontFamily ?? 'Arial'}
+                            onChange={(event) => { void handleSelectedTextFontChange(event.target.value); }}
+                            className="w-full bg-slate-950 border border-slate-800 rounded-md px-2 py-1.5 text-[11px] text-slate-100 outline-none focus:border-orange-500"
+                          >
+                            <optgroup label="System">
+                              {SYSTEM_FONT_OPTIONS.map((font) => (
+                                <option key={font} value={font}>{font}</option>
+                              ))}
+                            </optgroup>
+                            <optgroup label="Starter">
+                              {STARTER_FONT_OPTIONS.map((font) => (
+                                <option key={font.family} value={font.family}>{font.label}</option>
+                              ))}
+                            </optgroup>
+                            {customFonts.length > 0 && (
+                              <optgroup label="Imported">
+                                {customFonts.map((font) => (
+                                  <option key={font.id} value={font.family}>{font.family}</option>
+                                ))}
+                              </optgroup>
+                            )}
+                          </select>
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[10px] text-slate-500">Weight</span>
+                          <select
+                            value={selectedItem.fontWeight ?? 700}
+                            onChange={(event) => updateSelectedItem((item) => ({ ...item, fontWeight: Number(event.target.value) }))}
+                            className="w-full bg-slate-950 border border-slate-800 rounded-md px-2 py-1.5 text-[11px] text-slate-100 outline-none focus:border-orange-500"
+                          >
+                            <option value={400}>Regular</option>
+                            <option value={700}>Bold</option>
+                            <option value={900}>Black</option>
+                          </select>
+                        </label>
+                      </div>
+                      <button
+                        onClick={handleImportFontsRequest}
+                        className="w-full rounded-md border border-slate-800 bg-slate-950 px-2 py-1.5 text-[10px] font-semibold text-slate-200 flex items-center justify-center gap-1 cursor-pointer"
+                      >
+                        <Upload className="h-3 w-3" />
+                        <span>Import Fonts</span>
+                        {customFonts.length > 0 ? <span className="text-slate-500">({customFonts.length})</span> : null}
+                      </button>
+                      <div className="grid grid-cols-2 gap-2">
+                        <label className="space-y-1">
+                          <span className="text-[10px] text-slate-500">Text Color</span>
+                          <input
+                            type="color"
+                            value={selectedItem.textColor ?? '#ffffff'}
+                            onChange={(event) => updateSelectedItem((item) => ({ ...item, textColor: event.target.value }))}
+                            className="h-8 w-full rounded-md border border-slate-700 bg-transparent p-1"
+                          />
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[10px] text-slate-500">Align</span>
+                          <select
+                            value={selectedItem.textAlign ?? 'center'}
+                            onChange={(event) => updateSelectedItem((item) => ({ ...item, textAlign: event.target.value as 'left' | 'center' | 'right' }))}
+                            className="w-full bg-slate-950 border border-slate-800 rounded-md px-2 py-1.5 text-[11px] text-slate-100 outline-none focus:border-orange-500"
+                          >
+                            <option value="left">Left</option>
+                            <option value="center">Center</option>
+                            <option value="right">Right</option>
+                          </select>
+                        </label>
+                      </div>
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between text-[11px] text-slate-300">
+                          <span>Font Size</span>
+                          <span className="font-mono text-orange-300">{Math.round(selectedItem.fontSize ?? 72)}px</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="12"
+                          max="240"
+                          step="1"
+                          value={Math.round(selectedItem.fontSize ?? 72)}
+                          onChange={(event) => updateSelectedItem((item) => ({ ...item, fontSize: Number(event.target.value) }))}
+                          className="w-full accent-orange-500 cursor-pointer"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </section>
+              )}
             </div>
           </aside>
         </div>
