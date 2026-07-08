@@ -40,6 +40,9 @@ const CANVAS_PRESETS = [
   { label: 'A4', width: 1240, height: 1754 },
 ];
 
+const MIN_CANVAS_DIMENSION = 64;
+const MAX_CANVAS_DIMENSION = 4000;
+
 type CollageStudioProps = {
   savedSegments: SavedSegment[];
   onClose: () => void;
@@ -188,6 +191,38 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
       return haystack.includes(normalizedQuery);
     });
   }, [savedSegments, sourceSearch]);
+
+  const contentExtents = useMemo(() => {
+    if (project.items.length === 0) {
+      return {
+        maxRight: project.width,
+        maxBottom: project.height,
+      };
+    }
+
+    let maxRight = 0;
+    let maxBottom = 0;
+
+    for (const item of project.items) {
+      if (!item.visible) {
+        continue;
+      }
+
+      const halfWidth = (item.originalWidth * item.scale) / 2;
+      const halfHeight = (item.originalHeight * item.scale) / 2;
+      const radians = (item.rotation * Math.PI) / 180;
+      const horizontalExtent = Math.abs(Math.cos(radians)) * halfWidth + Math.abs(Math.sin(radians)) * halfHeight;
+      const verticalExtent = Math.abs(Math.sin(radians)) * halfWidth + Math.abs(Math.cos(radians)) * halfHeight;
+
+      maxRight = Math.max(maxRight, item.x + horizontalExtent);
+      maxBottom = Math.max(maxBottom, item.y + verticalExtent);
+    }
+
+    return {
+      maxRight: Math.max(MIN_CANVAS_DIMENSION, Math.ceil(maxRight)),
+      maxBottom: Math.max(MIN_CANVAS_DIMENSION, Math.ceil(maxBottom)),
+    };
+  }, [project.height, project.items, project.width]);
 
   const toggleSection = (section: keyof typeof collapsedSections) => {
     setCollapsedSections((prev) => ({
@@ -702,6 +737,16 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
     imageImportInputRef.current?.click();
   };
 
+  const autoSizeCanvasDimension = (dimension: 'width' | 'height') => {
+    setProject((prev) => ({
+      ...prev,
+      updatedAt: Date.now(),
+      [dimension]: dimension === 'width'
+        ? clamp(contentExtents.maxRight, MIN_CANVAS_DIMENSION, MAX_CANVAS_DIMENSION)
+        : clamp(contentExtents.maxBottom, MIN_CANVAS_DIMENSION, MAX_CANVAS_DIMENSION),
+    }));
+  };
+
   const handleImportProjectFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) {
@@ -984,24 +1029,44 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
                 <div className="px-3 pb-3 space-y-2.5">
                 <div className="grid grid-cols-2 gap-2">
                   <label className="space-y-1">
-                    <span className="text-[10px] text-slate-500">Width</span>
+                    <span className="flex items-center justify-between gap-2 text-[10px] text-slate-500">
+                      <span>Width</span>
+                      <button
+                        type="button"
+                        onClick={() => autoSizeCanvasDimension('width')}
+                        disabled={project.items.length === 0}
+                        className="rounded border border-slate-800 bg-slate-950 px-1.5 py-0.5 text-[9px] font-semibold text-slate-300 hover:bg-slate-900 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                      >
+                        Auto
+                      </button>
+                    </span>
                     <input
                       type="number"
-                      min="64"
-                      max="4000"
+                      min={MIN_CANVAS_DIMENSION}
+                      max={MAX_CANVAS_DIMENSION}
                       value={project.width}
-                      onChange={(event) => setProject((prev) => ({ ...prev, width: Math.max(64, Number(event.target.value) || prev.width), updatedAt: Date.now() }))}
+                      onChange={(event) => setProject((prev) => ({ ...prev, width: Math.max(MIN_CANVAS_DIMENSION, Number(event.target.value) || prev.width), updatedAt: Date.now() }))}
                       className="w-full bg-slate-900 border border-slate-800 rounded-md px-2 py-1.5 text-[11px] text-slate-100 outline-none focus:border-orange-500"
                     />
                   </label>
                   <label className="space-y-1">
-                    <span className="text-[10px] text-slate-500">Height</span>
+                    <span className="flex items-center justify-between gap-2 text-[10px] text-slate-500">
+                      <span>Height</span>
+                      <button
+                        type="button"
+                        onClick={() => autoSizeCanvasDimension('height')}
+                        disabled={project.items.length === 0}
+                        className="rounded border border-slate-800 bg-slate-950 px-1.5 py-0.5 text-[9px] font-semibold text-slate-300 hover:bg-slate-900 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                      >
+                        Auto
+                      </button>
+                    </span>
                     <input
                       type="number"
-                      min="64"
-                      max="4000"
+                      min={MIN_CANVAS_DIMENSION}
+                      max={MAX_CANVAS_DIMENSION}
                       value={project.height}
-                      onChange={(event) => setProject((prev) => ({ ...prev, height: Math.max(64, Number(event.target.value) || prev.height), updatedAt: Date.now() }))}
+                      onChange={(event) => setProject((prev) => ({ ...prev, height: Math.max(MIN_CANVAS_DIMENSION, Number(event.target.value) || prev.height), updatedAt: Date.now() }))}
                       className="w-full bg-slate-900 border border-slate-800 rounded-md px-2 py-1.5 text-[11px] text-slate-100 outline-none focus:border-orange-500"
                     />
                   </label>
