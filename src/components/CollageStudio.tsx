@@ -170,6 +170,7 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
   });
   const projectImportInputRef = useRef<HTMLInputElement | null>(null);
   const imageImportInputRef = useRef<HTMLInputElement | null>(null);
+  const stageViewportRef = useRef<HTMLDivElement | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const interactionRef = useRef<InteractionState | null>(null);
 
@@ -759,6 +760,26 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
     imageImportInputRef.current?.click();
   };
 
+  const fitStageToViewport = () => {
+    const viewport = stageViewportRef.current;
+    if (!viewport) {
+      return;
+    }
+
+    const styles = window.getComputedStyle(viewport);
+    const availableWidth = viewport.clientWidth - parseFloat(styles.paddingLeft) - parseFloat(styles.paddingRight);
+    const availableHeight = viewport.clientHeight - parseFloat(styles.paddingTop) - parseFloat(styles.paddingBottom);
+    if (availableWidth <= 0 || availableHeight <= 0) {
+      return;
+    }
+
+    const fittedZoom = Math.min(
+      availableWidth / Math.max(1, project.width),
+      availableHeight / Math.max(1, project.height)
+    );
+    setStageZoom(clamp(fittedZoom, 0.25, 2));
+  };
+
   const autoSizeCanvasDimension = (dimension: 'width' | 'height') => {
     if (!contentBounds.hasVisibleItems) {
       return;
@@ -870,10 +891,11 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
               <ZoomIn className="h-4 w-4" />
             </button>
             <button
-              onClick={() => setStageZoom(1)}
+              onClick={fitStageToViewport}
               className="px-3 py-2 rounded-lg border border-slate-800 bg-slate-900 text-xs text-slate-300 hover:bg-slate-800 cursor-pointer"
+              title="Fit canvas to visible area"
             >
-              1:1
+              Fit
             </button>
             <button
               onClick={onClose}
@@ -886,7 +908,7 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
 
         <div className="flex-1 min-h-0 flex flex-col lg:flex-row overflow-hidden">
           <div className="flex-1 min-h-0 bg-slate-950 overflow-auto">
-            <div className="min-h-full min-w-full flex items-center justify-center p-4 md:p-8">
+            <div ref={stageViewportRef} className="min-h-full min-w-full flex items-center justify-center p-4 md:p-8">
               <div
                 className="relative shrink-0"
                 style={{
