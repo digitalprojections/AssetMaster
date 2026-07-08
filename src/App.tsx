@@ -23,6 +23,7 @@ import {
   Download,
   AlertCircle,
   Eye,
+  Heart,
   X,
   Layers,
   ChevronLeft,
@@ -1437,6 +1438,17 @@ export default function App() {
               className="hidden"
             />
           </label>
+
+          <a
+            href="https://buymeacoffee.com/ahmadfuzal"
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center space-x-1 rounded-lg border border-amber-700/50 bg-amber-500/12 hover:bg-amber-500/18 text-amber-200 px-2.5 py-2 text-[11px] font-semibold cursor-pointer transition-all"
+            title="Support on Buy Me a Coffee"
+          >
+            <Heart className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Donate</span>
+          </a>
 
           {/* Mobile settings toggle */}
           <button
