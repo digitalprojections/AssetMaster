@@ -83,9 +83,15 @@ export type CollageBackground = {
   color: string;
 };
 
+export type CollageItemKind = 'image' | 'text' | 'shape';
+export type CollageBlendMode = 'normal' | 'multiply' | 'screen' | 'overlay' | 'darken' | 'lighten';
+export type CollageTextAlign = 'left' | 'center' | 'right';
+export type CollageShapeKind = 'rectangle' | 'circle';
+
 export interface CollageItem {
   id: string;
   name: string;
+  kind?: CollageItemKind;
   sourceSegmentId?: string | null;
   thumbnailUrl: string;
   originalWidth: number;
@@ -99,6 +105,21 @@ export interface CollageItem {
   flipY: boolean;
   locked: boolean;
   visible: boolean;
+  blendMode?: CollageBlendMode;
+  brightness?: number;
+  contrast?: number;
+  saturation?: number;
+  hueRotate?: number;
+  text?: string;
+  textColor?: string;
+  fontSize?: number;
+  fontFamily?: string;
+  fontWeight?: number;
+  textAlign?: CollageTextAlign;
+  shapeKind?: CollageShapeKind;
+  fillColor?: string;
+  strokeColor?: string;
+  strokeWidth?: number;
 }
 
 export interface CollageProject {

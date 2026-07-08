@@ -6,6 +6,7 @@ import {
   ArrowDownToLine,
   ArrowUp,
   ArrowUpToLine,
+  Circle,
   ChevronDown,
   ChevronRight,
   Copy,
@@ -20,14 +21,23 @@ import {
   RotateCcw,
   Save,
   Search,
+  Square,
   Trash2,
+  Type,
   Unlock,
   Upload,
   X,
   ZoomIn,
   ZoomOut,
 } from 'lucide-react';
-import { CollageItem, CollageProject, CollageStudioProjectFile, SavedSegment } from '../types';
+import {
+  CollageBlendMode,
+  CollageItem,
+  CollageProject,
+  CollageShapeKind,
+  CollageStudioProjectFile,
+  SavedSegment,
+} from '../types';
 import { getIndexedDbRecord, setIndexedDbRecord } from '../utils/indexedDbStorage';
 import { buildSingleImagePdfBlob } from '../utils/pdfExport';
 
@@ -42,6 +52,16 @@ const CANVAS_PRESETS = [
 
 const MIN_CANVAS_DIMENSION = 64;
 const MAX_CANVAS_DIMENSION = 4000;
+const TEXT_LINE_HEIGHT = 1.2;
+const FONT_FAMILY_OPTIONS = ['Arial', 'Georgia', 'Courier New', 'Impact', 'Trebuchet MS'];
+const BLEND_MODE_OPTIONS: Array<{ value: CollageBlendMode; label: string }> = [
+  { value: 'normal', label: 'Normal' },
+  { value: 'multiply', label: 'Multiply' },
+  { value: 'screen', label: 'Screen' },
+  { value: 'overlay', label: 'Overlay' },
+  { value: 'darken', label: 'Darken' },
+  { value: 'lighten', label: 'Lighten' },
+];
 
 type CollageStudioProps = {
   savedSegments: SavedSegment[];
@@ -81,17 +101,97 @@ const createDefaultProject = (): CollageProject => ({
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
-const normalizeItem = (item: CollageItem): CollageItem => ({
-  ...item,
-  sourceSegmentId: item.sourceSegmentId ?? null,
-  scale: clamp(item.scale ?? 1, 0.05, 8),
-  rotation: item.rotation ?? 0,
-  opacity: clamp(item.opacity ?? 1, 0, 1),
-  flipX: Boolean(item.flipX),
-  flipY: Boolean(item.flipY),
-  locked: Boolean(item.locked),
-  visible: item.visible !== false,
-});
+const createLayerId = () => `collage-item-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
+const measureTextLayer = (text: string, fontSize: number, fontFamily: string, fontWeight: number) => {
+  const normalizedText = text.trim().length > 0 ? text : 'Text';
+  const lines = normalizedText.split('\n');
+
+  if (typeof document === 'undefined') {
+    return {
+      width: Math.max(80, Math.ceil(Math.max(...lines.map((line) => line.length), 1) * fontSize * 0.65)),
+      height: Math.max(fontSize * TEXT_LINE_HEIGHT, lines.length * fontSize * TEXT_LINE_HEIGHT),
+    };
+  }
+
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    return {
+      width: Math.max(80, Math.ceil(Math.max(...lines.map((line) => line.length), 1) * fontSize * 0.65)),
+      height: Math.max(fontSize * TEXT_LINE_HEIGHT, lines.length * fontSize * TEXT_LINE_HEIGHT),
+    };
+  }
+
+  ctx.font = `${fontWeight} ${fontSize}px ${fontFamily}`;
+  const widestLine = Math.max(...lines.map((line) => ctx.measureText(line || ' ').width), 0);
+  return {
+    width: Math.max(80, Math.ceil(widestLine + fontSize * 0.4)),
+    height: Math.max(Math.ceil(lines.length * fontSize * TEXT_LINE_HEIGHT + fontSize * 0.2), fontSize),
+  };
+};
+
+const getLayerFilterCss = (item: CollageItem) =>
+  `brightness(${item.brightness ?? 100}%) contrast(${item.contrast ?? 100}%) saturate(${item.saturation ?? 100}%) hue-rotate(${item.hueRotate ?? 0}deg)`;
+
+const getCanvasBlendMode = (blendMode: CollageBlendMode | undefined): GlobalCompositeOperation =>
+  blendMode && blendMode !== 'normal' ? blendMode : 'source-over';
+
+const getItemHalfExtents = (item: CollageItem) => {
+  const halfWidth = (item.originalWidth * item.scale) / 2;
+  const halfHeight = (item.originalHeight * item.scale) / 2;
+  const radians = (item.rotation * Math.PI) / 180;
+  return {
+    horizontalExtent: Math.abs(Math.cos(radians)) * halfWidth + Math.abs(Math.sin(radians)) * halfHeight,
+    verticalExtent: Math.abs(Math.sin(radians)) * halfWidth + Math.abs(Math.cos(radians)) * halfHeight,
+  };
+};
+
+const normalizeItem = (item: CollageItem): CollageItem => {
+  const normalized: CollageItem = {
+    ...item,
+    kind: item.kind ?? 'image',
+    sourceSegmentId: item.sourceSegmentId ?? null,
+    scale: clamp(item.scale ?? 1, 0.05, 8),
+    rotation: item.rotation ?? 0,
+    opacity: clamp(item.opacity ?? 1, 0, 1),
+    flipX: Boolean(item.flipX),
+    flipY: Boolean(item.flipY),
+    locked: Boolean(item.locked),
+    visible: item.visible !== false,
+    blendMode: item.blendMode ?? 'normal',
+    brightness: item.brightness ?? 100,
+    contrast: item.contrast ?? 100,
+    saturation: item.saturation ?? 100,
+    hueRotate: item.hueRotate ?? 0,
+    text: item.text ?? 'Text',
+    textColor: item.textColor ?? '#ffffff',
+    fontSize: item.fontSize ?? 72,
+    fontFamily: item.fontFamily ?? 'Arial',
+    fontWeight: item.fontWeight ?? 700,
+    textAlign: item.textAlign ?? 'center',
+    shapeKind: item.shapeKind ?? 'rectangle',
+    fillColor: item.fillColor ?? '#f59e0b',
+    strokeColor: item.strokeColor ?? '#ffffff',
+    strokeWidth: item.strokeWidth ?? 0,
+  };
+
+  if (normalized.kind === 'text') {
+    const metrics = measureTextLayer(
+      normalized.text ?? 'Text',
+      normalized.fontSize ?? 72,
+      normalized.fontFamily ?? 'Arial',
+      normalized.fontWeight ?? 700
+    );
+    return {
+      ...normalized,
+      originalWidth: metrics.width,
+      originalHeight: metrics.height,
+    };
+  }
+
+  return normalized;
+};
 
 const normalizeProject = (incoming: CollageProject): CollageProject => ({
   ...incoming,
@@ -288,7 +388,7 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
     }
 
     void setIndexedDbRecord<CollageStudioProjectFile>(COLLAGE_PROJECT_STORAGE_KEY, {
-      version: 1,
+      version: 2,
       exportedAt: Date.now(),
       project: normalizeProject(project),
       selectedItemId,
@@ -427,14 +527,30 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
   }, [selectedItem]);
 
   const buildProjectSnapshot = (): CollageStudioProjectFile => ({
-    version: 1,
+    version: 2,
     exportedAt: Date.now(),
     project: normalizeProject(project),
     selectedItemId,
     stageZoom,
   });
 
-  const buildProjectItem = (input: {
+  const getLayerPlacement = (layerWidth: number, layerHeight: number, scale: number, placementIndex: number) => {
+    const scaledWidth = layerWidth * scale;
+    const scaledHeight = layerHeight * scale;
+    const offsetStep = Math.max(24, Math.round(Math.min(project.width, project.height) * 0.035));
+    const columnCount = 3;
+    const column = placementIndex % columnCount;
+    const row = Math.floor(placementIndex / columnCount);
+    const rawX = Math.round(project.width / 2 + (column - 1) * offsetStep);
+    const rawY = Math.round(project.height / 2 + (row - 1) * offsetStep);
+
+    return {
+      x: clamp(rawX, Math.round(scaledWidth / 2), Math.max(Math.round(scaledWidth / 2), Math.round(project.width - (scaledWidth / 2)))),
+      y: clamp(rawY, Math.round(scaledHeight / 2), Math.max(Math.round(scaledHeight / 2), Math.round(project.height - (scaledHeight / 2)))),
+    };
+  };
+
+  const buildImageProjectItem = (input: {
     name: string;
     thumbnailUrl: string;
     originalWidth: number;
@@ -448,25 +564,19 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
       1
     );
     const normalizedScale = clamp(fitScale, 0.05, 8);
-    const scaledWidth = input.originalWidth * normalizedScale;
-    const scaledHeight = input.originalHeight * normalizedScale;
     const placementIndex = input.placementIndex ?? project.items.length;
-    const offsetStep = Math.max(24, Math.round(Math.min(project.width, project.height) * 0.035));
-    const columnCount = 3;
-    const column = placementIndex % columnCount;
-    const row = Math.floor(placementIndex / columnCount);
-    const rawX = Math.round(project.width / 2 + (column - 1) * offsetStep);
-    const rawY = Math.round(project.height / 2 + (row - 1) * offsetStep);
+    const placement = getLayerPlacement(input.originalWidth, input.originalHeight, normalizedScale, placementIndex);
 
     return {
-      id: `collage-item-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      id: createLayerId(),
+      kind: 'image',
       name: input.name,
       sourceSegmentId: input.sourceSegmentId ?? null,
       thumbnailUrl: input.thumbnailUrl,
       originalWidth: Math.max(1, input.originalWidth),
       originalHeight: Math.max(1, input.originalHeight),
-      x: clamp(rawX, Math.round(scaledWidth / 2), Math.max(Math.round(scaledWidth / 2), Math.round(project.width - (scaledWidth / 2)))),
-      y: clamp(rawY, Math.round(scaledHeight / 2), Math.max(Math.round(scaledHeight / 2), Math.round(project.height - (scaledHeight / 2)))),
+      x: placement.x,
+      y: placement.y,
       scale: normalizedScale,
       rotation: 0,
       opacity: 1,
@@ -474,11 +584,101 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
       flipY: false,
       locked: false,
       visible: true,
+      blendMode: 'normal',
+      brightness: 100,
+      contrast: 100,
+      saturation: 100,
+      hueRotate: 0,
     };
   };
 
+  const addTextLayer = () => {
+    const fontSize = 72;
+    const fontFamily = 'Arial';
+    const fontWeight = 700;
+    const text = 'New Text';
+    const metrics = measureTextLayer(text, fontSize, fontFamily, fontWeight);
+    const placement = getLayerPlacement(metrics.width, metrics.height, 1, project.items.length);
+    const newItem: CollageItem = {
+      id: createLayerId(),
+      kind: 'text',
+      name: `Text ${project.items.filter((item) => item.kind === 'text').length + 1}`,
+      sourceSegmentId: null,
+      thumbnailUrl: '',
+      originalWidth: metrics.width,
+      originalHeight: metrics.height,
+      x: placement.x,
+      y: placement.y,
+      scale: 1,
+      rotation: 0,
+      opacity: 1,
+      flipX: false,
+      flipY: false,
+      locked: false,
+      visible: true,
+      blendMode: 'normal',
+      brightness: 100,
+      contrast: 100,
+      saturation: 100,
+      hueRotate: 0,
+      text,
+      textColor: '#ffffff',
+      fontSize,
+      fontFamily,
+      fontWeight,
+      textAlign: 'center',
+    };
+
+    setProject((prev) => ({
+      ...prev,
+      updatedAt: Date.now(),
+      items: [...prev.items, newItem],
+    }));
+    setSelectedItemId(newItem.id);
+  };
+
+  const addShapeLayer = (shapeKind: CollageShapeKind) => {
+    const originalWidth = shapeKind === 'circle' ? 180 : 220;
+    const originalHeight = 180;
+    const placement = getLayerPlacement(originalWidth, originalHeight, 1, project.items.length);
+    const newItem: CollageItem = {
+      id: createLayerId(),
+      kind: 'shape',
+      name: `${shapeKind === 'circle' ? 'Circle' : 'Rectangle'} ${project.items.filter((item) => item.kind === 'shape').length + 1}`,
+      sourceSegmentId: null,
+      thumbnailUrl: '',
+      originalWidth,
+      originalHeight,
+      x: placement.x,
+      y: placement.y,
+      scale: 1,
+      rotation: 0,
+      opacity: 1,
+      flipX: false,
+      flipY: false,
+      locked: false,
+      visible: true,
+      blendMode: 'normal',
+      brightness: 100,
+      contrast: 100,
+      saturation: 100,
+      hueRotate: 0,
+      shapeKind,
+      fillColor: shapeKind === 'circle' ? '#38bdf8' : '#f59e0b',
+      strokeColor: '#ffffff',
+      strokeWidth: 0,
+    };
+
+    setProject((prev) => ({
+      ...prev,
+      updatedAt: Date.now(),
+      items: [...prev.items, newItem],
+    }));
+    setSelectedItemId(newItem.id);
+  };
+
   const addSegmentToProject = (segment: SavedSegment) => {
-    const newItem = buildProjectItem({
+    const newItem = buildImageProjectItem({
       name: segment.name.replace(/\.png$/i, ''),
       thumbnailUrl: segment.thumbnailUrl,
       originalWidth: Math.max(1, segment.bounds.width),
@@ -502,7 +702,7 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
     setProject((prev) => ({
       ...prev,
       updatedAt: Date.now(),
-      items: prev.items.map((item) => item.id === selectedItemId ? updater(item) : item),
+      items: prev.items.map((item) => item.id === selectedItemId ? normalizeItem(updater(item)) : item),
     }));
   };
 
@@ -513,7 +713,7 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
 
     const duplicate: CollageItem = {
       ...selectedItem,
-      id: `collage-item-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      id: createLayerId(),
       name: `${selectedItem.name} Copy`,
       x: clamp(selectedItem.x + 24, 0, project.width),
       y: clamp(selectedItem.y + 24, 0, project.height),
@@ -523,7 +723,7 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
     setProject((prev) => ({
       ...prev,
       updatedAt: Date.now(),
-      items: [...prev.items, duplicate],
+      items: [...prev.items, normalizeItem(duplicate)],
     }));
     setSelectedItemId(duplicate.id);
   };
@@ -685,20 +885,64 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
         continue;
       }
 
-      const img = await loadImageElement(item.thumbnailUrl);
       ctx.save();
       ctx.globalAlpha = item.opacity;
+      ctx.globalCompositeOperation = getCanvasBlendMode(item.blendMode);
+      ctx.filter = getLayerFilterCss(item);
       ctx.translate(item.x, item.y);
       ctx.rotate((item.rotation * Math.PI) / 180);
       ctx.scale(item.scale, item.scale);
       ctx.scale(item.flipX ? -1 : 1, item.flipY ? -1 : 1);
-      ctx.drawImage(
-        img,
-        -item.originalWidth / 2,
-        -item.originalHeight / 2,
-        item.originalWidth,
-        item.originalHeight
-      );
+
+      if (item.kind === 'text') {
+        const lines = (item.text?.trim().length ? item.text : 'Text').split('\n');
+        const fontSize = item.fontSize ?? 72;
+        ctx.font = `${item.fontWeight ?? 700} ${fontSize}px ${item.fontFamily ?? 'Arial'}`;
+        ctx.fillStyle = item.textColor ?? '#ffffff';
+        ctx.textBaseline = 'top';
+        ctx.textAlign = item.textAlign ?? 'center';
+
+        const anchorX = item.textAlign === 'left'
+          ? -item.originalWidth / 2
+          : item.textAlign === 'right'
+            ? item.originalWidth / 2
+            : 0;
+        const lineHeight = fontSize * TEXT_LINE_HEIGHT;
+        lines.forEach((line, index) => {
+          ctx.fillText(line || ' ', anchorX, -item.originalHeight / 2 + index * lineHeight);
+        });
+      } else if (item.kind === 'shape') {
+        ctx.fillStyle = item.fillColor ?? '#f59e0b';
+        ctx.strokeStyle = item.strokeColor ?? '#ffffff';
+        ctx.lineWidth = item.strokeWidth ?? 0;
+        const x = -item.originalWidth / 2;
+        const y = -item.originalHeight / 2;
+
+        if (item.shapeKind === 'circle') {
+          ctx.beginPath();
+          ctx.ellipse(0, 0, item.originalWidth / 2, item.originalHeight / 2, 0, 0, Math.PI * 2);
+          ctx.fill();
+          if ((item.strokeWidth ?? 0) > 0) {
+            ctx.stroke();
+          }
+        } else {
+          ctx.beginPath();
+          ctx.rect(x, y, item.originalWidth, item.originalHeight);
+          ctx.fill();
+          if ((item.strokeWidth ?? 0) > 0) {
+            ctx.stroke();
+          }
+        }
+      } else {
+        const img = await loadImageElement(item.thumbnailUrl);
+        ctx.drawImage(
+          img,
+          -item.originalWidth / 2,
+          -item.originalHeight / 2,
+          item.originalWidth,
+          item.originalHeight
+        );
+      }
       ctx.restore();
     }
 
@@ -837,7 +1081,7 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
       const importedItems = await Promise.all(files.map(async (file, index) => {
         const dataUrl = await readFileAsDataUrl(file);
         const image = await loadImageElement(dataUrl);
-        return buildProjectItem({
+        return buildImageProjectItem({
           name: file.name.replace(/\.[^.]+$/u, ''),
           thumbnailUrl: dataUrl,
           originalWidth: image.naturalWidth || image.width,
@@ -859,6 +1103,48 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
       event.target.value = '';
     }
   };
+
+  const renderLayerPreview = (item: CollageItem, sizeClassName: string) => {
+    if (item.kind === 'text') {
+      return (
+        <div
+          className={`${sizeClassName} flex items-center justify-center overflow-hidden rounded-md border border-slate-800 bg-slate-900 px-1 text-center text-[10px] font-semibold text-slate-100`}
+          style={{
+            color: item.textColor ?? '#ffffff',
+            fontFamily: item.fontFamily ?? 'Arial',
+            fontWeight: item.fontWeight ?? 700,
+          }}
+        >
+          {(item.text?.trim() || 'Text').slice(0, 2)}
+        </div>
+      );
+    }
+
+    if (item.kind === 'shape') {
+      return (
+        <div className={`${sizeClassName} flex items-center justify-center overflow-hidden rounded-md border border-slate-800 bg-slate-900`}>
+          <div
+            className={item.shapeKind === 'circle' ? 'rounded-full' : 'rounded-sm'}
+            style={{
+              width: '68%',
+              height: '68%',
+              backgroundColor: item.fillColor ?? '#f59e0b',
+              border: `${item.strokeWidth ?? 0}px solid ${item.strokeColor ?? '#ffffff'}`,
+            }}
+          />
+        </div>
+      );
+    }
+
+    return (
+      <div className={`${sizeClassName} shrink-0 rounded-md border border-slate-800 bg-checkerboard overflow-hidden flex items-center justify-center`}>
+        <img src={item.thumbnailUrl} alt={item.name} className="max-h-full max-w-full object-contain" />
+      </div>
+    );
+  };
+
+  const getLayerKindLabel = (item: CollageItem) =>
+    item.kind === 'text' ? 'Text Layer' : item.kind === 'shape' ? 'Shape Layer' : 'Image Layer';
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/95 backdrop-blur-md text-slate-100 flex items-center justify-center p-0 md:p-6">
@@ -955,19 +1241,48 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
                           transform: `translate(-50%, -50%) rotate(${item.rotation}deg) scale(${item.scale})`,
                           transformOrigin: 'center center',
                           opacity: item.opacity,
+                          filter: getLayerFilterCss(item),
+                          mixBlendMode: item.blendMode === 'normal' ? undefined : item.blendMode,
                           zIndex: isSelected ? project.items.length + 10 : undefined,
                           cursor: item.locked ? 'default' : 'move',
                         }}
                       >
-                        <img
-                          src={item.thumbnailUrl}
-                          alt={item.name}
-                          draggable={false}
-                          className="w-full h-full object-contain pointer-events-none select-none"
-                          style={{
-                            transform: `scaleX(${item.flipX ? -1 : 1}) scaleY(${item.flipY ? -1 : 1})`,
-                          }}
-                        />
+                        {item.kind === 'text' ? (
+                          <div
+                            className="w-full h-full pointer-events-none select-none whitespace-pre-wrap break-words"
+                            style={{
+                              transform: `scaleX(${item.flipX ? -1 : 1}) scaleY(${item.flipY ? -1 : 1})`,
+                              color: item.textColor ?? '#ffffff',
+                              fontSize: `${item.fontSize ?? 72}px`,
+                              fontFamily: item.fontFamily ?? 'Arial',
+                              fontWeight: item.fontWeight ?? 700,
+                              lineHeight: TEXT_LINE_HEIGHT,
+                              textAlign: item.textAlign ?? 'center',
+                            }}
+                          >
+                            {item.text?.trim().length ? item.text : 'Text'}
+                          </div>
+                        ) : item.kind === 'shape' ? (
+                          <div
+                            className={`w-full h-full pointer-events-none ${item.shapeKind === 'circle' ? 'rounded-full' : 'rounded-sm'}`}
+                            style={{
+                              transform: `scaleX(${item.flipX ? -1 : 1}) scaleY(${item.flipY ? -1 : 1})`,
+                              backgroundColor: item.fillColor ?? '#f59e0b',
+                              border: `${item.strokeWidth ?? 0}px solid ${item.strokeColor ?? '#ffffff'}`,
+                              boxSizing: 'border-box',
+                            }}
+                          />
+                        ) : (
+                          <img
+                            src={item.thumbnailUrl}
+                            alt={item.name}
+                            draggable={false}
+                            className="w-full h-full object-contain pointer-events-none select-none"
+                            style={{
+                              transform: `scaleX(${item.flipX ? -1 : 1}) scaleY(${item.flipY ? -1 : 1})`,
+                            }}
+                          />
+                        )}
 
                         {isSelected && (
                           <div className={`absolute inset-0 rounded border-2 pointer-events-none ${item.locked ? 'border-amber-400' : 'border-orange-400'}`} />
@@ -1073,6 +1388,30 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
                     >
                       <RotateCcw className="h-3 w-3" />
                       <span>Reset</span>
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      onClick={addTextLayer}
+                      className="py-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-200 text-[11px] font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <Type className="h-3 w-3" />
+                      <span>Text</span>
+                    </button>
+                    <button
+                      onClick={() => addShapeLayer('rectangle')}
+                      className="py-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-200 text-[11px] font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <Square className="h-3 w-3" />
+                      <span>Rect</span>
+                    </button>
+                    <button
+                      onClick={() => addShapeLayer('circle')}
+                      className="py-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-200 text-[11px] font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <Circle className="h-3 w-3" />
+                      <span>Circle</span>
                     </button>
                   </div>
                 </div>
@@ -1268,12 +1607,10 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
                               : 'border-slate-800 bg-slate-900/70 hover:border-slate-700'
                           }`}
                         >
-                          <div className="h-9 w-9 shrink-0 rounded-md border border-slate-800 bg-checkerboard overflow-hidden flex items-center justify-center">
-                            <img src={item.thumbnailUrl} alt={item.name} className="max-h-full max-w-full object-contain" />
-                          </div>
+                          {renderLayerPreview(item, 'h-9 w-9 shrink-0')}
                           <div className="min-w-0 flex-1">
                             <p className="text-[11px] font-semibold text-slate-200 truncate">{item.name}</p>
-                            <p className="text-[10px] text-slate-500">Layer {index + 1}</p>
+                            <p className="text-[10px] text-slate-500">{getLayerKindLabel(item)} • Layer {index + 1}</p>
                           </div>
                           <div className="flex items-center gap-1">
                             {item.locked ? <Lock className="h-3 w-3 text-amber-400" /> : null}
@@ -1305,13 +1642,11 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
                 ) : (
                   <div className="space-y-2.5">
                     <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-2.5 flex items-center gap-2">
-                      <div className="h-11 w-11 shrink-0 rounded-md border border-slate-800 bg-checkerboard overflow-hidden flex items-center justify-center">
-                        <img src={selectedItem.thumbnailUrl} alt={selectedItem.name} className="max-h-full max-w-full object-contain" />
-                      </div>
+                      {renderLayerPreview(selectedItem, 'h-11 w-11 shrink-0')}
                       <div className="min-w-0 flex-1">
                         <p className="text-xs font-semibold text-slate-100 truncate">{selectedItem.name}</p>
                         <p className="text-[10px] text-slate-500 font-mono">
-                          {selectedItem.originalWidth} x {selectedItem.originalHeight}
+                          {getLayerKindLabel(selectedItem)} • {selectedItem.originalWidth} x {selectedItem.originalHeight}
                         </p>
                       </div>
                     </div>
@@ -1383,6 +1718,239 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
                         onChange={(event) => updateSelectedItem((item) => ({ ...item, opacity: clamp(Number(event.target.value) / 100, 0, 1) }))}
                         className="w-full accent-orange-500 cursor-pointer"
                       />
+                    </div>
+
+                    {selectedItem.kind === 'text' && (
+                      <div className="space-y-2 rounded-lg border border-slate-800 bg-slate-900/60 p-2.5">
+                        <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Text</div>
+                        <label className="space-y-1 block">
+                          <span className="text-[10px] text-slate-500">Content</span>
+                          <textarea
+                            value={selectedItem.text ?? 'Text'}
+                            onChange={(event) => updateSelectedItem((item) => ({ ...item, text: event.target.value }))}
+                            rows={3}
+                            className="w-full resize-y bg-slate-950 border border-slate-800 rounded-md px-2 py-1.5 text-[11px] text-slate-100 outline-none focus:border-orange-500"
+                          />
+                        </label>
+                        <div className="grid grid-cols-2 gap-2">
+                          <label className="space-y-1">
+                            <span className="text-[10px] text-slate-500">Font</span>
+                            <select
+                              value={selectedItem.fontFamily ?? 'Arial'}
+                              onChange={(event) => updateSelectedItem((item) => ({ ...item, fontFamily: event.target.value }))}
+                              className="w-full bg-slate-950 border border-slate-800 rounded-md px-2 py-1.5 text-[11px] text-slate-100 outline-none focus:border-orange-500"
+                            >
+                              {FONT_FAMILY_OPTIONS.map((font) => (
+                                <option key={font} value={font}>{font}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="space-y-1">
+                            <span className="text-[10px] text-slate-500">Weight</span>
+                            <select
+                              value={selectedItem.fontWeight ?? 700}
+                              onChange={(event) => updateSelectedItem((item) => ({ ...item, fontWeight: Number(event.target.value) }))}
+                              className="w-full bg-slate-950 border border-slate-800 rounded-md px-2 py-1.5 text-[11px] text-slate-100 outline-none focus:border-orange-500"
+                            >
+                              <option value={400}>Regular</option>
+                              <option value={700}>Bold</option>
+                              <option value={900}>Black</option>
+                            </select>
+                          </label>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <label className="space-y-1">
+                            <span className="text-[10px] text-slate-500">Text Color</span>
+                            <input
+                              type="color"
+                              value={selectedItem.textColor ?? '#ffffff'}
+                              onChange={(event) => updateSelectedItem((item) => ({ ...item, textColor: event.target.value }))}
+                              className="h-8 w-full rounded-md border border-slate-700 bg-transparent p-1"
+                            />
+                          </label>
+                          <label className="space-y-1">
+                            <span className="text-[10px] text-slate-500">Align</span>
+                            <select
+                              value={selectedItem.textAlign ?? 'center'}
+                              onChange={(event) => updateSelectedItem((item) => ({ ...item, textAlign: event.target.value as 'left' | 'center' | 'right' }))}
+                              className="w-full bg-slate-950 border border-slate-800 rounded-md px-2 py-1.5 text-[11px] text-slate-100 outline-none focus:border-orange-500"
+                            >
+                              <option value="left">Left</option>
+                              <option value="center">Center</option>
+                              <option value="right">Right</option>
+                            </select>
+                          </label>
+                        </div>
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between text-[11px] text-slate-300">
+                            <span>Font Size</span>
+                            <span className="font-mono text-orange-300">{Math.round(selectedItem.fontSize ?? 72)}px</span>
+                          </div>
+                          <input
+                            type="range"
+                            min="12"
+                            max="240"
+                            step="1"
+                            value={Math.round(selectedItem.fontSize ?? 72)}
+                            onChange={(event) => updateSelectedItem((item) => ({ ...item, fontSize: Number(event.target.value) }))}
+                            className="w-full accent-orange-500 cursor-pointer"
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {selectedItem.kind === 'shape' && (
+                      <div className="space-y-2 rounded-lg border border-slate-800 bg-slate-900/60 p-2.5">
+                        <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Shape</div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <label className="space-y-1">
+                            <span className="text-[10px] text-slate-500">Type</span>
+                            <select
+                              value={selectedItem.shapeKind ?? 'rectangle'}
+                              onChange={(event) => updateSelectedItem((item) => ({ ...item, shapeKind: event.target.value as CollageShapeKind }))}
+                              className="w-full bg-slate-950 border border-slate-800 rounded-md px-2 py-1.5 text-[11px] text-slate-100 outline-none focus:border-orange-500"
+                            >
+                              <option value="rectangle">Rectangle</option>
+                              <option value="circle">Circle</option>
+                            </select>
+                          </label>
+                          <label className="space-y-1">
+                            <span className="text-[10px] text-slate-500">Stroke</span>
+                            <input
+                              type="number"
+                              min="0"
+                              max="48"
+                              value={Math.round(selectedItem.strokeWidth ?? 0)}
+                              onChange={(event) => updateSelectedItem((item) => ({ ...item, strokeWidth: Math.max(0, Number(event.target.value) || 0) }))}
+                              className="w-full bg-slate-950 border border-slate-800 rounded-md px-2 py-1.5 text-[11px] text-slate-100 outline-none focus:border-orange-500"
+                            />
+                          </label>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <label className="space-y-1">
+                            <span className="text-[10px] text-slate-500">Width</span>
+                            <input
+                              type="number"
+                              min="16"
+                              max="4000"
+                              value={Math.round(selectedItem.originalWidth)}
+                              onChange={(event) => updateSelectedItem((item) => ({ ...item, originalWidth: Math.max(16, Number(event.target.value) || item.originalWidth) }))}
+                              className="w-full bg-slate-950 border border-slate-800 rounded-md px-2 py-1.5 text-[11px] text-slate-100 outline-none focus:border-orange-500"
+                            />
+                          </label>
+                          <label className="space-y-1">
+                            <span className="text-[10px] text-slate-500">Height</span>
+                            <input
+                              type="number"
+                              min="16"
+                              max="4000"
+                              value={Math.round(selectedItem.originalHeight)}
+                              onChange={(event) => updateSelectedItem((item) => ({ ...item, originalHeight: Math.max(16, Number(event.target.value) || item.originalHeight) }))}
+                              className="w-full bg-slate-950 border border-slate-800 rounded-md px-2 py-1.5 text-[11px] text-slate-100 outline-none focus:border-orange-500"
+                            />
+                          </label>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <label className="space-y-1">
+                            <span className="text-[10px] text-slate-500">Fill</span>
+                            <input
+                              type="color"
+                              value={selectedItem.fillColor ?? '#f59e0b'}
+                              onChange={(event) => updateSelectedItem((item) => ({ ...item, fillColor: event.target.value }))}
+                              className="h-8 w-full rounded-md border border-slate-700 bg-transparent p-1"
+                            />
+                          </label>
+                          <label className="space-y-1">
+                            <span className="text-[10px] text-slate-500">Stroke Color</span>
+                            <input
+                              type="color"
+                              value={selectedItem.strokeColor ?? '#ffffff'}
+                              onChange={(event) => updateSelectedItem((item) => ({ ...item, strokeColor: event.target.value }))}
+                              className="h-8 w-full rounded-md border border-slate-700 bg-transparent p-1"
+                            />
+                          </label>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="space-y-2 rounded-lg border border-slate-800 bg-slate-900/60 p-2.5">
+                      <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Layer Style</div>
+                      <label className="space-y-1 block">
+                        <span className="text-[10px] text-slate-500">Blend Mode</span>
+                        <select
+                          value={selectedItem.blendMode ?? 'normal'}
+                          onChange={(event) => updateSelectedItem((item) => ({ ...item, blendMode: event.target.value as CollageBlendMode }))}
+                          className="w-full bg-slate-950 border border-slate-800 rounded-md px-2 py-1.5 text-[11px] text-slate-100 outline-none focus:border-orange-500"
+                        >
+                          {BLEND_MODE_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
+                          ))}
+                        </select>
+                      </label>
+
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between text-[11px] text-slate-300">
+                          <span>Brightness</span>
+                          <span className="font-mono text-orange-300">{Math.round(selectedItem.brightness ?? 100)}%</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0"
+                          max="200"
+                          step="1"
+                          value={Math.round(selectedItem.brightness ?? 100)}
+                          onChange={(event) => updateSelectedItem((item) => ({ ...item, brightness: Number(event.target.value) }))}
+                          className="w-full accent-orange-500 cursor-pointer"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between text-[11px] text-slate-300">
+                          <span>Contrast</span>
+                          <span className="font-mono text-orange-300">{Math.round(selectedItem.contrast ?? 100)}%</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0"
+                          max="200"
+                          step="1"
+                          value={Math.round(selectedItem.contrast ?? 100)}
+                          onChange={(event) => updateSelectedItem((item) => ({ ...item, contrast: Number(event.target.value) }))}
+                          className="w-full accent-orange-500 cursor-pointer"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between text-[11px] text-slate-300">
+                          <span>Saturation</span>
+                          <span className="font-mono text-orange-300">{Math.round(selectedItem.saturation ?? 100)}%</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0"
+                          max="200"
+                          step="1"
+                          value={Math.round(selectedItem.saturation ?? 100)}
+                          onChange={(event) => updateSelectedItem((item) => ({ ...item, saturation: Number(event.target.value) }))}
+                          className="w-full accent-orange-500 cursor-pointer"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between text-[11px] text-slate-300">
+                          <span>Hue</span>
+                          <span className="font-mono text-orange-300">{Math.round(selectedItem.hueRotate ?? 0)}deg</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="-180"
+                          max="180"
+                          step="1"
+                          value={Math.round(selectedItem.hueRotate ?? 0)}
+                          onChange={(event) => updateSelectedItem((item) => ({ ...item, hueRotate: Number(event.target.value) }))}
+                          className="w-full accent-orange-500 cursor-pointer"
+                        />
+                      </div>
                     </div>
 
                     <div className="grid grid-cols-2 gap-2">
@@ -1476,7 +2044,19 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
                         <span>Duplicate</span>
                       </button>
                       <button
-                        onClick={() => updateSelectedItem((item) => ({ ...item, rotation: 0, scale: 1, opacity: 1, flipX: false, flipY: false }))}
+                        onClick={() => updateSelectedItem((item) => ({
+                          ...item,
+                          rotation: 0,
+                          scale: 1,
+                          opacity: 1,
+                          flipX: false,
+                          flipY: false,
+                          blendMode: 'normal',
+                          brightness: 100,
+                          contrast: 100,
+                          saturation: 100,
+                          hueRotate: 0,
+                        }))}
                         className="rounded-md border border-slate-800 bg-slate-900 px-2 py-1.5 text-[10px] font-semibold text-slate-200 flex items-center justify-center gap-1 cursor-pointer"
                       >
                         <RotateCcw className="h-3 w-3" />
