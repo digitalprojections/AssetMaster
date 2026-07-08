@@ -193,35 +193,56 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
     });
   }, [savedSegments, sourceSearch]);
 
-  const contentExtents = useMemo(() => {
-    if (project.items.length === 0) {
-      return {
-        maxRight: project.width,
-        maxBottom: project.height,
-      };
-    }
-
-    let maxRight = 0;
-    let maxBottom = 0;
+  const contentBounds = useMemo(() => {
+    let minLeft = Number.POSITIVE_INFINITY;
+    let minTop = Number.POSITIVE_INFINITY;
+    let maxRight = Number.NEGATIVE_INFINITY;
+    let maxBottom = Number.NEGATIVE_INFINITY;
+    let visibleItemCount = 0;
 
     for (const item of project.items) {
       if (!item.visible) {
         continue;
       }
 
+      visibleItemCount += 1;
       const halfWidth = (item.originalWidth * item.scale) / 2;
       const halfHeight = (item.originalHeight * item.scale) / 2;
       const radians = (item.rotation * Math.PI) / 180;
       const horizontalExtent = Math.abs(Math.cos(radians)) * halfWidth + Math.abs(Math.sin(radians)) * halfHeight;
       const verticalExtent = Math.abs(Math.sin(radians)) * halfWidth + Math.abs(Math.cos(radians)) * halfHeight;
 
+      minLeft = Math.min(minLeft, item.x - horizontalExtent);
+      minTop = Math.min(minTop, item.y - verticalExtent);
       maxRight = Math.max(maxRight, item.x + horizontalExtent);
       maxBottom = Math.max(maxBottom, item.y + verticalExtent);
     }
 
+    if (visibleItemCount === 0) {
+      return {
+        hasVisibleItems: false,
+        minLeft: 0,
+        minTop: 0,
+        maxRight: project.width,
+        maxBottom: project.height,
+        width: project.width,
+        height: project.height,
+      };
+    }
+
+    const normalizedMinLeft = Math.floor(minLeft);
+    const normalizedMinTop = Math.floor(minTop);
+    const normalizedMaxRight = Math.ceil(maxRight);
+    const normalizedMaxBottom = Math.ceil(maxBottom);
+
     return {
-      maxRight: Math.max(MIN_CANVAS_DIMENSION, Math.ceil(maxRight)),
-      maxBottom: Math.max(MIN_CANVAS_DIMENSION, Math.ceil(maxBottom)),
+      hasVisibleItems: true,
+      minLeft: normalizedMinLeft,
+      minTop: normalizedMinTop,
+      maxRight: normalizedMaxRight,
+      maxBottom: normalizedMaxBottom,
+      width: Math.max(MIN_CANVAS_DIMENSION, normalizedMaxRight - normalizedMinLeft),
+      height: Math.max(MIN_CANVAS_DIMENSION, normalizedMaxBottom - normalizedMinTop),
     };
   }, [project.height, project.items, project.width]);
 
@@ -739,12 +760,21 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
   };
 
   const autoSizeCanvasDimension = (dimension: 'width' | 'height') => {
+    if (!contentBounds.hasVisibleItems) {
+      return;
+    }
+
     setProject((prev) => ({
       ...prev,
       updatedAt: Date.now(),
       [dimension]: dimension === 'width'
-        ? clamp(contentExtents.maxRight, MIN_CANVAS_DIMENSION, MAX_CANVAS_DIMENSION)
-        : clamp(contentExtents.maxBottom, MIN_CANVAS_DIMENSION, MAX_CANVAS_DIMENSION),
+        ? clamp(contentBounds.width, MIN_CANVAS_DIMENSION, MAX_CANVAS_DIMENSION)
+        : clamp(contentBounds.height, MIN_CANVAS_DIMENSION, MAX_CANVAS_DIMENSION),
+      items: prev.items.map((item) => ({
+        ...item,
+        x: dimension === 'width' ? item.x - contentBounds.minLeft : item.x,
+        y: dimension === 'height' ? item.y - contentBounds.minTop : item.y,
+      })),
     }));
   };
 
@@ -1045,7 +1075,7 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
                       <button
                         type="button"
                         onClick={() => autoSizeCanvasDimension('width')}
-                        disabled={project.items.length === 0}
+                        disabled={!contentBounds.hasVisibleItems}
                         className="rounded border border-slate-800 bg-slate-950 px-1.5 py-0.5 text-[9px] font-semibold text-slate-300 hover:bg-slate-900 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                       >
                         Auto
@@ -1066,7 +1096,7 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
                       <button
                         type="button"
                         onClick={() => autoSizeCanvasDimension('height')}
-                        disabled={project.items.length === 0}
+                        disabled={!contentBounds.hasVisibleItems}
                         className="rounded border border-slate-800 bg-slate-950 px-1.5 py-0.5 text-[9px] font-semibold text-slate-300 hover:bg-slate-900 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                       >
                         Auto
