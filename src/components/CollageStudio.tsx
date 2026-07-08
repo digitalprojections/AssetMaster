@@ -296,6 +296,19 @@ const downloadJsonFile = (filename: string, payload: unknown) => {
   downloadBlob(filename, blob);
 };
 
+const serializeSaveSignature = (payload: {
+  project: CollageProject;
+  selectedItemId: string | null;
+  stageZoom: number;
+}) => JSON.stringify({
+  selectedItemId: payload.selectedItemId,
+  stageZoom: payload.stageZoom,
+  project: {
+    ...payload.project,
+    updatedAt: undefined,
+  },
+});
+
 export default function CollageStudio({ savedSegments, onClose }: CollageStudioProps) {
   const [project, setProject] = useState<CollageProject>(createDefaultProject);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
@@ -305,7 +318,7 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
   const [isExporting, setIsExporting] = useState<boolean>(false);
   const [customFonts, setCustomFonts] = useState<StoredFontRecord[]>([]);
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
-  const [isSavePulseActive, setIsSavePulseActive] = useState<boolean>(false);
+  const [isSaveNoticeVisible, setIsSaveNoticeVisible] = useState<boolean>(false);
   const [collapsedSections, setCollapsedSections] = useState({
     project: false,
     canvas: false,
@@ -322,6 +335,9 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
   const interactionRef = useRef<InteractionState | null>(null);
   const fontLoadPromisesRef = useRef<Map<string, Promise<void>>>(new Map());
   const registeredFontFamiliesRef = useRef<Set<string>>(new Set());
+  const pendingSaveTimeoutRef = useRef<number | null>(null);
+  const saveNoticeTimeoutRef = useRef<number | null>(null);
+  const lastPersistedSignatureRef = useRef<string | null>(null);
 
   const selectedItem = useMemo(
     () => project.items.find((item) => item.id === selectedItemId) ?? null,
@@ -492,12 +508,27 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
       try {
         const stored = await getIndexedDbRecord<CollageStudioProjectFile>(COLLAGE_PROJECT_STORAGE_KEY);
         if (!stored || cancelled) {
+          lastPersistedSignatureRef.current = serializeSaveSignature({
+            project: createDefaultProject(),
+            selectedItemId: null,
+            stageZoom: 0.7,
+          });
           return;
         }
 
-        setProject(normalizeProject(stored.project));
-        setSelectedItemId(stored.selectedItemId ?? null);
-        setStageZoom(clamp(stored.stageZoom ?? 0.7, 0.25, 2));
+        const hydratedProject = normalizeProject(stored.project);
+        const hydratedSelectedItemId = stored.selectedItemId ?? null;
+        const hydratedStageZoom = clamp(stored.stageZoom ?? 0.7, 0.25, 2);
+
+        lastPersistedSignatureRef.current = serializeSaveSignature({
+          project: hydratedProject,
+          selectedItemId: hydratedSelectedItemId,
+          stageZoom: hydratedStageZoom,
+        });
+
+        setProject(hydratedProject);
+        setSelectedItemId(hydratedSelectedItemId);
+        setStageZoom(hydratedStageZoom);
       } catch (error) {
         console.error('Failed to read collage project from IndexedDB', error);
       } finally {
@@ -528,19 +559,49 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
       return;
     }
 
-    void setIndexedDbRecord<CollageStudioProjectFile>(COLLAGE_PROJECT_STORAGE_KEY, {
-      version: 2,
-      exportedAt: Date.now(),
-      project: normalizeProject(project),
+    const normalizedProject = normalizeProject(project);
+    const nextSignature = serializeSaveSignature({
+      project: normalizedProject,
       selectedItemId,
       stageZoom,
-    })
-      .then(() => {
-        setLastSavedAt(Date.now());
+    });
+
+    if (nextSignature === lastPersistedSignatureRef.current) {
+      return;
+    }
+
+    if (pendingSaveTimeoutRef.current) {
+      window.clearTimeout(pendingSaveTimeoutRef.current);
+    }
+
+    pendingSaveTimeoutRef.current = window.setTimeout(() => {
+      void setIndexedDbRecord<CollageStudioProjectFile>(COLLAGE_PROJECT_STORAGE_KEY, {
+        version: 2,
+        exportedAt: Date.now(),
+        project: normalizedProject,
+        selectedItemId,
+        stageZoom,
       })
-      .catch((error) => {
-        console.error('Failed to persist collage project', error);
-      });
+        .then(() => {
+          lastPersistedSignatureRef.current = nextSignature;
+          const savedAt = Date.now();
+          setLastSavedAt(savedAt);
+          setIsSaveNoticeVisible(true);
+        })
+        .catch((error) => {
+          console.error('Failed to persist collage project', error);
+        })
+        .finally(() => {
+          pendingSaveTimeoutRef.current = null;
+        });
+    }, 700);
+
+    return () => {
+      if (pendingSaveTimeoutRef.current) {
+        window.clearTimeout(pendingSaveTimeoutRef.current);
+        pendingSaveTimeoutRef.current = null;
+      }
+    };
   }, [isProjectHydrated, project, selectedItemId, stageZoom]);
 
   useEffect(() => {
@@ -559,23 +620,28 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
       return;
     }
 
-    setIsSavePulseActive(true);
-    const timeoutId = window.setTimeout(() => setIsSavePulseActive(false), 2200);
+    if (saveNoticeTimeoutRef.current) {
+      window.clearTimeout(saveNoticeTimeoutRef.current);
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setIsSaveNoticeVisible(false);
+      saveNoticeTimeoutRef.current = null;
+    }, 2200);
+    saveNoticeTimeoutRef.current = timeoutId;
     return () => window.clearTimeout(timeoutId);
   }, [lastSavedAt]);
 
   useEffect(() => {
-    if (!lastSavedAt) {
-      return;
-    }
-
-    const intervalId = window.setInterval(() => {
-      setIsSavePulseActive(true);
-      window.setTimeout(() => setIsSavePulseActive(false), 1800);
-    }, 12000);
-
-    return () => window.clearInterval(intervalId);
-  }, [lastSavedAt]);
+    return () => {
+      if (pendingSaveTimeoutRef.current) {
+        window.clearTimeout(pendingSaveTimeoutRef.current);
+      }
+      if (saveNoticeTimeoutRef.current) {
+        window.clearTimeout(saveNoticeTimeoutRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const textItems = project.items.filter((item) => item.kind === 'text' && item.visible !== false);
@@ -1488,17 +1554,15 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
           </div>
 
           <div className="flex items-center gap-2">
-            <div
-              className={`hidden sm:flex items-center gap-2 rounded-full border px-3 py-1 text-[10px] font-semibold transition-all ${
-                isSavePulseActive
-                  ? 'border-emerald-400/60 bg-emerald-500/15 text-emerald-200 shadow-[0_0_18px_rgba(52,211,153,0.25)]'
-                  : 'border-emerald-900/50 bg-emerald-500/5 text-emerald-400/80'
-              }`}
-              title={lastSavedAt ? `Last saved ${new Date(lastSavedAt).toLocaleTimeString()}` : 'Project saves locally automatically'}
-            >
-              <span className={`h-2 w-2 rounded-full ${isSavePulseActive ? 'bg-emerald-300' : 'bg-emerald-500/80'}`} />
-              <span>{lastSavedAt ? 'Saved locally' : 'Auto-saving locally'}</span>
-            </div>
+            {isSaveNoticeVisible && lastSavedAt ? (
+              <div
+                className="hidden sm:flex items-center gap-2 rounded-full border border-emerald-400/60 bg-emerald-500/15 px-3 py-1 text-[10px] font-semibold text-emerald-200 shadow-[0_0_18px_rgba(52,211,153,0.25)] transition-all"
+                title={`Last saved ${new Date(lastSavedAt).toLocaleTimeString()}`}
+              >
+                <span className="h-2 w-2 rounded-full bg-emerald-300" />
+                <span>Saved locally</span>
+              </div>
+            ) : null}
             <button
               onClick={() => setStageZoom((prev) => clamp(prev - 0.1, 0.25, 2))}
               className="p-2 rounded-lg border border-slate-800 bg-slate-900 text-slate-300 hover:bg-slate-800 cursor-pointer"
