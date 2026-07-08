@@ -9,10 +9,11 @@ import {
   Check,
   RotateCcw,
   Sparkles,
-  MousePointer,
   Eye,
   Settings,
-  Grid
+  Grid,
+  Minus,
+  Plus
 } from 'lucide-react';
 
 interface BackgroundRemoverProps {
@@ -37,9 +38,14 @@ type EdgeKeyDetection = {
   point: PixelPoint | null;
 };
 
+const ZOOM_MIN = 1;
+const ZOOM_MAX = 12;
+const ZOOM_STEP = 0.25;
+
 export default function BackgroundRemover({ segment, onSave, onClose }: BackgroundRemoverProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const magicBrushColorRef = useRef<RgbColor | null>(null);
   
   // Undo history of base64 states
   const [history, setHistory] = useState<string[]>([]);
@@ -47,15 +53,18 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
 
   // Active tool state
   const [activeTool, setActiveTool] = useState<'magic-wand' | 'eraser' | 'shave'>('magic-wand');
+  const [eraserMode, setEraserMode] = useState<'manual' | 'color-match'>('manual');
 
   // Parameters
   const [magicTolerance, setMagicTolerance] = useState<number>(30);
+  const [magicBrushSize, setMagicBrushSize] = useState<number>(10);
   const [brushSize, setBrushSize] = useState<number>(16);
   const [shaveWidth, setShaveWidth] = useState<number>(1);
   const [isContiguous, setIsContiguous] = useState<boolean>(true);
 
   // Eye-dropper/wand picked color
   const [pickedColor, setPickedColor] = useState<RgbColor | null>(null);
+  const [previewColor, setPreviewColor] = useState<RgbColor | null>(null);
   const [pickedPoint, setPickedPoint] = useState<PixelPoint | null>(null);
   const [edgeSeedPoint, setEdgeSeedPoint] = useState<PixelPoint | null>(null);
   const [manualKeyColor, setManualKeyColor] = useState<string>('#ffffff');
@@ -67,6 +76,8 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
 
   // Canvas context and image load state
   const [canvasSize, setCanvasSize] = useState({ width: segment.bounds.width, height: segment.bounds.height });
+  const [viewZoom, setViewZoom] = useState<number>(1);
+  const [workspaceSize, setWorkspaceSize] = useState({ width: 0, height: 0 });
 
   // Responsive controls state
   const [isControlsOpen, setIsControlsOpen] = useState<boolean>(true);
@@ -75,6 +86,52 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
     if (window.innerWidth < 768) {
       setIsControlsOpen(false);
     }
+  }, []);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const updateWorkspaceSize = () => {
+      setWorkspaceSize({
+        width: container.clientWidth,
+        height: container.clientHeight,
+      });
+    };
+
+    updateWorkspaceSize();
+
+    const observer = typeof ResizeObserver !== 'undefined'
+      ? new ResizeObserver(updateWorkspaceSize)
+      : null;
+
+    observer?.observe(container);
+    window.addEventListener('resize', updateWorkspaceSize);
+
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', updateWorkspaceSize);
+    };
+  }, []);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const handleWheel = (event: WheelEvent) => {
+      if (event.deltaY === 0) {
+        return;
+      }
+
+      event.preventDefault();
+      setViewZoom((prev) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round((prev + (event.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP)) * 100) / 100)));
+    };
+
+    container.addEventListener('wheel', handleWheel, { passive: false });
+
+    return () => {
+      container.removeEventListener('wheel', handleWheel);
+    };
   }, []);
 
   const rgbToHex = (color: RgbColor) => `#${[color.r, color.g, color.b]
@@ -92,6 +149,37 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
       g: parseInt(safeHex.slice(2, 4), 16),
       b: parseInt(safeHex.slice(4, 6), 16),
     };
+  };
+
+  const clampZoom = (value: number) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round(value * 100) / 100));
+
+  const getCanvasPoint = (clientX: number, clientY: number): PixelPoint | null => {
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
+
+    const rect = canvas.getBoundingClientRect();
+    const x = Math.floor(((clientX - rect.left) / rect.width) * canvas.width);
+    const y = Math.floor(((clientY - rect.top) / rect.height) * canvas.height);
+
+    if (x < 0 || x >= canvas.width || y < 0 || y >= canvas.height) {
+      return null;
+    }
+
+    return { x, y };
+  };
+
+  const samplePixelAtPoint = (point: PixelPoint) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+
+    if (point.x >= 0 && point.x < canvas.width && point.y >= 0 && point.y < canvas.height) {
+      const pixel = ctx.getImageData(point.x, point.y, 1, 1).data;
+      return { r: pixel[0], g: pixel[1], b: pixel[2], a: pixel[3] };
+    }
+
+    return null;
   };
 
   const detectEdgeKeyColor = (imageUrl: string): Promise<EdgeKeyDetection | null> => {
@@ -174,15 +262,12 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    if (pickedColor) {
-      const currentURL = canvas.toDataURL('image/png');
-      setHistory((prev) => [...prev, baseImage]);
-      setBaseImage(currentURL);
-    } else {
-      setHistory((prev) => [...prev, baseImage]);
-    }
+    const currentURL = canvas.toDataURL('image/png');
+    setHistory((prev) => [...prev, currentURL]);
+    setBaseImage(currentURL);
 
     setPickedColor(color);
+    setPreviewColor(color);
     setPickedPoint(point);
     setManualKeyColor(rgbToHex(color));
     setIsAutoDetectedKeyColor(false);
@@ -193,10 +278,13 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
 
     setBaseImage(segment.thumbnailUrl);
     setHistory([]);
+    setViewZoom(1);
     setPickedColor(null);
+    setPreviewColor(null);
     setPickedPoint(null);
     setEdgeSeedPoint(null);
     setIsAutoDetectedKeyColor(true);
+    magicBrushColorRef.current = null;
 
     detectEdgeKeyColor(segment.thumbnailUrl).then((detection) => {
       if (isCancelled) {
@@ -245,7 +333,7 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
     handleCanvasMouseUp();
   };
 
-  // Initialize and redraw on canvas whenever the baseImage, pickedColor, pickedPoint, isContiguous or magicTolerance changes
+  // Initialize and redraw on canvas whenever the baseImage, previewColor, pickedPoint, isContiguous or magicTolerance changes
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -262,16 +350,16 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
       ctx.drawImage(img, 0, 0);
 
       // Apply keying dynamically on redraw!
-      if (pickedColor) {
+      if (previewColor) {
         if (isContiguous && pickedPoint) {
-          keyOutColorContiguous(pickedPoint.x, pickedPoint.y, pickedColor.r, pickedColor.g, pickedColor.b, magicTolerance);
+          keyOutColorContiguous(pickedPoint.x, pickedPoint.y, previewColor.r, previewColor.g, previewColor.b, magicTolerance);
         } else {
-          keyOutColor(pickedColor.r, pickedColor.g, pickedColor.b, magicTolerance);
+          keyOutColor(previewColor.r, previewColor.g, previewColor.b, magicTolerance);
         }
       }
     };
     img.src = baseImage;
-  }, [baseImage, pickedColor, pickedPoint, isContiguous, magicTolerance]);
+  }, [baseImage, previewColor, pickedPoint, isContiguous, magicTolerance]);
 
   // Push current canvas state to history
   const pushHistory = () => {
@@ -287,28 +375,65 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
     const previous = history[history.length - 1];
     setHistory((prev) => prev.slice(0, -1));
     setBaseImage(previous);
-    setPickedColor(null);
+    setPreviewColor(null);
     setPickedPoint(null);
     setIsAutoDetectedKeyColor(false);
+    magicBrushColorRef.current = null;
   };
 
   // Sample pixel color from mouse coordinate
   const samplePixelColor = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const point = getCanvasPoint(e.clientX, e.clientY);
+    return point ? samplePixelAtPoint(point) : null;
+  };
+
+  const eraseMatchingPixelsInBrush = (point: PixelPoint, targetColor: RgbColor, tolerance: number, diameter: number) => {
     const canvas = canvasRef.current;
-    if (!canvas) return null;
+    if (!canvas) return;
     const ctx = canvas.getContext('2d');
-    if (!ctx) return null;
+    if (!ctx) return;
 
-    const rect = canvas.getBoundingClientRect();
-    // Scale coordinate according to real canvas dimensions
-    const x = Math.floor(((e.clientX - rect.left) / rect.width) * canvas.width);
-    const y = Math.floor(((e.clientY - rect.top) / rect.height) * canvas.height);
+    const radius = Math.max(1, diameter / 2);
+    const radiusCeil = Math.ceil(radius);
+    const x0 = Math.max(0, point.x - radiusCeil);
+    const y0 = Math.max(0, point.y - radiusCeil);
+    const x1 = Math.min(canvas.width - 1, point.x + radiusCeil);
+    const y1 = Math.min(canvas.height - 1, point.y + radiusCeil);
+    const width = x1 - x0 + 1;
+    const height = y1 - y0 + 1;
+    const imgData = ctx.getImageData(x0, y0, width, height);
+    const data = imgData.data;
 
-    if (x >= 0 && x < canvas.width && y >= 0 && y < canvas.height) {
-      const pixel = ctx.getImageData(x, y, 1, 1).data;
-      return { r: pixel[0], g: pixel[1], b: pixel[2], a: pixel[3] };
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        const dx = x + x0 - point.x;
+        const dy = y + y0 - point.y;
+        if (dx * dx + dy * dy > radius * radius) {
+          continue;
+        }
+
+        const idx = (y * width + x) * 4;
+        const alpha = data[idx + 3];
+        if (alpha === 0) {
+          continue;
+        }
+
+        const distance = Math.sqrt(
+          Math.pow(data[idx] - targetColor.r, 2) +
+          Math.pow(data[idx + 1] - targetColor.g, 2) +
+          Math.pow(data[idx + 2] - targetColor.b, 2)
+        );
+
+        if (distance <= tolerance) {
+          data[idx] = 0;
+          data[idx + 1] = 0;
+          data[idx + 2] = 0;
+          data[idx + 3] = 0;
+        }
+      }
     }
-    return null;
+
+    ctx.putImageData(imgData, x0, y0);
   };
 
   // Handle canvas mouse interaction
@@ -317,27 +442,46 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
     if (!canvas) return;
 
     if (activeTool === 'magic-wand') {
-      const color = samplePixelColor(e);
-      if (color) {
-        // Calculate raw canvas coords
-        const rect = canvas.getBoundingClientRect();
-        const cx = Math.floor(((e.clientX - rect.left) / rect.width) * canvas.width);
-        const cy = Math.floor(((e.clientY - rect.top) / rect.height) * canvas.height);
+      const point = getCanvasPoint(e.clientX, e.clientY);
+      if (!point) return;
 
-        activateKeyColor({ r: color.r, g: color.g, b: color.b }, { x: cx, y: cy });
-      }
+      const pixel = samplePixelAtPoint(point);
+      if (!pixel) return;
+
+      activateKeyColor({ r: pixel.r, g: pixel.g, b: pixel.b }, point);
     } else if (activeTool === 'eraser') {
       // Bake the magic wand if active
-      if (pickedColor) {
+      if (previewColor) {
         const currentURL = canvas.toDataURL('image/png');
-        setHistory((prev) => [...prev, baseImage]);
+        setHistory((prev) => [...prev, currentURL]);
         setBaseImage(currentURL);
-        setPickedColor(null);
+        setPreviewColor(null);
         setPickedPoint(null);
         setIsAutoDetectedKeyColor(false);
       } else {
-        setHistory((prev) => [...prev, baseImage]);
+        setHistory((prev) => [...prev, canvas.toDataURL('image/png')]);
       }
+
+      if (eraserMode === 'color-match') {
+        const point = getCanvasPoint(e.clientX, e.clientY);
+        if (!point) return;
+
+        const sampledPixel = samplePixelAtPoint(point);
+        const brushColor = pickedColor ?? (sampledPixel ? { r: sampledPixel.r, g: sampledPixel.g, b: sampledPixel.b } : null);
+        if (!brushColor) return;
+
+        if (!pickedColor) {
+          setPickedColor(brushColor);
+          setManualKeyColor(rgbToHex(brushColor));
+          setIsAutoDetectedKeyColor(false);
+        }
+
+        magicBrushColorRef.current = brushColor;
+        setIsDrawing(true);
+        eraseMatchingPixelsInBrush(point, brushColor, magicTolerance, magicBrushSize);
+        return;
+      }
+
       setIsDrawing(true);
       drawEraser(e);
     }
@@ -348,12 +492,17 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
     if (!canvas) return;
 
     // Track mouse coordinates for rendering manual brush preview circular indicator
-    const rect = canvas.getBoundingClientRect();
-    const x = ((e.clientX - rect.left) / rect.width) * canvas.width;
-    const y = ((e.clientY - rect.top) / rect.height) * canvas.height;
+    const point = getCanvasPoint(e.clientX, e.clientY);
+    if (!point) return;
+    const x = point.x;
+    const y = point.y;
     setMousePos({ x, y });
 
-    if (activeTool === 'eraser' && isDrawing) {
+    if (activeTool === 'eraser' && eraserMode === 'color-match' && isDrawing && magicBrushColorRef.current) {
+      eraseMatchingPixelsInBrush(point, magicBrushColorRef.current, magicTolerance, magicBrushSize);
+    }
+
+    if (activeTool === 'eraser' && eraserMode === 'manual' && isDrawing) {
       drawEraser(e);
     }
   };
@@ -366,6 +515,7 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
         const currentURL = canvas.toDataURL('image/png');
         setBaseImage(currentURL);
       }
+      magicBrushColorRef.current = null;
     }
   };
 
@@ -377,6 +527,7 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
         const currentURL = canvas.toDataURL('image/png');
         setBaseImage(currentURL);
       }
+      magicBrushColorRef.current = null;
     }
     setMousePos(null);
   };
@@ -586,9 +737,10 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
     // Save the newly shaved canvas state as baseImage and clear pickedColor
     const postShaveURL = canvas.toDataURL('image/png');
     setBaseImage(postShaveURL);
-    setPickedColor(null);
+    setPreviewColor(null);
     setPickedPoint(null);
     setIsAutoDetectedKeyColor(false);
+    magicBrushColorRef.current = null;
   };
 
   // Quick reset to original segment cutout
@@ -597,9 +749,10 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
     const currentURL = canvas ? canvas.toDataURL('image/png') : baseImage;
     setHistory((prev) => [...prev, currentURL]);
     setBaseImage(segment.thumbnailUrl);
-    setPickedColor(null);
+    setPreviewColor(null);
     setPickedPoint(null);
     setIsAutoDetectedKeyColor(true);
+    magicBrushColorRef.current = null;
 
     detectEdgeKeyColor(segment.thumbnailUrl).then((detection) => {
       if (!detection) {
@@ -623,9 +776,29 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
   };
 
   const handleApplyManualKeyColor = () => {
-    activateKeyColor(hexToRgb(manualKeyColor), isContiguous ? edgeSeedPoint : null);
-    setActiveTool('magic-wand');
+    const nextColor = hexToRgb(manualKeyColor);
+
+    if (activeTool === 'eraser' && eraserMode === 'color-match') {
+      setPickedColor(nextColor);
+      setPreviewColor(null);
+      setPickedPoint(null);
+      setIsAutoDetectedKeyColor(false);
+      magicBrushColorRef.current = nextColor;
+      return;
+    }
+
+    activateKeyColor(nextColor, isContiguous ? edgeSeedPoint : null);
   };
+
+  const availableWidth = Math.max(workspaceSize.width - 48, 1);
+  const availableHeight = Math.max(workspaceSize.height - 48, 1);
+  const fitScale =
+    canvasSize.width > 0 && canvasSize.height > 0
+      ? Math.min(availableWidth / canvasSize.width, availableHeight / canvasSize.height, 1)
+      : 1;
+  const displayWidth = Math.max(1, Math.round(canvasSize.width * fitScale * viewZoom));
+  const displayHeight = Math.max(1, Math.round(canvasSize.height * fitScale * viewZoom));
+  const zoomPercent = Math.round(viewZoom * 100);
 
   return (
     <div id="bg-remover-modal" className="fixed inset-0 bg-slate-950/95 backdrop-blur-md z-50 flex items-center justify-center p-0 md:p-6 text-slate-100 font-sans">
@@ -676,10 +849,20 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
         <div className="flex-1 min-h-0 flex overflow-hidden relative">
           
           {/* Main Visual interactive Canvas Area */}
-          <div className="flex-1 min-h-0 bg-checkerboard relative flex items-center justify-center p-3 pb-24 md:p-8 overflow-hidden select-none">
+          <div
+            ref={containerRef}
+            className="flex-1 min-h-0 bg-checkerboard relative overflow-auto select-none"
+          >
+            <div className="min-h-full min-w-full flex items-center justify-center p-3 pb-24 md:p-8">
             
             {/* Visual Canvas and guides */}
-            <div className="relative border border-slate-800/80 rounded-none shadow-2xl max-w-full max-h-full overflow-hidden flex items-center justify-center">
+            <div
+              className="relative border border-slate-800/80 rounded-none shadow-2xl overflow-hidden flex items-center justify-center shrink-0"
+              style={{
+                width: `${displayWidth}px`,
+                height: `${displayHeight}px`,
+              }}
+            >
               <canvas
                 ref={canvasRef}
                 onMouseDown={handleCanvasMouseDown}
@@ -689,27 +872,31 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
                 onTouchStart={handleTouchStart}
                 onTouchMove={handleTouchMove}
                 onTouchEnd={handleTouchEnd}
-                className={`max-w-full max-h-full block transition-shadow duration-300 ${
+                className={`block transition-shadow duration-300 ${
                   activeTool === 'magic-wand' ? 'cursor-crosshair' : 'cursor-none'
                 }`}
                 style={{
                   imageRendering: 'pixelated',
+                  width: `${displayWidth}px`,
+                  height: `${displayHeight}px`,
+                  touchAction: activeTool === 'eraser' ? 'none' : 'manipulation',
                 }}
               />
 
               {/* Virtual Cursor Indicator for Manual Eraser Brush */}
               {activeTool === 'eraser' && mousePos && canvasRef.current && (
                 <div
-                  className="absolute border border-red-500 rounded-full bg-red-500/10 pointer-events-none"
+                  className={`absolute rounded-full pointer-events-none ${eraserMode === 'color-match' ? 'border border-emerald-400 bg-emerald-400/10' : 'border border-red-500 bg-red-500/10'}`}
                   style={{
                     left: `${(mousePos.x / canvasRef.current.width) * 100}%`,
                     top: `${(mousePos.y / canvasRef.current.height) * 100}%`,
-                    width: `${(brushSize / canvasRef.current.width) * 100}%`,
-                    height: `${(brushSize / canvasRef.current.width) * 100}%`,
+                    width: `${((eraserMode === 'color-match' ? magicBrushSize : brushSize) / canvasRef.current.width) * 100}%`,
+                    height: `${((eraserMode === 'color-match' ? magicBrushSize : brushSize) / canvasRef.current.height) * 100}%`,
                     transform: 'translate(-50%, -50%)',
                   }}
                 />
               )}
+            </div>
             </div>
 
             {!isControlsOpen && (
@@ -717,7 +904,49 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
                 <div className="rounded-2xl border border-slate-800 bg-slate-950/92 backdrop-blur px-3 py-3 shadow-2xl space-y-2">
                   <div className="flex items-center justify-between gap-2 text-[10px] text-slate-400">
                     <span className="font-semibold uppercase tracking-wider text-emerald-400">Cleanup Actions</span>
-                    <span>{activeTool === 'magic-wand' ? 'Magic Eraser' : activeTool === 'eraser' ? 'Brush Eraser' : 'Border Shave'}</span>
+                    <span>
+                      {activeTool === 'magic-wand'
+                        ? 'Click Key'
+                        : activeTool === 'eraser'
+                          ? eraserMode === 'color-match'
+                            ? 'Color Match Eraser'
+                            : 'Manual Eraser'
+                          : 'Border Shave'}
+                    </span>
+                  </div>
+                  <div className="rounded-xl border border-slate-800 bg-slate-900/90 px-2.5 py-2">
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setViewZoom((prev) => clampZoom(prev - ZOOM_STEP))}
+                        disabled={viewZoom <= ZOOM_MIN}
+                        className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-800 bg-slate-950 text-slate-300 transition-all hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+                        aria-label="Zoom out"
+                      >
+                        <Minus className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        onClick={() => setViewZoom(1)}
+                        className="min-w-18 rounded-lg border border-slate-800 bg-slate-950 px-2.5 py-2 text-[10px] font-semibold text-slate-200 transition-all hover:bg-slate-800 cursor-pointer"
+                        title="Reset to fit"
+                      >
+                        {zoomPercent}%
+                      </button>
+                      <button
+                        onClick={() => setViewZoom((prev) => clampZoom(prev + ZOOM_STEP))}
+                        disabled={viewZoom >= ZOOM_MAX}
+                        className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-800 bg-slate-950 text-slate-300 transition-all hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+                        aria-label="Zoom in"
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        onClick={() => setViewZoom(1)}
+                        className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-[10px] font-semibold text-emerald-300 transition-all hover:bg-emerald-500/20 cursor-pointer"
+                      >
+                        Fit
+                      </button>
+                    </div>
+                    <p className="mt-1 text-[9px] text-slate-500">Mouse wheel zooms the cleanup view.</p>
                   </div>
                   <div className="grid grid-cols-[1fr_auto] gap-2">
                     <button
@@ -773,6 +1002,42 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
                   Save and reset stay pinned here while tool settings scroll below.
                 </p>
               </div>
+              <div className="rounded-xl border border-slate-800 bg-slate-900/90 p-3 space-y-2">
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setViewZoom((prev) => clampZoom(prev - ZOOM_STEP))}
+                    disabled={viewZoom <= ZOOM_MIN}
+                    className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-800 bg-slate-950 text-slate-300 transition-all hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+                    aria-label="Zoom out"
+                  >
+                    <Minus className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    onClick={() => setViewZoom(1)}
+                    className="min-w-18 rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-[10px] font-semibold text-slate-200 transition-all hover:bg-slate-800 cursor-pointer"
+                    title="Reset to fit"
+                  >
+                    {zoomPercent}%
+                  </button>
+                  <button
+                    onClick={() => setViewZoom((prev) => clampZoom(prev + ZOOM_STEP))}
+                    disabled={viewZoom >= ZOOM_MAX}
+                    className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-800 bg-slate-950 text-slate-300 transition-all hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+                    aria-label="Zoom in"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    onClick={() => setViewZoom(1)}
+                    className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-[10px] font-semibold text-emerald-300 transition-all hover:bg-emerald-500/20 cursor-pointer"
+                  >
+                    Fit
+                  </button>
+                </div>
+                <p className="text-[9px] text-slate-500">
+                  Mouse wheel zooms the cleanup view. Pan with scroll when zoomed in.
+                </p>
+              </div>
               <div className="grid grid-cols-1 gap-2">
                 <button
                   onClick={handleApply}
@@ -813,12 +1078,12 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
                     <Sparkles className="h-4 w-4" />
                   </div>
                   <div>
-                    <p className="text-xs font-bold">Magic Color Eraser</p>
-                    <p className="text-[10px] text-slate-500">Key out solid color backdrop</p>
+                    <p className="text-xs font-bold">Click Key Eraser</p>
+                    <p className="text-[10px] text-slate-500">Click once to key out a backdrop color</p>
                   </div>
                 </button>
 
-                {/* 2. Manual Eraser */}
+                {/* 2. Eraser */}
                 <button
                   onClick={() => setActiveTool('eraser')}
                   className={`flex items-center space-x-3 px-3 py-3 rounded-xl border text-left cursor-pointer transition-all ${
@@ -831,8 +1096,8 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
                     <Trash2 className="h-4 w-4" />
                   </div>
                   <div>
-                    <p className="text-xs font-bold">Manual Erase Brush</p>
-                    <p className="text-[10px] text-slate-500">Scrub out custom details</p>
+                    <p className="text-xs font-bold">Eraser</p>
+                    <p className="text-[10px] text-slate-500">Manual or color-match cleanup brushing</p>
                   </div>
                 </button>
 
@@ -861,7 +1126,7 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
               
               {activeTool === 'magic-wand' && (
                 <div className="space-y-4">
-                  <span className="text-[10px] text-emerald-400 font-mono font-bold uppercase tracking-wider block">Magic Eraser Settings</span>
+                  <span className="text-[10px] text-emerald-400 font-mono font-bold uppercase tracking-wider block">Click Key Settings</span>
                   
                   <div className="space-y-1.5">
                     <div className="flex justify-between text-xs text-slate-300">
@@ -870,7 +1135,7 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
                     </div>
                     <input
                       type="range"
-                      min="5"
+                      min="0"
                       max="150"
                       step="1"
                       value={magicTolerance}
@@ -954,24 +1219,137 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
 
               {activeTool === 'eraser' && (
                 <div className="space-y-4">
-                  <span className="text-[10px] text-emerald-400 font-mono font-bold uppercase tracking-wider block">Manual Brush Settings</span>
-                  
-                  <div className="space-y-1.5">
-                    <div className="flex justify-between text-xs text-slate-300">
-                      <span>Brush Size</span>
-                      <span className="font-mono text-emerald-400 font-bold">{brushSize}px</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="2"
-                      max="60"
-                      step="1"
-                      value={brushSize}
-                      onChange={(e) => setBrushSize(parseInt(e.target.value))}
-                      className="w-full accent-emerald-500 cursor-pointer h-1.5"
-                    />
+                  <span className="text-[10px] text-emerald-400 font-mono font-bold uppercase tracking-wider block">Eraser Settings</span>
+
+                  <div className="grid grid-cols-2 gap-2 rounded-xl border border-slate-850 bg-slate-900 p-2">
+                    <button
+                      onClick={() => setEraserMode('manual')}
+                      className={`rounded-lg px-3 py-2 text-[10px] font-semibold transition-all cursor-pointer ${
+                        eraserMode === 'manual'
+                          ? 'bg-emerald-500 text-slate-950'
+                          : 'bg-slate-950 text-slate-300 hover:bg-slate-800'
+                      }`}
+                    >
+                      Manual
+                    </button>
+                    <button
+                      onClick={() => setEraserMode('color-match')}
+                      className={`rounded-lg px-3 py-2 text-[10px] font-semibold transition-all cursor-pointer ${
+                        eraserMode === 'color-match'
+                          ? 'bg-emerald-500 text-slate-950'
+                          : 'bg-slate-950 text-slate-300 hover:bg-slate-800'
+                      }`}
+                    >
+                      Color Match
+                    </button>
                   </div>
 
+                  {eraserMode === 'manual' && (
+                    <div className="space-y-1.5">
+                      <div className="flex justify-between text-xs text-slate-300">
+                        <span>Brush Size</span>
+                        <span className="font-mono text-emerald-400 font-bold">{brushSize}px</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="2"
+                        max="60"
+                        step="1"
+                        value={brushSize}
+                        onChange={(e) => setBrushSize(parseInt(e.target.value))}
+                        className="w-full accent-emerald-500 cursor-pointer h-1.5"
+                      />
+                      <p className="text-[9px] text-slate-500 leading-relaxed">
+                        Freely erases pixels regardless of color.
+                      </p>
+                    </div>
+                  )}
+
+                  {eraserMode === 'color-match' && (
+                    <>
+                      <div className="space-y-1.5">
+                        <div className="flex justify-between text-xs text-slate-300">
+                          <span>Color Tolerance</span>
+                          <span className="font-mono text-emerald-400 font-bold">{magicTolerance}</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0"
+                          max="150"
+                          step="1"
+                          value={magicTolerance}
+                          onChange={(e) => setMagicTolerance(parseInt(e.target.value))}
+                          className="w-full accent-emerald-500 cursor-pointer h-1.5"
+                        />
+                        <p className="text-[9px] text-slate-500 leading-relaxed">
+                          Only matching pixels inside the brush are erased.
+                        </p>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <div className="flex justify-between text-xs text-slate-300">
+                          <span>Brush Diameter</span>
+                          <span className="font-mono text-emerald-400 font-bold">{magicBrushSize}px</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="2"
+                          max="32"
+                          step="1"
+                          value={magicBrushSize}
+                          onChange={(e) => setMagicBrushSize(parseInt(e.target.value))}
+                          className="w-full accent-emerald-500 cursor-pointer h-1.5"
+                        />
+                        <p className="text-[9px] text-slate-500 leading-relaxed">
+                          Smaller diameters help remove leftover background pixels without chewing into the subject.
+                        </p>
+                      </div>
+
+                      <div className="space-y-2 rounded-xl border border-slate-850 bg-slate-900 p-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-[10px] text-slate-300 font-semibold">Selected Key Color</p>
+                            <p className="text-[9px] text-slate-500">
+                              Uses the current selected key color. If none is active yet, the first brush press samples from the image.
+                            </p>
+                          </div>
+                          <input
+                            type="color"
+                            value={manualKeyColor}
+                            onChange={(e) => setManualKeyColor(e.target.value)}
+                            className="h-10 w-14 cursor-pointer rounded-lg border border-slate-700 bg-transparent p-1"
+                            aria-label="Select eraser key color"
+                          />
+                        </div>
+                        <div className="flex items-center justify-between gap-3 text-[10px] font-mono text-slate-400">
+                          <span>{manualKeyColor.toUpperCase()}</span>
+                          <button
+                            onClick={handleApplyManualKeyColor}
+                            className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1.5 text-[10px] font-semibold text-emerald-300 transition-all hover:bg-emerald-500/20 cursor-pointer"
+                          >
+                            Use This Color
+                          </button>
+                        </div>
+                      </div>
+
+                      {pickedColor && (
+                        <div className="p-3 bg-slate-900 border border-slate-850 rounded-xl space-y-2">
+                          <p className="text-[10px] text-slate-400">Brush Key Color:</p>
+                          <div className="flex items-center space-x-2.5">
+                            <div
+                              className="w-7 h-7 rounded-lg border border-slate-700 shadow"
+                              style={{
+                                backgroundColor: `rgb(${pickedColor.r}, ${pickedColor.g}, ${pickedColor.b})`,
+                              }}
+                            />
+                            <div className="font-mono text-[10px] text-slate-400">
+                              RGB: {pickedColor.r}, {pickedColor.g}, {pickedColor.b}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
               )}
 

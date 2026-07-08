@@ -88,6 +88,7 @@ export default function App() {
   const [antsOffset, setAntsOffset] = useState<number>(0);
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
   const [isLibraryHydrated, setIsLibraryHydrated] = useState<boolean>(false);
+  const hasLoadedImage = Boolean(image) && !isLoading;
 
   // Auto-collapse sidebar on small screens on load
   useEffect(() => {
@@ -1441,11 +1442,14 @@ export default function App() {
               { id: 'select', icon: MousePointer, label: 'Pan & Move (V)', desc: 'Pan or zoom without active drawing.' },
             ].map((tool) => {
               const IconComp = tool.icon;
-              const isSelected = activeTool === tool.id;
+              const isEnabled = hasLoadedImage;
+              const isSelected = hasLoadedImage && activeTool === tool.id;
               return (
                 <button
                   key={tool.id}
+                  disabled={!isEnabled}
                   onClick={() => {
+                    if (!isEnabled) return;
                     setActiveTool(tool.id as SelectionTool);
                     // Clear state when switching
                     setRectStart(null);
@@ -1453,17 +1457,19 @@ export default function App() {
                     setRectSnapPreview(null);
                     setHoverPoint(null);
                   }}
-                  className={`w-10 h-10 md:w-12 md:h-12 rounded-xl flex items-center justify-center transition-all cursor-pointer group relative ${
+                  className={`w-10 h-10 md:w-12 md:h-12 rounded-xl flex items-center justify-center transition-all group relative ${
                     isSelected
                       ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20'
-                      : 'text-slate-400 hover:text-slate-100 hover:bg-slate-900'
+                      : isEnabled
+                        ? 'text-slate-400 hover:text-slate-100 hover:bg-slate-900 cursor-pointer'
+                        : 'text-slate-700 bg-transparent cursor-not-allowed opacity-60'
                   }`}
-                  title={tool.label}
+                  title={isEnabled ? tool.label : `${tool.label} - load an image first`}
                 >
                   <IconComp className="h-4.5 w-4.5 md:h-5 md:w-5" />
                   {/* Custom elegant tooltip */}
                   <span className="absolute hidden md:block left-14 bg-slate-950 border border-slate-800 text-slate-200 text-[10px] py-1 px-2.5 rounded shadow-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-20 font-sans">
-                    <strong>{tool.label}</strong>: {tool.desc}
+                    <strong>{tool.label}</strong>: {isEnabled ? tool.desc : 'Load an image to enable this tool.'}
                   </span>
                 </button>
               );

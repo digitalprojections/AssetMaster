@@ -18,3 +18,11 @@ View your app in AI Studio: https://ai.studio/apps/6e75cf24-8457-4b13-a686-3e2d5
 2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
 3. Run the app:
    `npm run dev`
+
+## Deploy To created.link
+
+Run:
+
+`npm run deploy`
+
+This builds the app, publishes `dist` to `https://created.link/assetmaster/`, and verifies that the live page is serving the newly built asset hash.
