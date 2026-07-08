@@ -6,6 +6,7 @@ import { SAMPLE_IMAGES, SampleImage } from './data/samples';
 import SegmentList from './components/SegmentList';
 import AnimationStudio from './components/AnimationStudio';
 import BackgroundRemover from './components/BackgroundRemover';
+import CollageStudio from './components/CollageStudio';
 import {
   Upload,
   Image as ImageIcon,
@@ -84,6 +85,7 @@ export default function App() {
   // UI state
   const [previewSegment, setPreviewSegment] = useState<SavedSegment | null>(null);
   const [showAnimationStudio, setShowAnimationStudio] = useState<boolean>(false);
+  const [showCollageStudio, setShowCollageStudio] = useState<boolean>(false);
   const [showBgRemover, setShowBgRemover] = useState<boolean>(false);
   const [antsOffset, setAntsOffset] = useState<number>(0);
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
@@ -1383,6 +1385,17 @@ export default function App() {
             </select>
           </div>
 
+          {/* Open Collage Studio button */}
+          <button
+            onClick={() => setShowCollageStudio(true)}
+            className="flex items-center space-x-1 md:space-x-1.5 bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white rounded-lg px-3 py-2 text-xs font-semibold cursor-pointer shadow-md shadow-orange-500/10 active:scale-[0.98] transition-all"
+            title="Arrange saved cutouts into exportable collage layouts"
+          >
+            <ImageIcon className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Collage Studio</span>
+            <span className="sm:hidden">Collage</span>
+          </button>
+
           {/* Create Animation button */}
           <button
             onClick={() => setShowAnimationStudio(true)}
@@ -1923,6 +1936,16 @@ export default function App() {
               </div>
             </motion.div>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Animation Studio Overlay */}
+      <AnimatePresence>
+        {showCollageStudio && (
+          <CollageStudio
+            savedSegments={savedSegments}
+            onClose={() => setShowCollageStudio(false)}
+          />
         )}
       </AnimatePresence>
 
