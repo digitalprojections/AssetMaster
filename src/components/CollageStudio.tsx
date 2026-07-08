@@ -162,6 +162,7 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
   const [sourceSearch, setSourceSearch] = useState<string>('');
   const [isExporting, setIsExporting] = useState<boolean>(false);
   const [collapsedSections, setCollapsedSections] = useState({
+    project: false,
     canvas: false,
     savedCutouts: false,
     layers: false,
@@ -940,81 +941,91 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
           </div>
 
           <aside className="w-full lg:w-[320px] border-t lg:border-t-0 lg:border-l border-slate-800 bg-slate-950 flex flex-col overflow-hidden">
-            <div className="p-3 border-b border-slate-800 bg-slate-950/95 shrink-0 space-y-2.5">
-              <div>
-                <h2 className="text-xs font-bold uppercase tracking-wider text-slate-300">Project</h2>
-                <p className="text-[10px] text-slate-500">Persistent locally, exportable as image, PDF, or project JSON.</p>
-              </div>
+            <section className="border-b border-slate-800 bg-slate-950/95 shrink-0">
+              <button
+                onClick={() => toggleSection('project')}
+                className="w-full px-3 py-2 flex items-center justify-between text-left hover:bg-slate-900/60 transition-colors cursor-pointer"
+              >
+                <div>
+                  <h2 className="text-[10px] font-bold uppercase tracking-[0.22em] text-slate-300">Project</h2>
+                  <p className="text-[10px] text-slate-500">Persistent locally, exportable as image, PDF, or project JSON.</p>
+                </div>
+                {collapsedSections.project ? <ChevronRight className="h-3.5 w-3.5 text-slate-500" /> : <ChevronDown className="h-3.5 w-3.5 text-slate-500" />}
+              </button>
 
-              <input
-                type="text"
-                value={project.name}
-                onChange={(event) => setProject((prev) => ({ ...prev, name: event.target.value, updatedAt: Date.now() }))}
-                className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-2 text-xs text-slate-100 outline-none focus:border-orange-500"
-                placeholder="Collage project name"
-              />
+              {!collapsedSections.project && (
+                <div className="px-3 pb-3 space-y-2.5">
+                  <input
+                    type="text"
+                    value={project.name}
+                    onChange={(event) => setProject((prev) => ({ ...prev, name: event.target.value, updatedAt: Date.now() }))}
+                    className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-2 text-xs text-slate-100 outline-none focus:border-orange-500"
+                    placeholder="Collage project name"
+                  />
 
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  onClick={() => void handleExportImage('png')}
-                  disabled={isExporting}
-                  className="py-2 rounded-lg bg-orange-600 hover:bg-orange-500 text-white text-[11px] font-bold cursor-pointer disabled:opacity-50"
-                >
-                  Export PNG
-                </button>
-                <button
-                  onClick={() => void handleExportImage('webp')}
-                  disabled={isExporting}
-                  className="py-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-200 text-[11px] font-semibold cursor-pointer disabled:opacity-50"
-                >
-                  Export WebP
-                </button>
-                <button
-                  onClick={() => void handleExportPdf()}
-                  disabled={isExporting}
-                  className="py-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-200 text-[11px] font-semibold cursor-pointer disabled:opacity-50"
-                >
-                  Export PDF
-                </button>
-                <button
-                  onClick={handleExportProject}
-                  className="py-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-200 text-[11px] font-semibold cursor-pointer"
-                >
-                  Export Project
-                </button>
-              </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => void handleExportImage('png')}
+                      disabled={isExporting}
+                      className="py-2 rounded-lg bg-orange-600 hover:bg-orange-500 text-white text-[11px] font-bold cursor-pointer disabled:opacity-50"
+                    >
+                      Export PNG
+                    </button>
+                    <button
+                      onClick={() => void handleExportImage('webp')}
+                      disabled={isExporting}
+                      className="py-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-200 text-[11px] font-semibold cursor-pointer disabled:opacity-50"
+                    >
+                      Export WebP
+                    </button>
+                    <button
+                      onClick={() => void handleExportPdf()}
+                      disabled={isExporting}
+                      className="py-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-200 text-[11px] font-semibold cursor-pointer disabled:opacity-50"
+                    >
+                      Export PDF
+                    </button>
+                    <button
+                      onClick={handleExportProject}
+                      className="py-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-200 text-[11px] font-semibold cursor-pointer"
+                    >
+                      Export Project
+                    </button>
+                  </div>
 
-              <div className="grid grid-cols-3 gap-2">
-                <button
-                  onClick={handleImportImagesRequest}
-                  className="py-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-200 text-[11px] font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
-                >
-                  <ImageIcon className="h-3 w-3" />
-                  <span>Images</span>
-                </button>
-                <button
-                  onClick={handleImportProjectRequest}
-                  className="py-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-200 text-[11px] font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
-                >
-                  <Upload className="h-3 w-3" />
-                  <span>Import</span>
-                </button>
-                <button
-                  onClick={() => {
-                    if (!window.confirm('Reset the current collage project?')) {
-                      return;
-                    }
-                    setProject(createDefaultProject());
-                    setSelectedItemId(null);
-                    setStageZoom(0.7);
-                  }}
-                  className="py-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-200 text-[11px] font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
-                >
-                  <RotateCcw className="h-3 w-3" />
-                  <span>Reset</span>
-                </button>
-              </div>
-            </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      onClick={handleImportImagesRequest}
+                      className="py-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-200 text-[11px] font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <ImageIcon className="h-3 w-3" />
+                      <span>Images</span>
+                    </button>
+                    <button
+                      onClick={handleImportProjectRequest}
+                      className="py-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-200 text-[11px] font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <Upload className="h-3 w-3" />
+                      <span>Import</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (!window.confirm('Reset the current collage project?')) {
+                          return;
+                        }
+                        setProject(createDefaultProject());
+                        setSelectedItemId(null);
+                        setStageZoom(0.7);
+                      }}
+                      className="py-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-200 text-[11px] font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <RotateCcw className="h-3 w-3" />
+                      <span>Reset</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </section>
 
             <div className="flex-1 overflow-y-auto">
               <section className="border-b border-slate-800">
