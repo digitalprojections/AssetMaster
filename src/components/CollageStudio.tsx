@@ -42,6 +42,7 @@ import { getIndexedDbRecord, setIndexedDbRecord } from '../utils/indexedDbStorag
 import { buildSingleImagePdfBlob } from '../utils/pdfExport';
 
 const COLLAGE_PROJECT_STORAGE_KEY = 'assetmaster.collageStudio.project.v1';
+const COLLAGE_FONT_LIBRARY_STORAGE_KEY = 'assetmaster.collageStudio.fontLibrary.v1';
 
 const CANVAS_PRESETS = [
   { label: 'Square', width: 1080, height: 1080 },
@@ -53,7 +54,14 @@ const CANVAS_PRESETS = [
 const MIN_CANVAS_DIMENSION = 64;
 const MAX_CANVAS_DIMENSION = 4000;
 const TEXT_LINE_HEIGHT = 1.2;
-const FONT_FAMILY_OPTIONS = ['Arial', 'Georgia', 'Courier New', 'Impact', 'Trebuchet MS'];
+const SYSTEM_FONT_OPTIONS = ['Arial', 'Georgia', 'Courier New', 'Impact', 'Trebuchet MS'];
+const STARTER_FONT_OPTIONS = [
+  { family: 'Bebas Neue', label: 'Bebas Neue', stylesheetUrl: 'https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap' },
+  { family: 'Caveat', label: 'Caveat', stylesheetUrl: 'https://fonts.googleapis.com/css2?family=Caveat:wght@400;700&display=swap' },
+  { family: 'Merriweather', label: 'Merriweather', stylesheetUrl: 'https://fonts.googleapis.com/css2?family=Merriweather:wght@400;700&display=swap' },
+  { family: 'Montserrat', label: 'Montserrat', stylesheetUrl: 'https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700;900&display=swap' },
+  { family: 'Permanent Marker', label: 'Permanent Marker', stylesheetUrl: 'https://fonts.googleapis.com/css2?family=Permanent+Marker&display=swap' },
+] as const;
 const BLEND_MODE_OPTIONS: Array<{ value: CollageBlendMode; label: string }> = [
   { value: 'normal', label: 'Normal' },
   { value: 'multiply', label: 'Multiply' },
@@ -66,6 +74,22 @@ const BLEND_MODE_OPTIONS: Array<{ value: CollageBlendMode; label: string }> = [
 type CollageStudioProps = {
   savedSegments: SavedSegment[];
   onClose: () => void;
+};
+
+type StoredFontRecord = {
+  id: string;
+  family: string;
+  source: 'custom';
+  fileName: string;
+  dataUrl: string;
+};
+
+type FontOption = {
+  family: string;
+  label: string;
+  source: 'system' | 'starter' | 'custom';
+  stylesheetUrl?: string;
+  dataUrl?: string;
 };
 
 type InteractionState =
@@ -261,6 +285,7 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
   const [isProjectHydrated, setIsProjectHydrated] = useState<boolean>(false);
   const [sourceSearch, setSourceSearch] = useState<string>('');
   const [isExporting, setIsExporting] = useState<boolean>(false);
+  const [customFonts, setCustomFonts] = useState<StoredFontRecord[]>([]);
   const [collapsedSections, setCollapsedSections] = useState({
     project: false,
     canvas: false,
@@ -270,9 +295,12 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
   });
   const projectImportInputRef = useRef<HTMLInputElement | null>(null);
   const imageImportInputRef = useRef<HTMLInputElement | null>(null);
+  const fontImportInputRef = useRef<HTMLInputElement | null>(null);
   const stageViewportRef = useRef<HTMLDivElement | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const interactionRef = useRef<InteractionState | null>(null);
+  const fontLoadPromisesRef = useRef<Map<string, Promise<void>>>(new Map());
+  const registeredFontFamiliesRef = useRef<Set<string>>(new Set());
 
   const selectedItem = useMemo(
     () => project.items.find((item) => item.id === selectedItemId) ?? null,
@@ -293,6 +321,68 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
       return haystack.includes(normalizedQuery);
     });
   }, [savedSegments, sourceSearch]);
+
+  const availableFontOptions = useMemo<FontOption[]>(() => ([
+    ...SYSTEM_FONT_OPTIONS.map((family) => ({ family, label: family, source: 'system' as const })),
+    ...STARTER_FONT_OPTIONS.map((font) => ({ ...font, source: 'starter' as const })),
+    ...customFonts.map((font) => ({
+      family: font.family,
+      label: font.family,
+      source: 'custom' as const,
+      dataUrl: font.dataUrl,
+    })),
+  ]), [customFonts]);
+
+  const getFontOption = (fontFamily: string) =>
+    availableFontOptions.find((option) => option.family === fontFamily) ?? null;
+
+  const ensureFontReady = async (fontFamily: string, fontWeight = 700) => {
+    if (typeof document === 'undefined') {
+      return;
+    }
+
+    const option = getFontOption(fontFamily);
+    if (!option || option.source === 'system') {
+      return;
+    }
+
+    const cacheKey = `${option.source}:${option.family}`;
+    if (fontLoadPromisesRef.current.has(cacheKey)) {
+      await fontLoadPromisesRef.current.get(cacheKey);
+      return;
+    }
+
+    const loadPromise = (async () => {
+      if (option.source === 'starter' && option.stylesheetUrl) {
+        const linkId = `collage-font-${option.family.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+        if (!document.getElementById(linkId)) {
+          const link = document.createElement('link');
+          link.id = linkId;
+          link.rel = 'stylesheet';
+          link.href = option.stylesheetUrl;
+          document.head.appendChild(link);
+        }
+      } else if (option.source === 'custom' && option.dataUrl && !registeredFontFamiliesRef.current.has(option.family)) {
+        const fontFace = new FontFace(option.family, `url(${option.dataUrl})`);
+        await fontFace.load();
+        document.fonts.add(fontFace);
+        registeredFontFamiliesRef.current.add(option.family);
+      }
+
+      await Promise.all([
+        document.fonts.load(`${fontWeight} 16px "${option.family}"`),
+        document.fonts.load(`400 16px "${option.family}"`),
+      ]);
+    })();
+
+    fontLoadPromisesRef.current.set(cacheKey, loadPromise);
+    try {
+      await loadPromise;
+    } catch (error) {
+      fontLoadPromisesRef.current.delete(cacheKey);
+      throw error;
+    }
+  };
 
   const contentBounds = useMemo(() => {
     let minLeft = Number.POSITIVE_INFINITY;
@@ -357,6 +447,26 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
   useEffect(() => {
     let cancelled = false;
 
+    const hydrateFonts = async () => {
+      try {
+        const stored = await getIndexedDbRecord<StoredFontRecord[]>(COLLAGE_FONT_LIBRARY_STORAGE_KEY);
+        if (!cancelled && stored) {
+          setCustomFonts(stored);
+        }
+      } catch (error) {
+        console.error('Failed to read collage font library from IndexedDB', error);
+      }
+    };
+
+    void hydrateFonts();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
     const hydrateProject = async () => {
       try {
         const stored = await getIndexedDbRecord<CollageStudioProjectFile>(COLLAGE_PROJECT_STORAGE_KEY);
@@ -381,6 +491,16 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!customFonts.length) {
+      return;
+    }
+
+    void setIndexedDbRecord(COLLAGE_FONT_LIBRARY_STORAGE_KEY, customFonts).catch((error) => {
+      console.error('Failed to persist collage font library', error);
+    });
+  }, [customFonts]);
 
   useEffect(() => {
     if (!isProjectHydrated) {
@@ -408,6 +528,62 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
       setSelectedItemId(null);
     }
   }, [project.items, selectedItemId]);
+
+  useEffect(() => {
+    const textItems = project.items.filter((item) => item.kind === 'text' && item.visible !== false);
+    if (textItems.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const syncFontsAndMetrics = async () => {
+      try {
+        await Promise.all(textItems.map((item) => ensureFontReady(item.fontFamily ?? 'Arial', item.fontWeight ?? 700)));
+        if (cancelled) {
+          return;
+        }
+
+        setProject((prev) => {
+          let changed = false;
+          const nextItems = prev.items.map((item) => {
+            if (item.kind !== 'text') {
+              return item;
+            }
+
+            const metrics = measureTextLayer(
+              item.text ?? 'Text',
+              item.fontSize ?? 72,
+              item.fontFamily ?? 'Arial',
+              item.fontWeight ?? 700
+            );
+
+            if (item.originalWidth === metrics.width && item.originalHeight === metrics.height) {
+              return item;
+            }
+
+            changed = true;
+            return {
+              ...item,
+              originalWidth: metrics.width,
+              originalHeight: metrics.height,
+            };
+          });
+
+          return changed
+            ? { ...prev, updatedAt: Date.now(), items: nextItems }
+            : prev;
+        });
+      } catch (error) {
+        console.error('Failed to load collage studio fonts', error);
+      }
+    };
+
+    void syncFontsAndMetrics();
+    return () => {
+      cancelled = true;
+    };
+  }, [customFonts, project.items]);
 
   useEffect(() => {
     const handlePointerMove = (event: PointerEvent) => {
@@ -880,6 +1056,11 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
       ctx.clearRect(0, 0, outCanvas.width, outCanvas.height);
     }
 
+    const textItems = project.items.filter((item) => item.kind === 'text' && item.visible !== false);
+    if (textItems.length > 0) {
+      await Promise.all(textItems.map((item) => ensureFontReady(item.fontFamily ?? 'Arial', item.fontWeight ?? 700)));
+    }
+
     for (const item of project.items) {
       if (!item.visible) {
         continue;
@@ -1004,6 +1185,10 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
     imageImportInputRef.current?.click();
   };
 
+  const handleImportFontsRequest = () => {
+    fontImportInputRef.current?.click();
+  };
+
   const fitStageToViewport = () => {
     const viewport = stageViewportRef.current;
     if (!viewport) {
@@ -1022,6 +1207,24 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
       availableHeight / Math.max(1, project.height)
     );
     setStageZoom(clamp(fittedZoom, 0.25, 2));
+  };
+
+  const handleSelectedTextFontChange = async (nextFontFamily: string) => {
+    const option = getFontOption(nextFontFamily);
+    if (!selectedItem || selectedItem.kind !== 'text' || !option) {
+      return;
+    }
+
+    try {
+      await ensureFontReady(nextFontFamily, selectedItem.fontWeight ?? 700);
+    } catch (error) {
+      console.error('Failed to load selected font', error);
+    }
+
+    updateSelectedItem((item) => ({
+      ...item,
+      fontFamily: nextFontFamily,
+    }));
   };
 
   const autoSizeCanvasDimension = (dimension: 'width' | 'height') => {
@@ -1099,6 +1302,49 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
     } catch (error) {
       console.error('Failed to import images into collage studio', error);
       window.alert('One or more selected images could not be imported.');
+    } finally {
+      event.target.value = '';
+    }
+  };
+
+  const handleImportFontsFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []).filter((file) => /\.(woff2?|ttf|otf)$/i.test(file.name));
+    if (files.length === 0) {
+      event.target.value = '';
+      return;
+    }
+
+    try {
+      const importedFonts = await Promise.all(files.map(async (file) => {
+        const dataUrl = await readFileAsDataUrl(file);
+        const family = file.name.replace(/\.[^.]+$/u, '').replace(/[_-]+/g, ' ').trim() || `Custom Font ${Date.now()}`;
+        const record: StoredFontRecord = {
+          id: `custom-font-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          family,
+          source: 'custom',
+          fileName: file.name,
+          dataUrl,
+        };
+
+        if (typeof document !== 'undefined' && !registeredFontFamiliesRef.current.has(record.family)) {
+          const fontFace = new FontFace(record.family, `url(${record.dataUrl})`);
+          await fontFace.load();
+          document.fonts.add(fontFace);
+          registeredFontFamiliesRef.current.add(record.family);
+        }
+        return record;
+      }));
+
+      const dedupedFonts = importedFonts.filter((incoming) => !customFonts.some((font) => font.family === incoming.family));
+      if (dedupedFonts.length > 0) {
+        setCustomFonts((prev) => [...prev, ...dedupedFonts]);
+        if (selectedItem?.kind === 'text') {
+          await handleSelectedTextFontChange(dedupedFonts[dedupedFonts.length - 1].family);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to import custom fonts', error);
+      window.alert('One or more selected font files could not be imported.');
     } finally {
       event.target.value = '';
     }
@@ -1737,12 +1983,26 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
                             <span className="text-[10px] text-slate-500">Font</span>
                             <select
                               value={selectedItem.fontFamily ?? 'Arial'}
-                              onChange={(event) => updateSelectedItem((item) => ({ ...item, fontFamily: event.target.value }))}
+                              onChange={(event) => { void handleSelectedTextFontChange(event.target.value); }}
                               className="w-full bg-slate-950 border border-slate-800 rounded-md px-2 py-1.5 text-[11px] text-slate-100 outline-none focus:border-orange-500"
                             >
-                              {FONT_FAMILY_OPTIONS.map((font) => (
-                                <option key={font} value={font}>{font}</option>
-                              ))}
+                              <optgroup label="System">
+                                {SYSTEM_FONT_OPTIONS.map((font) => (
+                                  <option key={font} value={font}>{font}</option>
+                                ))}
+                              </optgroup>
+                              <optgroup label="Starter">
+                                {STARTER_FONT_OPTIONS.map((font) => (
+                                  <option key={font.family} value={font.family}>{font.label}</option>
+                                ))}
+                              </optgroup>
+                              {customFonts.length > 0 && (
+                                <optgroup label="Imported">
+                                  {customFonts.map((font) => (
+                                    <option key={font.id} value={font.family}>{font.family}</option>
+                                  ))}
+                                </optgroup>
+                              )}
                             </select>
                           </label>
                           <label className="space-y-1">
@@ -1758,6 +2018,14 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
                             </select>
                           </label>
                         </div>
+                        <button
+                          onClick={handleImportFontsRequest}
+                          className="w-full rounded-md border border-slate-800 bg-slate-950 px-2 py-1.5 text-[10px] font-semibold text-slate-200 flex items-center justify-center gap-1 cursor-pointer"
+                        >
+                          <Upload className="h-3 w-3" />
+                          <span>Import Fonts</span>
+                          {customFonts.length > 0 ? <span className="text-slate-500">({customFonts.length})</span> : null}
+                        </button>
                         <div className="grid grid-cols-2 gap-2">
                           <label className="space-y-1">
                             <span className="text-[10px] text-slate-500">Text Color</span>
@@ -2093,6 +2361,14 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
           multiple
           className="hidden"
           onChange={handleImportImagesFile}
+        />
+        <input
+          ref={fontImportInputRef}
+          type="file"
+          accept=".ttf,.otf,.woff,.woff2,font/ttf,font/otf,font/woff,font/woff2"
+          multiple
+          className="hidden"
+          onChange={handleImportFontsFile}
         />
       </div>
     </div>
