@@ -6,6 +6,8 @@ import {
   ArrowDownToLine,
   ArrowUp,
   ArrowUpToLine,
+  ChevronDown,
+  ChevronRight,
   Copy,
   Download,
   Eye,
@@ -141,6 +143,12 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
   const [isProjectHydrated, setIsProjectHydrated] = useState<boolean>(false);
   const [sourceSearch, setSourceSearch] = useState<string>('');
   const [isExporting, setIsExporting] = useState<boolean>(false);
+  const [collapsedSections, setCollapsedSections] = useState({
+    canvas: false,
+    savedCutouts: false,
+    layers: false,
+    selectedItem: false,
+  });
   const projectImportInputRef = useRef<HTMLInputElement | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const interactionRef = useRef<InteractionState | null>(null);
@@ -164,6 +172,13 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
       return haystack.includes(normalizedQuery);
     });
   }, [savedSegments, sourceSearch]);
+
+  const toggleSection = (section: keyof typeof collapsedSections) => {
+    setCollapsedSections((prev) => ({
+      ...prev,
+      [section]: !prev[section],
+    }));
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -798,8 +813,8 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
             </div>
           </div>
 
-          <aside className="w-full lg:w-[380px] border-t lg:border-t-0 lg:border-l border-slate-800 bg-slate-950 flex flex-col overflow-hidden">
-            <div className="p-4 border-b border-slate-800 bg-slate-950/95 shrink-0 space-y-3">
+          <aside className="w-full lg:w-[320px] border-t lg:border-t-0 lg:border-l border-slate-800 bg-slate-950 flex flex-col overflow-hidden">
+            <div className="p-3 border-b border-slate-800 bg-slate-950/95 shrink-0 space-y-2.5">
               <div>
                 <h2 className="text-xs font-bold uppercase tracking-wider text-slate-300">Project</h2>
                 <p className="text-[10px] text-slate-500">Persistent locally, exportable as image, PDF, or project JSON.</p>
@@ -809,7 +824,7 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
                 type="text"
                 value={project.name}
                 onChange={(event) => setProject((prev) => ({ ...prev, name: event.target.value, updatedAt: Date.now() }))}
-                className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2.5 text-sm text-slate-100 outline-none focus:border-orange-500"
+                className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-2 text-xs text-slate-100 outline-none focus:border-orange-500"
                 placeholder="Collage project name"
               />
 
@@ -817,27 +832,27 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
                 <button
                   onClick={() => void handleExportImage('png')}
                   disabled={isExporting}
-                  className="py-2.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold cursor-pointer disabled:opacity-50"
+                  className="py-2 rounded-lg bg-orange-600 hover:bg-orange-500 text-white text-[11px] font-bold cursor-pointer disabled:opacity-50"
                 >
                   Export PNG
                 </button>
                 <button
                   onClick={() => void handleExportImage('webp')}
                   disabled={isExporting}
-                  className="py-2.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-200 text-xs font-semibold cursor-pointer disabled:opacity-50"
+                  className="py-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-200 text-[11px] font-semibold cursor-pointer disabled:opacity-50"
                 >
                   Export WebP
                 </button>
                 <button
                   onClick={() => void handleExportPdf()}
                   disabled={isExporting}
-                  className="py-2.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-200 text-xs font-semibold cursor-pointer disabled:opacity-50"
+                  className="py-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-200 text-[11px] font-semibold cursor-pointer disabled:opacity-50"
                 >
                   Export PDF
                 </button>
                 <button
                   onClick={handleExportProject}
-                  className="py-2.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-200 text-xs font-semibold cursor-pointer"
+                  className="py-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-200 text-[11px] font-semibold cursor-pointer"
                 >
                   Export Project
                 </button>
@@ -846,9 +861,9 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
               <div className="grid grid-cols-2 gap-2">
                 <button
                   onClick={handleImportProjectRequest}
-                  className="py-2.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-200 text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
+                  className="py-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-200 text-[11px] font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
                 >
-                  <Upload className="h-3.5 w-3.5" />
+                  <Upload className="h-3 w-3" />
                   <span>Import</span>
                 </button>
                 <button
@@ -860,17 +875,25 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
                     setSelectedItemId(null);
                     setStageZoom(0.7);
                   }}
-                  className="py-2.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-200 text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
+                  className="py-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-200 text-[11px] font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
                 >
-                  <RotateCcw className="h-3.5 w-3.5" />
+                  <RotateCcw className="h-3 w-3" />
                   <span>Reset</span>
                 </button>
               </div>
             </div>
 
             <div className="flex-1 overflow-y-auto">
-              <section className="p-4 border-b border-slate-800 space-y-3">
-                <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Canvas</h3>
+              <section className="border-b border-slate-800">
+                <button
+                  onClick={() => toggleSection('canvas')}
+                  className="w-full px-3 py-2 flex items-center justify-between text-left hover:bg-slate-900/60 transition-colors cursor-pointer"
+                >
+                  <h3 className="text-[10px] font-bold uppercase tracking-[0.22em] text-slate-400">Canvas</h3>
+                  {collapsedSections.canvas ? <ChevronRight className="h-3.5 w-3.5 text-slate-500" /> : <ChevronDown className="h-3.5 w-3.5 text-slate-500" />}
+                </button>
+                {!collapsedSections.canvas && (
+                <div className="px-3 pb-3 space-y-2.5">
                 <div className="grid grid-cols-2 gap-2">
                   <label className="space-y-1">
                     <span className="text-[10px] text-slate-500">Width</span>
@@ -880,7 +903,7 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
                       max="4000"
                       value={project.width}
                       onChange={(event) => setProject((prev) => ({ ...prev, width: Math.max(64, Number(event.target.value) || prev.width), updatedAt: Date.now() }))}
-                      className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-100 outline-none focus:border-orange-500"
+                      className="w-full bg-slate-900 border border-slate-800 rounded-md px-2 py-1.5 text-[11px] text-slate-100 outline-none focus:border-orange-500"
                     />
                   </label>
                   <label className="space-y-1">
@@ -891,7 +914,7 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
                       max="4000"
                       value={project.height}
                       onChange={(event) => setProject((prev) => ({ ...prev, height: Math.max(64, Number(event.target.value) || prev.height), updatedAt: Date.now() }))}
-                      className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-100 outline-none focus:border-orange-500"
+                      className="w-full bg-slate-900 border border-slate-800 rounded-md px-2 py-1.5 text-[11px] text-slate-100 outline-none focus:border-orange-500"
                     />
                   </label>
                 </div>
@@ -901,16 +924,16 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
                     <button
                       key={preset.label}
                       onClick={() => setProject((prev) => ({ ...prev, width: preset.width, height: preset.height, updatedAt: Date.now() }))}
-                      className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-[10px] font-semibold text-slate-300 hover:bg-slate-800 cursor-pointer"
+                      className="rounded-md border border-slate-800 bg-slate-900 px-2 py-1.5 text-[10px] font-semibold text-slate-300 hover:bg-slate-800 cursor-pointer"
                     >
                       {preset.label}
                     </button>
                   ))}
                 </div>
 
-                <div className="rounded-xl border border-slate-800 bg-slate-900 p-3 space-y-2">
+                <div className="rounded-lg border border-slate-800 bg-slate-900 p-2.5 space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-slate-200">Background</span>
+                    <span className="text-[11px] font-semibold text-slate-200">Background</span>
                     <button
                       onClick={() => setProject((prev) => ({
                         ...prev,
@@ -920,7 +943,7 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
                         },
                         updatedAt: Date.now(),
                       }))}
-                      className="rounded-lg border border-slate-800 bg-slate-950 px-2.5 py-1.5 text-[10px] text-slate-300 cursor-pointer"
+                      className="rounded-md border border-slate-800 bg-slate-950 px-2 py-1 text-[10px] text-slate-300 cursor-pointer"
                     >
                       {project.background.mode === 'transparent' ? 'Transparent' : 'Solid'}
                     </button>
@@ -937,13 +960,23 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
                       },
                       updatedAt: Date.now(),
                     }))}
-                    className="h-10 w-full rounded-lg border border-slate-700 bg-transparent p-1 disabled:opacity-40"
+                    className="h-8 w-full rounded-md border border-slate-700 bg-transparent p-1 disabled:opacity-40"
                   />
                 </div>
+                </div>
+                )}
               </section>
 
-              <section className="p-4 border-b border-slate-800 space-y-3">
-                <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Saved Cutouts</h3>
+              <section className="border-b border-slate-800">
+                <button
+                  onClick={() => toggleSection('savedCutouts')}
+                  className="w-full px-3 py-2 flex items-center justify-between text-left hover:bg-slate-900/60 transition-colors cursor-pointer"
+                >
+                  <h3 className="text-[10px] font-bold uppercase tracking-[0.22em] text-slate-400">Saved Cutouts</h3>
+                  {collapsedSections.savedCutouts ? <ChevronRight className="h-3.5 w-3.5 text-slate-500" /> : <ChevronDown className="h-3.5 w-3.5 text-slate-500" />}
+                </button>
+                {!collapsedSections.savedCutouts && (
+                <div className="px-3 pb-3 space-y-2.5">
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
                   <input
@@ -951,13 +984,13 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
                     value={sourceSearch}
                     onChange={(event) => setSourceSearch(event.target.value)}
                     placeholder="Search cutouts or tags..."
-                    className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-9 pr-3 py-2.5 text-xs text-slate-100 outline-none focus:border-orange-500"
+                    className="w-full bg-slate-900 border border-slate-800 rounded-lg pl-8 pr-3 py-2 text-[11px] text-slate-100 outline-none focus:border-orange-500"
                   />
                 </div>
 
-                <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1">
                   {filteredSegments.length === 0 ? (
-                    <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4 text-center text-[11px] text-slate-500">
+                    <div className="rounded-lg border border-slate-800 bg-slate-900/40 p-3 text-center text-[10px] text-slate-500">
                       No saved cutouts match the current search.
                     </div>
                   ) : (
@@ -965,19 +998,19 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
                       <button
                         key={segment.id}
                         onClick={() => addSegmentToProject(segment)}
-                        className="w-full rounded-xl border border-slate-800 bg-slate-900/70 p-2 flex items-center gap-3 text-left hover:border-orange-500/40 hover:bg-slate-900 transition-all cursor-pointer"
+                        className="w-full rounded-lg border border-slate-800 bg-slate-900/70 p-1.5 flex items-center gap-2 text-left hover:border-orange-500/40 hover:bg-slate-900 transition-all cursor-pointer"
                       >
-                        <div className="h-14 w-14 shrink-0 rounded-lg border border-slate-800 bg-checkerboard flex items-center justify-center overflow-hidden">
+                        <div className="h-11 w-11 shrink-0 rounded-md border border-slate-800 bg-checkerboard flex items-center justify-center overflow-hidden">
                           <img src={segment.thumbnailUrl} alt={segment.name} className="max-h-full max-w-full object-contain" />
                         </div>
                         <div className="min-w-0 flex-1">
-                          <p className="text-xs font-semibold text-slate-200 truncate">{segment.name}</p>
+                          <p className="text-[11px] font-semibold text-slate-200 truncate">{segment.name}</p>
                           <p className="text-[10px] text-slate-500 font-mono">
                             {segment.bounds.width} x {segment.bounds.height}
                           </p>
                           <div className="mt-1 flex flex-wrap gap-1">
                             {(segment.tags ?? []).slice(0, 3).map((tag) => (
-                              <span key={tag} className="rounded bg-slate-950 px-1.5 py-0.5 text-[9px] text-slate-400 border border-slate-800">
+                              <span key={tag} className="rounded bg-slate-950 px-1.5 py-0.5 text-[8px] text-slate-400 border border-slate-800">
                                 {tag}
                               </span>
                             ))}
@@ -987,13 +1020,23 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
                     ))
                   )}
                 </div>
+                </div>
+                )}
               </section>
 
-              <section className="p-4 border-b border-slate-800 space-y-3">
-                <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Layers</h3>
-                <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+              <section className="border-b border-slate-800">
+                <button
+                  onClick={() => toggleSection('layers')}
+                  className="w-full px-3 py-2 flex items-center justify-between text-left hover:bg-slate-900/60 transition-colors cursor-pointer"
+                >
+                  <h3 className="text-[10px] font-bold uppercase tracking-[0.22em] text-slate-400">Layers</h3>
+                  {collapsedSections.layers ? <ChevronRight className="h-3.5 w-3.5 text-slate-500" /> : <ChevronDown className="h-3.5 w-3.5 text-slate-500" />}
+                </button>
+                {!collapsedSections.layers && (
+                <div className="px-3 pb-3 space-y-2.5">
+                <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
                   {project.items.length === 0 ? (
-                    <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4 text-center text-[11px] text-slate-500">
+                    <div className="rounded-lg border border-slate-800 bg-slate-900/40 p-3 text-center text-[10px] text-slate-500">
                       Add cutouts from the library to start building a collage.
                     </div>
                   ) : (
@@ -1003,44 +1046,54 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
                         <button
                           key={item.id}
                           onClick={() => setSelectedItemId(item.id)}
-                          className={`w-full rounded-xl border p-2 flex items-center gap-2 text-left transition-all cursor-pointer ${
+                          className={`w-full rounded-lg border p-1.5 flex items-center gap-2 text-left transition-all cursor-pointer ${
                             isSelected
                               ? 'border-orange-500 bg-orange-500/10'
                               : 'border-slate-800 bg-slate-900/70 hover:border-slate-700'
                           }`}
                         >
-                          <div className="h-10 w-10 shrink-0 rounded-lg border border-slate-800 bg-checkerboard overflow-hidden flex items-center justify-center">
+                          <div className="h-9 w-9 shrink-0 rounded-md border border-slate-800 bg-checkerboard overflow-hidden flex items-center justify-center">
                             <img src={item.thumbnailUrl} alt={item.name} className="max-h-full max-w-full object-contain" />
                           </div>
                           <div className="min-w-0 flex-1">
-                            <p className="text-xs font-semibold text-slate-200 truncate">{item.name}</p>
+                            <p className="text-[11px] font-semibold text-slate-200 truncate">{item.name}</p>
                             <p className="text-[10px] text-slate-500">Layer {index + 1}</p>
                           </div>
                           <div className="flex items-center gap-1">
-                            {item.locked ? <Lock className="h-3.5 w-3.5 text-amber-400" /> : null}
-                            {item.visible ? <Eye className="h-3.5 w-3.5 text-slate-500" /> : <EyeOff className="h-3.5 w-3.5 text-slate-600" />}
+                            {item.locked ? <Lock className="h-3 w-3 text-amber-400" /> : null}
+                            {item.visible ? <Eye className="h-3 w-3 text-slate-500" /> : <EyeOff className="h-3 w-3 text-slate-600" />}
                           </div>
                         </button>
                       );
                     })
                   )}
                 </div>
+                </div>
+                )}
               </section>
 
-              <section className="p-4 space-y-3">
-                <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Selected Item</h3>
+              <section className="border-b border-slate-800">
+                <button
+                  onClick={() => toggleSection('selectedItem')}
+                  className="w-full px-3 py-2 flex items-center justify-between text-left hover:bg-slate-900/60 transition-colors cursor-pointer"
+                >
+                  <h3 className="text-[10px] font-bold uppercase tracking-[0.22em] text-slate-400">Selected Item</h3>
+                  {collapsedSections.selectedItem ? <ChevronRight className="h-3.5 w-3.5 text-slate-500" /> : <ChevronDown className="h-3.5 w-3.5 text-slate-500" />}
+                </button>
+                {!collapsedSections.selectedItem && (
+                <div className="px-3 pb-3 space-y-2.5">
                 {!selectedItem ? (
-                  <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4 text-center text-[11px] text-slate-500">
+                  <div className="rounded-lg border border-slate-800 bg-slate-900/40 p-3 text-center text-[10px] text-slate-500">
                     Select a layer on the stage or in the layer list to edit it.
                   </div>
                 ) : (
-                  <div className="space-y-3">
-                    <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3 flex items-center gap-3">
-                      <div className="h-14 w-14 shrink-0 rounded-lg border border-slate-800 bg-checkerboard overflow-hidden flex items-center justify-center">
+                  <div className="space-y-2.5">
+                    <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-2.5 flex items-center gap-2">
+                      <div className="h-11 w-11 shrink-0 rounded-md border border-slate-800 bg-checkerboard overflow-hidden flex items-center justify-center">
                         <img src={selectedItem.thumbnailUrl} alt={selectedItem.name} className="max-h-full max-w-full object-contain" />
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm font-semibold text-slate-100 truncate">{selectedItem.name}</p>
+                        <p className="text-xs font-semibold text-slate-100 truncate">{selectedItem.name}</p>
                         <p className="text-[10px] text-slate-500 font-mono">
                           {selectedItem.originalWidth} x {selectedItem.originalHeight}
                         </p>
@@ -1054,7 +1107,7 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
                           type="number"
                           value={Math.round(selectedItem.x)}
                           onChange={(event) => updateSelectedItem((item) => ({ ...item, x: clamp(Number(event.target.value) || 0, 0, project.width) }))}
-                          className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-100 outline-none focus:border-orange-500"
+                          className="w-full bg-slate-900 border border-slate-800 rounded-md px-2 py-1.5 text-[11px] text-slate-100 outline-none focus:border-orange-500"
                         />
                       </label>
                       <label className="space-y-1">
@@ -1063,13 +1116,13 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
                           type="number"
                           value={Math.round(selectedItem.y)}
                           onChange={(event) => updateSelectedItem((item) => ({ ...item, y: clamp(Number(event.target.value) || 0, 0, project.height) }))}
-                          className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-100 outline-none focus:border-orange-500"
+                          className="w-full bg-slate-900 border border-slate-800 rounded-md px-2 py-1.5 text-[11px] text-slate-100 outline-none focus:border-orange-500"
                         />
                       </label>
                     </div>
 
                     <div className="space-y-1.5">
-                      <div className="flex items-center justify-between text-xs text-slate-300">
+                      <div className="flex items-center justify-between text-[11px] text-slate-300">
                         <span>Scale</span>
                         <span className="font-mono text-orange-300">{Math.round(selectedItem.scale * 100)}%</span>
                       </div>
@@ -1085,7 +1138,7 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
                     </div>
 
                     <div className="space-y-1.5">
-                      <div className="flex items-center justify-between text-xs text-slate-300">
+                      <div className="flex items-center justify-between text-[11px] text-slate-300">
                         <span>Rotation</span>
                         <span className="font-mono text-orange-300">{Math.round(selectedItem.rotation)} deg</span>
                       </div>
@@ -1101,7 +1154,7 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
                     </div>
 
                     <div className="space-y-1.5">
-                      <div className="flex items-center justify-between text-xs text-slate-300">
+                      <div className="flex items-center justify-between text-[11px] text-slate-300">
                         <span>Opacity</span>
                         <span className="font-mono text-orange-300">{Math.round(selectedItem.opacity * 100)}%</span>
                       </div>
@@ -1119,16 +1172,16 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
                     <div className="grid grid-cols-2 gap-2">
                       <button
                         onClick={() => updateSelectedItem((item) => ({ ...item, flipX: !item.flipX }))}
-                        className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-[10px] font-semibold text-slate-200 flex items-center justify-center gap-1.5 cursor-pointer"
+                        className="rounded-md border border-slate-800 bg-slate-900 px-2 py-1.5 text-[10px] font-semibold text-slate-200 flex items-center justify-center gap-1 cursor-pointer"
                       >
-                        <FlipHorizontal className="h-3.5 w-3.5" />
+                        <FlipHorizontal className="h-3 w-3" />
                         <span>Flip X</span>
                       </button>
                       <button
                         onClick={() => updateSelectedItem((item) => ({ ...item, flipY: !item.flipY }))}
-                        className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-[10px] font-semibold text-slate-200 flex items-center justify-center gap-1.5 cursor-pointer"
+                        className="rounded-md border border-slate-800 bg-slate-900 px-2 py-1.5 text-[10px] font-semibold text-slate-200 flex items-center justify-center gap-1 cursor-pointer"
                       >
-                        <FlipVertical className="h-3.5 w-3.5" />
+                        <FlipVertical className="h-3 w-3" />
                         <span>Flip Y</span>
                       </button>
                     </div>
@@ -1136,16 +1189,16 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
                     <div className="grid grid-cols-2 gap-2">
                       <button
                         onClick={() => alignSelectedItem('center', null)}
-                        className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-[10px] font-semibold text-slate-200 flex items-center justify-center gap-1.5 cursor-pointer"
+                        className="rounded-md border border-slate-800 bg-slate-900 px-2 py-1.5 text-[10px] font-semibold text-slate-200 flex items-center justify-center gap-1 cursor-pointer"
                       >
-                        <AlignCenterHorizontal className="h-3.5 w-3.5" />
+                        <AlignCenterHorizontal className="h-3 w-3" />
                         <span>Center X</span>
                       </button>
                       <button
                         onClick={() => alignSelectedItem(null, 'center')}
-                        className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-[10px] font-semibold text-slate-200 flex items-center justify-center gap-1.5 cursor-pointer"
+                        className="rounded-md border border-slate-800 bg-slate-900 px-2 py-1.5 text-[10px] font-semibold text-slate-200 flex items-center justify-center gap-1 cursor-pointer"
                       >
-                        <AlignCenterVertical className="h-3.5 w-3.5" />
+                        <AlignCenterVertical className="h-3 w-3" />
                         <span>Center Y</span>
                       </button>
                     </div>
@@ -1153,47 +1206,47 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
                     <div className="grid grid-cols-4 gap-2">
                       <button
                         onClick={() => reorderSelectedItem('back')}
-                        className="rounded-lg border border-slate-800 bg-slate-900 px-2 py-2 text-slate-300 flex items-center justify-center cursor-pointer"
+                        className="rounded-md border border-slate-800 bg-slate-900 px-2 py-1.5 text-slate-300 flex items-center justify-center cursor-pointer"
                         title="Send to back"
                       >
-                        <ArrowDownToLine className="h-4 w-4" />
+                        <ArrowDownToLine className="h-3.5 w-3.5" />
                       </button>
                       <button
                         onClick={() => reorderSelectedItem('backward')}
-                        className="rounded-lg border border-slate-800 bg-slate-900 px-2 py-2 text-slate-300 flex items-center justify-center cursor-pointer"
+                        className="rounded-md border border-slate-800 bg-slate-900 px-2 py-1.5 text-slate-300 flex items-center justify-center cursor-pointer"
                         title="Move backward"
                       >
-                        <ArrowDown className="h-4 w-4" />
+                        <ArrowDown className="h-3.5 w-3.5" />
                       </button>
                       <button
                         onClick={() => reorderSelectedItem('forward')}
-                        className="rounded-lg border border-slate-800 bg-slate-900 px-2 py-2 text-slate-300 flex items-center justify-center cursor-pointer"
+                        className="rounded-md border border-slate-800 bg-slate-900 px-2 py-1.5 text-slate-300 flex items-center justify-center cursor-pointer"
                         title="Move forward"
                       >
-                        <ArrowUp className="h-4 w-4" />
+                        <ArrowUp className="h-3.5 w-3.5" />
                       </button>
                       <button
                         onClick={() => reorderSelectedItem('front')}
-                        className="rounded-lg border border-slate-800 bg-slate-900 px-2 py-2 text-slate-300 flex items-center justify-center cursor-pointer"
+                        className="rounded-md border border-slate-800 bg-slate-900 px-2 py-1.5 text-slate-300 flex items-center justify-center cursor-pointer"
                         title="Bring to front"
                       >
-                        <ArrowUpToLine className="h-4 w-4" />
+                        <ArrowUpToLine className="h-3.5 w-3.5" />
                       </button>
                     </div>
 
                     <div className="grid grid-cols-2 gap-2">
                       <button
                         onClick={() => updateSelectedItem((item) => ({ ...item, locked: !item.locked }))}
-                        className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-[10px] font-semibold text-slate-200 flex items-center justify-center gap-1.5 cursor-pointer"
+                        className="rounded-md border border-slate-800 bg-slate-900 px-2 py-1.5 text-[10px] font-semibold text-slate-200 flex items-center justify-center gap-1 cursor-pointer"
                       >
-                        {selectedItem.locked ? <Unlock className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}
+                        {selectedItem.locked ? <Unlock className="h-3 w-3" /> : <Lock className="h-3 w-3" />}
                         <span>{selectedItem.locked ? 'Unlock' : 'Lock'}</span>
                       </button>
                       <button
                         onClick={() => updateSelectedItem((item) => ({ ...item, visible: !item.visible }))}
-                        className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-[10px] font-semibold text-slate-200 flex items-center justify-center gap-1.5 cursor-pointer"
+                        className="rounded-md border border-slate-800 bg-slate-900 px-2 py-1.5 text-[10px] font-semibold text-slate-200 flex items-center justify-center gap-1 cursor-pointer"
                       >
-                        {selectedItem.visible ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                        {selectedItem.visible ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
                         <span>{selectedItem.visible ? 'Hide' : 'Show'}</span>
                       </button>
                     </div>
@@ -1201,27 +1254,29 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
                     <div className="grid grid-cols-3 gap-2">
                       <button
                         onClick={duplicateSelectedItem}
-                        className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-[10px] font-semibold text-slate-200 flex items-center justify-center gap-1.5 cursor-pointer"
+                        className="rounded-md border border-slate-800 bg-slate-900 px-2 py-1.5 text-[10px] font-semibold text-slate-200 flex items-center justify-center gap-1 cursor-pointer"
                       >
-                        <Copy className="h-3.5 w-3.5" />
+                        <Copy className="h-3 w-3" />
                         <span>Duplicate</span>
                       </button>
                       <button
                         onClick={() => updateSelectedItem((item) => ({ ...item, rotation: 0, scale: 1, opacity: 1, flipX: false, flipY: false }))}
-                        className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-[10px] font-semibold text-slate-200 flex items-center justify-center gap-1.5 cursor-pointer"
+                        className="rounded-md border border-slate-800 bg-slate-900 px-2 py-1.5 text-[10px] font-semibold text-slate-200 flex items-center justify-center gap-1 cursor-pointer"
                       >
-                        <RotateCcw className="h-3.5 w-3.5" />
+                        <RotateCcw className="h-3 w-3" />
                         <span>Reset</span>
                       </button>
                       <button
                         onClick={removeSelectedItem}
-                        className="rounded-lg border border-rose-900/60 bg-rose-950/40 px-3 py-2 text-[10px] font-semibold text-rose-300 flex items-center justify-center gap-1.5 cursor-pointer"
+                        className="rounded-md border border-rose-900/60 bg-rose-950/40 px-2 py-1.5 text-[10px] font-semibold text-rose-300 flex items-center justify-center gap-1 cursor-pointer"
                       >
-                        <Trash2 className="h-3.5 w-3.5" />
+                        <Trash2 className="h-3 w-3" />
                         <span>Delete</span>
                       </button>
                     </div>
                   </div>
+                )}
+                </div>
                 )}
               </section>
             </div>
