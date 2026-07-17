@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /assetmaster/
+
+Sitemap: https://created.link/assetmaster/sitemap.xml

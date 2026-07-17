@@ -1,0 +1,24 @@
+{
+  "name": "AssetMaster - Image Cutout & Animation Studio",
+  "short_name": "AssetMaster",
+  "description": "Create transparent cutouts, clean backgrounds, compose collages, slice sprite sheets, and preview frame animations.",
+  "start_url": "/assetmaster/",
+  "scope": "/assetmaster/",
+  "display": "standalone",
+  "background_color": "#020617",
+  "theme_color": "#020617",
+  "icons": [
+    {
+      "src": "/assetmaster/logos/assetmaster-logo-mark.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/assetmaster/logos/assetmaster-logo-badge.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}

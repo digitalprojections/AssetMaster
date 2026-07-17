@@ -80,13 +80,7 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
   const [workspaceSize, setWorkspaceSize] = useState({ width: 0, height: 0 });
 
   // Responsive controls state
-  const [isControlsOpen, setIsControlsOpen] = useState<boolean>(true);
-
-  useEffect(() => {
-    if (window.innerWidth < 768) {
-      setIsControlsOpen(false);
-    }
-  }, []);
+  const [isControlsOpen, setIsControlsOpen] = useState<boolean>(false);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -801,7 +795,7 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
   const zoomPercent = Math.round(viewZoom * 100);
 
   return (
-    <div id="bg-remover-modal" className="fixed inset-0 bg-slate-950/95 backdrop-blur-md z-50 flex items-center justify-center p-0 md:p-6 text-slate-100 font-sans">
+    <div id="bg-remover-modal" className="fixed inset-0 h-[100dvh] overflow-hidden bg-slate-950/95 backdrop-blur-md z-50 flex items-start md:items-center justify-center p-0 md:p-6 text-slate-100 font-sans">
       <div className="w-full max-w-5xl h-full md:h-[85vh] bg-slate-900 border-0 md:border border-slate-800 rounded-none md:rounded-3xl flex flex-col overflow-hidden shadow-2xl relative">
         
         {/* Header */}
@@ -817,15 +811,6 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
           </div>
 
           <div className="flex items-center space-x-1.5 sm:space-x-3">
-            {/* Show Tools toggle button on mobile */}
-            <button
-              onClick={() => setIsControlsOpen(!isControlsOpen)}
-              className="md:hidden flex items-center space-x-1 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-300 cursor-pointer"
-            >
-              <Settings className="h-3.5 w-3.5 text-emerald-400" />
-              <span>{isControlsOpen ? 'Hide' : 'Tools'}</span>
-            </button>
-
             <button
               onClick={handleUndo}
               disabled={history.length === 0}
@@ -839,19 +824,45 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
             <button
               onClick={onClose}
               className="p-1.5 hover:bg-slate-850 border border-transparent hover:border-slate-800 rounded-lg text-slate-400 hover:text-slate-200 transition-all"
+              aria-label="Close background cleanup"
             >
               <X className="h-4 w-4" />
             </button>
           </div>
         </header>
 
+        <div className="grid grid-cols-2 gap-2 border-b border-slate-800 bg-slate-950 p-2 md:hidden shrink-0">
+          <button
+            onClick={() => setIsControlsOpen(false)}
+            className={`min-h-11 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-all ${
+              !isControlsOpen
+                ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-500/15'
+                : 'border border-slate-800 bg-slate-900 text-slate-400'
+            }`}
+          >
+            <Eye className="h-4 w-4" />
+            <span>Preview</span>
+          </button>
+          <button
+            onClick={() => setIsControlsOpen(true)}
+            className={`min-h-11 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-all ${
+              isControlsOpen
+                ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-500/15'
+                : 'border border-slate-800 bg-slate-900 text-slate-400'
+            }`}
+          >
+            <Sliders className="h-4 w-4" />
+            <span>Tools</span>
+          </button>
+        </div>
+
         {/* Content workspace split panel */}
-        <div className="flex-1 min-h-0 flex overflow-hidden relative">
+        <div className="flex-1 min-h-0 flex flex-col md:flex-row overflow-hidden relative pb-20 md:pb-0">
           
           {/* Main Visual interactive Canvas Area */}
           <div
             ref={containerRef}
-            className="flex-1 min-h-0 bg-checkerboard relative overflow-auto select-none"
+            className={`${isControlsOpen ? 'hidden md:block' : 'block'} flex-1 min-h-0 bg-checkerboard relative overflow-auto select-none`}
           >
             <div className="min-h-full min-w-full flex items-center justify-center p-3 pb-24 md:p-8">
             
@@ -948,17 +959,10 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
                     </div>
                     <p className="mt-1 text-[9px] text-slate-500">Mouse wheel zooms the cleanup view.</p>
                   </div>
-                  <div className="grid grid-cols-[1fr_auto] gap-2">
-                    <button
-                      onClick={handleApply}
-                      className="py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-2 shadow-lg shadow-emerald-600/10 active:scale-[0.98] transition-all cursor-pointer"
-                    >
-                      <Check className="h-4.5 w-4.5" />
-                      <span>Save Cleaned Cutout</span>
-                    </button>
+                  <div className="grid grid-cols-1 gap-2">
                     <button
                       onClick={() => setIsControlsOpen(true)}
-                      className="px-3 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 rounded-xl text-xs font-semibold flex items-center justify-center space-x-1.5 transition-all cursor-pointer"
+                      className="py-3 px-3 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 rounded-xl text-xs font-semibold flex items-center justify-center space-x-1.5 transition-all cursor-pointer"
                     >
                       <Settings className="h-3.5 w-3.5 text-emerald-400" />
                       <span>Tools</span>
@@ -977,21 +981,11 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
 
           </div>
 
-          {/* Backdrop for mobile bottom sheet */}
-          {isControlsOpen && (
-            <div
-              className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-30 md:hidden"
-              onClick={() => setIsControlsOpen(false)}
-            />
-          )}
-
           {/* Right Control Sidebar */}
-          <aside className={`fixed md:static bottom-0 left-0 right-0 md:right-auto md:w-80 h-[70dvh] md:h-auto border-t md:border-t-0 md:border-l border-slate-800 bg-slate-950 flex flex-col shrink-0 z-40 transition-transform duration-300 md:transform-none ${
-            isControlsOpen ? 'translate-y-0' : 'translate-y-full md:translate-y-0'
-          } overflow-hidden`}>
+          <aside className={`${isControlsOpen ? 'flex' : 'hidden md:flex'} w-full md:w-80 flex-1 md:flex-none min-h-0 border-t md:border-t-0 md:border-l border-slate-800 bg-slate-950 flex-col shrink-0 overflow-hidden`}>
             
             {/* Mobile Bottom Sheet Handle */}
-            <div className="flex md:hidden justify-center shrink-0 -mt-2 mb-2">
+            <div className="flex md:hidden justify-center shrink-0 pt-2">
               <div className="w-12 h-1 bg-slate-800 rounded-full" />
             </div>
             
@@ -1038,7 +1032,7 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
                   Mouse wheel zooms the cleanup view. Pan with scroll when zoomed in.
                 </p>
               </div>
-              <div className="grid grid-cols-1 gap-2">
+              <div className="hidden md:grid grid-cols-1 gap-2">
                 <button
                   onClick={handleApply}
                   className="w-full py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-2 shadow-lg shadow-emerald-600/10 active:scale-[0.98] transition-all cursor-pointer"
@@ -1056,7 +1050,7 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-5 space-y-5">
+            <div className="flex-1 overflow-y-auto overscroll-contain p-5 space-y-5">
             {/* Toolbox Selector */}
             <div className="space-y-2">
               <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center space-x-2">
@@ -1390,6 +1384,36 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
             </div>
 
           </aside>
+
+          <div
+            className="fixed bottom-0 left-0 right-0 z-[60] border-t border-slate-800 bg-slate-950/96 px-3 pt-3 shadow-2xl md:hidden"
+            style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
+          >
+            <div className="grid grid-cols-[1fr_auto_auto] gap-2">
+              <button
+                onClick={handleApply}
+                className="min-h-11 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 px-4 text-xs font-bold text-white shadow-lg shadow-emerald-600/10 active:scale-[0.98] transition-all cursor-pointer flex items-center justify-center space-x-2"
+              >
+                <Check className="h-4 w-4" />
+                <span>Save Cleaned Cutout</span>
+              </button>
+              <button
+                onClick={() => setIsControlsOpen((prev) => !prev)}
+                className="min-h-11 rounded-xl border border-slate-800 bg-slate-900 px-3 text-xs font-semibold text-slate-300 active:scale-[0.98] transition-all cursor-pointer flex items-center justify-center space-x-1.5"
+              >
+                <Settings className="h-3.5 w-3.5 text-emerald-400" />
+                <span>{isControlsOpen ? 'Hide' : 'Tools'}</span>
+              </button>
+              <button
+                onClick={handleReset}
+                className="min-h-11 rounded-xl border border-slate-800 bg-slate-900 px-3 text-xs font-semibold text-slate-400 active:scale-[0.98] transition-all cursor-pointer flex items-center justify-center"
+                aria-label="Reset to original"
+                title="Reset to original"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
         </div>
 
       </div>

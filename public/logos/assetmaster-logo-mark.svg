@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">AssetMaster logo mark</title>
+  <desc id="desc">A layered asset tile with precision crop corners and a blue green accent.</desc>
+  <defs>
+    <linearGradient id="tile" x1="88" y1="64" x2="424" y2="448" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2563eb"/>
+      <stop offset="0.52" stop-color="#0891b2"/>
+      <stop offset="1" stop-color="#10b981"/>
+    </linearGradient>
+    <linearGradient id="shine" x1="142" y1="126" x2="370" y2="386" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.92"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.18"/>
+    </linearGradient>
+    <filter id="shadow" x="40" y="48" width="432" height="432" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="16" stdDeviation="18" flood-color="#020617" flood-opacity="0.24"/>
+    </filter>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="#0f172a"/>
+  <g filter="url(#shadow)">
+    <path d="M156 116h200c28.72 0 52 23.28 52 52v200c0 28.72-23.28 52-52 52H156c-28.72 0-52-23.28-52-52V168c0-28.72 23.28-52 52-52Z" fill="url(#tile)"/>
+    <path d="M176 154h160c18.78 0 34 15.22 34 34v160c0 18.78-15.22 34-34 34H176c-18.78 0-34-15.22-34-34V188c0-18.78 15.22-34 34-34Z" fill="#0f172a" opacity="0.24"/>
+    <path d="M189 176h134c12.7 0 23 10.3 23 23v134c0 12.7-10.3 23-23 23H189c-12.7 0-23-10.3-23-23V199c0-12.7 10.3-23 23-23Z" fill="url(#shine)"/>
+  </g>
+  <path d="M156 104h54v28h-54c-24.3 0-44 19.7-44 44v54H84v-54c0-39.76 32.24-72 72-72Zm146 0h54c39.76 0 72 32.24 72 72v54h-28v-54c0-24.3-19.7-44-44-44h-54v-28ZM84 282h28v54c0 24.3 19.7 44 44 44h54v28h-54c-39.76 0-72-32.24-72-72v-54Zm316 0h28v54c0 39.76-32.24 72-72 72h-54v-28h54c24.3 0 44-19.7 44-44v-54Z" fill="#e2e8f0"/>
+  <path d="M226 222h60v25h-60v-25Zm-28 41h116v25H198v-25Zm28 41h60v25h-60v-25Z" fill="#0f172a"/>
+</svg>

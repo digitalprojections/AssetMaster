@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 320" role="img" aria-labelledby="title desc">
+  <title id="title">AssetMaster horizontal logo</title>
+  <desc id="desc">AssetMaster wordmark with a layered precision crop icon.</desc>
+  <defs>
+    <linearGradient id="mark" x1="36" y1="32" x2="278" y2="286" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2563eb"/>
+      <stop offset="0.54" stop-color="#0891b2"/>
+      <stop offset="1" stop-color="#10b981"/>
+    </linearGradient>
+    <linearGradient id="highlight" x1="82" y1="76" x2="232" y2="238" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.92"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.22"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="320" rx="36" fill="#ffffff"/>
+  <g transform="translate(48 40)">
+    <rect width="240" height="240" rx="56" fill="#0f172a"/>
+    <path d="M74 48h92c20.99 0 38 17.01 38 38v92c0 20.99-17.01 38-38 38H74c-20.99 0-38-17.01-38-38V86c0-20.99 17.01-38 38-38Z" fill="url(#mark)"/>
+    <path d="M89 75h72c14.36 0 26 11.64 26 26v72c0 14.36-11.64 26-26 26H89c-14.36 0-26-11.64-26-26v-72c0-14.36 11.64-26 26-26Z" fill="url(#highlight)"/>
+    <path d="M62 42h42v18H62c-18.78 0-34 15.22-34 34v42H10V94c0-28.72 23.28-52 52-52Zm74 0h42c28.72 0 52 23.28 52 52v42h-18V94c0-18.78-15.22-34-34-34h-42V42ZM10 146h18v42c0 18.78 15.22 34 34 34h42v18H62c-28.72 0-52-23.28-52-52v-42Zm202 0h18v42c0 28.72-23.28 52-52 52h-42v-18h42c18.78 0 34-15.22 34-34v-42Z" fill="#e2e8f0"/>
+    <path d="M99 111h48v17H99v-17Zm-17 29h82v17H82v-17Zm17 29h48v17H99v-17Z" fill="#0f172a"/>
+  </g>
+  <g transform="translate(342 92)">
+    <text x="0" y="82" fill="#0f172a" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="88" font-weight="800" letter-spacing="0">Asset<tspan fill="#0f766e">Master</tspan></text>
+    <text x="4" y="136" fill="#475569" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="30" font-weight="600" letter-spacing="3">CUTOUTS · COLLAGES · SPRITE SHEETS</text>
+  </g>
+</svg>

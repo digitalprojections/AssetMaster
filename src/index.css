@@ -10,13 +10,13 @@ body,
 #root {
   width: 100%;
   height: 100%;
-  overflow: hidden;
-  overscroll-behavior: none;
+  min-height: 100%;
 }
 
 body {
-  position: fixed;
-  inset: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
+  min-height: 100dvh;
   touch-action: manipulation;
   -webkit-text-size-adjust: 100%;
 }

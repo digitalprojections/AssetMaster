@@ -1,0 +1,25 @@
+# AssetMaster
+
+> AssetMaster is a free browser-based creative studio for image cutouts, transparent background cleanup, layered collages, sprite sheet slicing, and frame animation previews.
+
+Canonical application: https://created.link/assetmaster/
+
+## Main capabilities
+
+- Create transparent image assets with magnetic, freehand, or rectangular cutout tools.
+- Remove solid backgrounds and polish edges with click-key, eraser, and border-shave tools.
+- Arrange cutouts, imported images, text, and shapes in layered collage projects.
+- Detect and subdivide sprite sheets into animation frames.
+- Preview loops, align frames and pivots, and export PNG sequences or sprite sheets.
+- Save project and asset-library data locally in the browser and export portable project files.
+
+## Usage notes
+
+- The interactive editor requires JavaScript and a modern browser.
+- User projects and cutouts are stored locally in the browser unless explicitly exported by the user.
+- The application is available at no charge.
+
+## Discovery
+
+- Sitemap: https://created.link/assetmaster/sitemap.xml
+- Logo: https://created.link/assetmaster/logos/assetmaster-logo-horizontal.svg

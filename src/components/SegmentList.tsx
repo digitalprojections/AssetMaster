@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { SavedSegment } from '../types';
-import { Download, Trash2, Edit3, Check, X, Archive, FolderOpen, Upload, RotateCcw, Tags, Info } from 'lucide-react';
+import { Download, Trash2, Edit3, Check, X, Archive, FolderOpen, Upload, RotateCcw, Tags, Info, ChevronDown } from 'lucide-react';
 import JSZip from 'jszip';
 
 interface SegmentListProps {
@@ -31,6 +31,7 @@ export default function SegmentList({
   const [isExporting, setIsExporting] = useState(false);
   const [tagDrafts, setTagDrafts] = useState<Record<string, string>>({});
   const [showLibraryHelp, setShowLibraryHelp] = useState(false);
+  const [showMobileLibraryActions, setShowMobileLibraryActions] = useState(false);
 
   const startRename = (segment: SavedSegment) => {
     setEditingId(segment.id);
@@ -156,7 +157,49 @@ export default function SegmentList({
             )}
           </div>
         </div>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-2 gap-2 md:hidden">
+          <button
+            id="batch-zip-export-btn-mobile"
+            onClick={exportAllToZip}
+            disabled={isExporting || segments.length === 0}
+            className="min-h-11 flex items-center justify-center space-x-1 py-2.5 px-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl text-xs font-semibold shadow-lg active:scale-[0.98] transition-all disabled:opacity-50 cursor-pointer"
+          >
+            <Archive className="h-3.5 w-3.5" />
+            <span>{isExporting ? 'Packaging...' : 'Export ZIP'}</span>
+          </button>
+          <button
+            onClick={() => setShowMobileLibraryActions((prev) => !prev)}
+            className={`min-h-11 flex items-center justify-center space-x-1 rounded-xl border px-3 text-xs font-semibold transition-all ${
+              showMobileLibraryActions
+                ? 'border-blue-500/50 bg-blue-500/10 text-blue-200'
+                : 'border-slate-800 bg-slate-950 text-slate-300'
+            }`}
+          >
+            <FolderOpen className="h-3.5 w-3.5" />
+            <span>Library</span>
+            <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showMobileLibraryActions ? 'rotate-180' : ''}`} />
+          </button>
+        </div>
+        {showMobileLibraryActions && (
+          <div className="grid grid-cols-2 gap-2 md:hidden">
+            <button onClick={onExportLibrary} className="min-h-11 flex items-center justify-center space-x-1 rounded-xl border border-slate-800 bg-slate-950 px-3 text-xs font-semibold text-slate-300">
+              <Download className="h-3.5 w-3.5" />
+              <span>Save Library</span>
+            </button>
+            <button onClick={onImportLibrary} className="min-h-11 flex items-center justify-center space-x-1 rounded-xl border border-slate-800 bg-slate-950 px-3 text-xs font-semibold text-slate-300">
+              <Upload className="h-3.5 w-3.5" />
+              <span>Load Library</span>
+            </button>
+            <button onClick={onRestoreBackup} className="min-h-11 flex items-center justify-center space-x-1 rounded-xl border border-slate-800 bg-slate-950 px-3 text-xs font-semibold text-slate-300">
+              <RotateCcw className="h-3.5 w-3.5" />
+              <span>Restore</span>
+            </button>
+            <button onClick={onClearAll} disabled={segments.length === 0} className="min-h-11 rounded-xl border border-rose-900/40 bg-rose-950/20 px-3 text-xs font-semibold text-rose-300 disabled:opacity-40">
+              Clear All
+            </button>
+          </div>
+        )}
+        <div className="hidden md:grid grid-cols-2 gap-2">
             <button
               id="batch-zip-export-btn"
               onClick={exportAllToZip}

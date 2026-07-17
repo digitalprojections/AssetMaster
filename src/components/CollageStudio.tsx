@@ -319,6 +319,7 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
   const [customFonts, setCustomFonts] = useState<StoredFontRecord[]>([]);
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
   const [isSaveNoticeVisible, setIsSaveNoticeVisible] = useState<boolean>(false);
+  const [mobileStudioTab, setMobileStudioTab] = useState<'canvas' | 'controls'>('canvas');
   const [collapsedSections, setCollapsedSections] = useState({
     project: false,
     canvas: false,
@@ -936,6 +937,7 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
       items: [...prev.items, newItem],
     }));
     setSelectedItemId(newItem.id);
+    setMobileStudioTab('canvas');
   };
 
   const addShapeLayer = (shapeKind: CollageShapeKind) => {
@@ -976,6 +978,7 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
       items: [...prev.items, newItem],
     }));
     setSelectedItemId(newItem.id);
+    setMobileStudioTab('canvas');
   };
 
   const addSegmentToProject = (segment: SavedSegment) => {
@@ -993,6 +996,7 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
       items: [...prev.items, newItem],
     }));
     setSelectedItemId(newItem.id);
+    setMobileStudioTab('canvas');
   };
 
   const updateSelectedItem = (updater: (item: CollageItem) => CollageItem) => {
@@ -1421,7 +1425,9 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
   };
 
   const handleImportImagesFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files ?? []).filter((file) => file.type.startsWith('image/'));
+    const files: File[] = event.target.files
+      ? (Array.from(event.target.files) as File[]).filter((file) => file.type.startsWith('image/'))
+      : [];
     if (files.length === 0) {
       event.target.value = '';
       return;
@@ -1455,7 +1461,9 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
   };
 
   const handleImportFontsFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files ?? []).filter((file) => /\.(woff2?|ttf|otf)$/i.test(file.name));
+    const files: File[] = event.target.files
+      ? (Array.from(event.target.files) as File[]).filter((file) => /\.(woff2?|ttf|otf)$/i.test(file.name))
+      : [];
     if (files.length === 0) {
       event.target.value = '';
       return;
@@ -1540,9 +1548,9 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
     item.kind === 'text' ? 'Text Layer' : item.kind === 'shape' ? 'Shape Layer' : 'Image Layer';
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/95 backdrop-blur-md text-slate-100 flex items-center justify-center p-0 md:p-6">
+    <div className="fixed inset-0 h-[100dvh] z-50 overflow-hidden bg-slate-950/95 backdrop-blur-md text-slate-100 flex items-start md:items-center justify-center p-0 md:p-6">
       <div className="w-full h-full md:h-[90vh] max-w-[1700px] bg-slate-900 border-0 md:border border-slate-800 rounded-none md:rounded-3xl overflow-hidden shadow-2xl flex flex-col">
-        <header className="min-h-16 border-b border-slate-800 bg-slate-950/60 flex items-center justify-between gap-3 px-4 py-2 md:px-6 shrink-0">
+        <header className="z-10 min-h-16 border-b border-slate-800 bg-slate-950/90 flex items-center justify-between gap-3 px-4 py-2 md:px-6 shrink-0">
           <div className="flex items-center space-x-3 min-w-0">
             <div className="bg-orange-500/10 p-2 border border-orange-500/20 rounded-xl text-orange-300">
               <Layers className="h-5 w-5" />
@@ -1563,6 +1571,7 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
                 <span>Saved locally</span>
               </div>
             ) : null}
+            <div className="hidden sm:flex items-center gap-2">
             <button
               onClick={() => setStageZoom((prev) => clamp(prev - 0.1, 0.25, 2))}
               className="p-2 rounded-lg border border-slate-800 bg-slate-900 text-slate-300 hover:bg-slate-800 cursor-pointer"
@@ -1585,17 +1594,54 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
             >
               Fit
             </button>
+            </div>
             <button
               onClick={onClose}
               className="p-2 rounded-lg border border-slate-800 bg-slate-900 text-slate-400 hover:text-slate-200 hover:bg-slate-800 cursor-pointer"
+              aria-label="Close Collage Studio"
             >
               <X className="h-4 w-4" />
             </button>
           </div>
         </header>
 
+        <div className="grid grid-cols-2 gap-2 border-b border-slate-800 bg-slate-950 p-2 lg:hidden shrink-0">
+          <button
+            onClick={() => setMobileStudioTab('canvas')}
+            className={`min-h-11 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-all ${
+              mobileStudioTab === 'canvas'
+                ? 'bg-orange-600 text-white shadow-lg shadow-orange-500/15'
+                : 'border border-slate-800 bg-slate-900 text-slate-400'
+            }`}
+          >
+            <ImageIcon className="h-4 w-4" />
+            <span>Canvas</span>
+          </button>
+          <button
+            onClick={() => setMobileStudioTab('controls')}
+            className={`min-h-11 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-all ${
+              mobileStudioTab === 'controls'
+                ? 'bg-orange-600 text-white shadow-lg shadow-orange-500/15'
+                : 'border border-slate-800 bg-slate-900 text-slate-400'
+            }`}
+          >
+            <Layers className="h-4 w-4" />
+            <span>Layers & Export</span>
+          </button>
+        </div>
+
         <div className="flex-1 min-h-0 flex flex-col lg:flex-row overflow-hidden">
-          <div className="flex-1 min-h-0 bg-slate-950 overflow-auto">
+          <div className={`${mobileStudioTab === 'canvas' ? 'flex' : 'hidden lg:flex'} relative flex-1 min-h-0 bg-slate-950 overflow-auto`}>
+            <div className="absolute bottom-3 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1 rounded-xl border border-slate-800 bg-slate-950/95 p-1.5 shadow-2xl sm:hidden">
+              <button onClick={() => setStageZoom((prev) => clamp(prev - 0.1, 0.25, 2))} className="h-9 w-9 rounded-lg bg-slate-900 text-slate-300" aria-label="Zoom out">
+                <ZoomOut className="mx-auto h-4 w-4" />
+              </button>
+              <span className="min-w-12 text-center text-[11px] font-mono text-slate-200">{Math.round(stageZoom * 100)}%</span>
+              <button onClick={() => setStageZoom((prev) => clamp(prev + 0.1, 0.25, 2))} className="h-9 w-9 rounded-lg bg-slate-900 text-slate-300" aria-label="Zoom in">
+                <ZoomIn className="mx-auto h-4 w-4" />
+              </button>
+              <button onClick={fitStageToViewport} className="h-9 rounded-lg bg-orange-600 px-3 text-[11px] font-bold text-white">Fit</button>
+            </div>
             <div ref={stageViewportRef} className="min-h-full min-w-full flex items-center justify-center p-4 md:p-8">
               <div
                 className="relative shrink-0"
@@ -1728,8 +1774,8 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
             </div>
           </div>
 
-          <aside className="w-full lg:w-[320px] border-t lg:border-t-0 lg:border-l border-slate-800 bg-slate-950 flex flex-col overflow-hidden">
-            <section className="border-b border-slate-800 bg-slate-950/95 shrink-0">
+          <aside className={`${mobileStudioTab === 'controls' ? 'flex' : 'hidden lg:flex'} w-full lg:w-[320px] flex-1 lg:flex-none min-h-0 border-t lg:border-t-0 lg:border-l border-slate-800 bg-slate-950 flex-col overflow-hidden`}>
+            <section className="max-h-[46dvh] overflow-y-auto lg:max-h-none lg:overflow-visible border-b border-slate-800 bg-slate-950/95 shrink-0">
               <button
                 onClick={() => toggleSection('project')}
                 className="w-full px-3 py-2 flex items-center justify-between text-left hover:bg-slate-900/60 transition-colors cursor-pointer"

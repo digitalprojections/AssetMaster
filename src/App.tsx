@@ -94,6 +94,7 @@ export default function App() {
   const [showBgRemover, setShowBgRemover] = useState<boolean>(false);
   const [antsOffset, setAntsOffset] = useState<number>(0);
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
+  const [mobileSidebarTab, setMobileSidebarTab] = useState<'settings' | 'cuts'>('cuts');
   const [isLeftToolbarCollapsed, setIsLeftToolbarCollapsed] = useState<boolean>(false);
   const [isLibraryHydrated, setIsLibraryHydrated] = useState<boolean>(false);
   const hasLoadedImage = Boolean(image) && !isLoading;
@@ -1379,7 +1380,7 @@ export default function App() {
 
         <div className="flex items-center justify-end gap-2 md:gap-3 flex-wrap">
           {/* Preset Selector */}
-          <div className="relative">
+          <div className="relative hidden sm:block">
             <select
               onChange={(e) => {
                 const sample = SAMPLE_IMAGES.find((s) => s.id === e.target.value);
@@ -1443,7 +1444,7 @@ export default function App() {
             href="https://buymeacoffee.com/ahmadfuzal"
             target="_blank"
             rel="noreferrer"
-            className="block shrink-0 rounded-lg overflow-hidden hover:opacity-90 transition-opacity"
+            className="hidden md:block shrink-0 rounded-lg overflow-hidden hover:opacity-90 transition-opacity"
             title="Support on Buy Me a Coffee"
             aria-label="Support on Buy Me a Coffee"
           >
@@ -1452,7 +1453,11 @@ export default function App() {
 
           {/* Mobile settings toggle */}
           <button
-            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+            onClick={() => {
+              setMobileSidebarTab('cuts');
+              setIsSidebarOpen(!isSidebarOpen);
+            }}
+            aria-label="Open settings and saved cuts"
             className={`md:hidden p-2 rounded-lg border transition-all cursor-pointer relative ${
               isSidebarOpen
                 ? 'bg-blue-900/20 border-blue-800 text-blue-400'
@@ -1751,10 +1756,34 @@ export default function App() {
             <button
               onClick={() => setIsSidebarOpen(false)}
               className="p-1.5 hover:bg-slate-900 rounded-lg text-slate-400 hover:text-slate-200 transition-colors"
+              aria-label="Close settings and saved cuts"
             >
               <X className="h-4 w-4" />
             </button>
           </div>
+          <div className="grid grid-cols-2 md:hidden border-b border-slate-800 bg-slate-950 p-2 gap-2 shrink-0">
+            <button
+              onClick={() => setMobileSidebarTab('settings')}
+              className={`min-h-11 rounded-xl text-xs font-semibold transition-all ${
+                mobileSidebarTab === 'settings'
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/15'
+                  : 'bg-slate-900 text-slate-400 border border-slate-800'
+              }`}
+            >
+              Selection
+            </button>
+            <button
+              onClick={() => setMobileSidebarTab('cuts')}
+              className={`min-h-11 rounded-xl text-xs font-semibold transition-all ${
+                mobileSidebarTab === 'cuts'
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/15'
+                  : 'bg-slate-900 text-slate-400 border border-slate-800'
+              }`}
+            >
+              Saved Cuts ({savedSegments.length})
+            </button>
+          </div>
+          <div className={`${mobileSidebarTab === 'settings' ? 'flex' : 'hidden'} md:flex flex-1 md:flex-none min-h-0 flex-col overflow-y-auto md:overflow-visible`}>
           <div className="p-4 border-b border-slate-800 bg-slate-950/95 backdrop-blur shrink-0 space-y-3">
             <div className="flex items-center justify-between">
               <div>
@@ -1798,7 +1827,7 @@ export default function App() {
             )}
           </div>
           {/* Active selection settings panel */}
-          <div id="selection-settings-card" className="p-4 border-b border-slate-800 space-y-4">
+          <div id="selection-settings-card" className="p-4 border-b border-slate-800 space-y-4 shrink-0">
             <h2 className="font-semibold text-xs tracking-wide uppercase text-slate-400">Selection Controls</h2>
 
             {/* Slider: Feather selection (Smoothing) */}
@@ -1888,9 +1917,10 @@ export default function App() {
               </p>
             </div>
           )}
+          </div>
 
           {/* 2.4 Saved Segments Gallery (Scrollable) */}
-          <div className="flex-1 overflow-hidden">
+          <div className={`${mobileSidebarTab === 'cuts' ? 'flex' : 'hidden'} md:flex flex-1 min-h-0 overflow-hidden`}>
             <SegmentList
               segments={savedSegments}
               onDelete={handleDeleteSegment}

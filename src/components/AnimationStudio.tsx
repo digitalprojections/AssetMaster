@@ -1641,7 +1641,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
   }, [activeFrameIndex, activeSegment, hasActiveFrame, project.frames.length, showBgRemover]);
 
   return (
-    <div id="animation-studio-container" className="fixed inset-0 bg-slate-950 text-slate-100 font-sans z-40 flex flex-col overflow-hidden">
+    <div id="animation-studio-container" className="fixed inset-0 h-[100dvh] overflow-hidden bg-slate-950 text-slate-100 font-sans z-40 flex flex-col">
       {/* Invisible canvas for slices */}
       <canvas ref={sliceCanvasRef} className="hidden" />
       <input
@@ -1653,7 +1653,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
       />
 
       {/* 1. Header Toolbar */}
-      <header className="min-h-16 border-b border-slate-800 bg-slate-950 flex items-center justify-between gap-3 px-3 py-2 sm:px-6 shrink-0">
+      <header className="z-20 min-h-16 border-b border-slate-800 bg-slate-950 flex items-center justify-between gap-3 px-3 py-2 sm:px-6 shrink-0">
         <div className="flex items-center space-x-2 sm:space-x-3 min-w-0">
           <div className="bg-gradient-to-br from-indigo-500 to-purple-600 p-1.5 sm:p-2 rounded-xl shadow-lg shrink-0">
             <Layers className="h-4 w-4 sm:h-5 sm:w-5 text-white" />
@@ -1718,6 +1718,25 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
           </button>
         </div>
 
+        <div className="flex md:hidden items-center gap-1 shrink-0">
+          <button
+            onClick={handleExportProject}
+            className="h-9 w-9 rounded-lg border border-slate-800 bg-slate-900 text-emerald-400 flex items-center justify-center"
+            aria-label="Save animation project"
+            title="Save Project"
+          >
+            <Save className="h-4 w-4" />
+          </button>
+          <button
+            onClick={handleImportProjectRequest}
+            className="h-9 w-9 rounded-lg border border-slate-800 bg-slate-900 text-indigo-400 flex items-center justify-center"
+            aria-label="Load animation project"
+            title="Load Project"
+          >
+            <Upload className="h-4 w-4" />
+          </button>
+        </div>
+
         {/* Right close button */}
         <button
           onClick={onClose}
@@ -1731,38 +1750,38 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
       {/* 2. Main Studio workspace */}
       <div className="flex-1 min-h-0 flex flex-col lg:flex-row overflow-hidden">
         {/* Mobile Tab Switcher */}
-        <div className="flex lg:hidden bg-slate-950 border-b border-slate-800 shrink-0 z-20">
+        <div className="grid grid-cols-2 gap-2 bg-slate-950 border-b border-slate-800 p-2 lg:hidden shrink-0 z-10">
           <button
             onClick={() => setActiveStudioTab('player')}
-            className={`flex-1 py-3 text-center text-xs font-semibold border-b-2 transition-all ${
+            className={`min-h-11 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-all ${
               activeStudioTab === 'player'
-                ? 'border-indigo-500 text-white bg-slate-900/30'
-                : 'border-transparent text-slate-400 hover:text-slate-200'
+                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/15'
+                : 'border border-slate-800 bg-slate-900 text-slate-400'
             }`}
           >
-            🎬 Stage & Loop
+            <Play className="h-4 w-4" />
+            <span>Stage & Loop</span>
           </button>
           <button
             onClick={() => setActiveStudioTab('source')}
-            className={`flex-1 py-3 text-center text-xs font-semibold border-b-2 transition-all ${
+            className={`min-h-11 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-all ${
               activeStudioTab === 'source'
-                ? 'border-indigo-500 text-white bg-slate-900/30'
-                : 'border-transparent text-slate-400 hover:text-slate-200'
+                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/15'
+                : 'border border-slate-800 bg-slate-900 text-slate-400'
             }`}
           >
-            ✂️ Source & Slice
+            <Columns className="h-4 w-4" />
+            <span>Source & Slice</span>
           </button>
         </div>
         
         {/* 2.1 Left Panel: Cutouts importer / Subdivision Tools */}
-        <aside className={`w-full lg:w-80 min-h-0 border-r border-slate-800 bg-slate-950 flex flex-col overflow-hidden shrink-0 ${
-          activeStudioTab === 'source' ? 'flex' : 'hidden lg:flex'
-        }`}>
+        <aside className={`${activeStudioTab === 'source' ? 'flex' : 'hidden lg:flex'} w-full lg:w-80 flex-1 lg:flex-none min-h-0 border-r border-slate-800 bg-slate-950 flex-col overflow-y-auto overscroll-contain lg:overflow-hidden shrink-0`}>
           <div className="p-4 border-b border-slate-800 bg-slate-950/95 backdrop-blur shrink-0 space-y-3">
             <div>
               <h2 className="text-xs font-bold uppercase tracking-wider text-slate-300">Source Actions</h2>
               <p className="text-[10px] text-slate-500">
-                Source selection and slice controls stay pinned here while options scroll below.
+                Slice actions stay at the top of this source workspace.
               </p>
             </div>
 
@@ -1828,7 +1847,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
               </div>
             )}
           </div>
-          <div className="flex-1 overflow-y-auto p-4 space-y-5">
+          <div className="flex-none lg:flex-1 overflow-visible lg:overflow-y-auto overscroll-contain p-4 space-y-5">
           {/* Mobile-only Project Properties inside Left Panel */}
           <div className="block lg:hidden bg-slate-900/40 border border-slate-800 p-3.5 rounded-xl space-y-3 shrink-0">
             <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Project Configuration</h3>
@@ -2126,9 +2145,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
         </aside>
 
         {/* 2.2 Middle: Live Loop Player Workspace */}
-        <section className={`flex-1 min-h-0 flex flex-col bg-slate-900 relative overflow-y-auto lg:overflow-hidden ${
-          activeStudioTab === 'player' ? 'flex' : 'hidden lg:flex'
-        }`}>
+        <section className={`${activeStudioTab === 'player' ? 'flex' : 'hidden lg:flex'} w-full flex-1 min-h-0 flex-col bg-slate-900 relative overflow-y-auto overscroll-contain lg:overflow-hidden`}>
           
           {/* Top playback hud */}
           <div className="min-h-12 border-b border-slate-800 bg-slate-950/40 flex flex-wrap items-center justify-between gap-2 px-3 py-2 sm:px-6 shrink-0 text-slate-300">
@@ -2196,7 +2213,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
           </div>
 
           {/* Animation rendering stage */}
-          <div className="flex-1 min-h-[240px] sm:min-h-0 flex items-center justify-center p-3 sm:p-8 overflow-hidden relative">
+          <div className="flex-none h-[38dvh] min-h-[240px] lg:flex-1 lg:h-auto lg:min-h-0 flex items-center justify-center p-3 sm:p-8 overflow-hidden relative">
             {project.frames.length === 0 ? (
               <div className="text-center max-w-sm space-y-3 p-6 bg-slate-950/40 rounded-2xl border border-slate-800/40">
                 <div className="p-4 bg-slate-900/60 rounded-full inline-block border border-slate-800/60 text-slate-500">
