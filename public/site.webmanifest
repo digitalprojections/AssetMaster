@@ -1,7 +1,7 @@
 {
-  "name": "AssetMaster - Image Cutout & Animation Studio",
+  "name": "AssetMaster - Free Online Image Cutout & Background Remover",
   "short_name": "AssetMaster",
-  "description": "Create transparent cutouts, clean backgrounds, compose collages, slice sprite sheets, and preview frame animations.",
+  "description": "Create transparent cutouts, remove backgrounds, compose collages, slice sprite sheets, and preview frame animations.",
   "start_url": "/assetmaster/",
   "scope": "/assetmaster/",
   "display": "standalone",

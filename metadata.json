@@ -1,6 +1,6 @@
 {
-  "name": "Image Cutter & Selection Editor",
-  "description": "An intuitive image segmenter with rectangular, freehand lasso, and magnetic lasso selection tools, featuring easy selection saves and batch transparent PNG exports.",
+  "name": "AssetMaster - Free Online Image Cutout & Background Remover",
+  "description": "A browser-based creative studio for image cutouts, background removal, transparent PNG cleanup, collages, sprite sheets, and frame animation previews.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
