@@ -23,4 +23,4 @@ Canonical application: https://created.link/assetmaster/
 ## Discovery
 
 - Sitemap: https://created.link/assetmaster/sitemap.xml
-- Logo: https://created.link/assetmaster/logos/assetmaster-logo-horizontal.svg
+- Logo: https://created.link/assetmaster/logos/assetmaster-logo.png

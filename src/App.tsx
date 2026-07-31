@@ -49,6 +49,7 @@ const LEGACY_INDEX_KEY = 'lasso_cutout_index';
 const LIBRARY_STATE_KEY = 'assetmaster.library.state.v1';
 const LIBRARY_BACKUPS_KEY = 'assetmaster.library.backups.v1';
 const MAX_LIBRARY_BACKUPS = 5;
+const ASSETMASTER_LOGO_SRC = `${import.meta.env.BASE_URL}logos/assetmaster-logo.png`;
 
 const normalizeSavedSegment = (segment: SavedSegment): SavedSegment => ({
   ...segment,
@@ -1351,12 +1352,16 @@ export default function App() {
       {/* 1. Header Navigation Bar */}
       <header id="main-header" className="min-h-16 border-b border-slate-800 bg-slate-950 flex items-center justify-between gap-3 px-3 py-2 md:px-6 z-10 shrink-0">
         <div className="flex items-center space-x-3 shrink min-w-0">
-          <div className="bg-gradient-to-br from-blue-500 to-indigo-600 p-2 rounded-xl shadow-lg shadow-indigo-500/10">
-            <Scissors className="h-5 w-5 text-white" />
-          </div>
+          <img
+            src={ASSETMASTER_LOGO_SRC}
+            alt=""
+            aria-hidden="true"
+            draggable={false}
+            className="h-10 w-10 shrink-0 rounded-xl shadow-lg shadow-cyan-500/10"
+          />
           <div className="min-w-0">
             <h1 className="font-bold text-sm md:text-base tracking-tight bg-gradient-to-r from-blue-100 to-indigo-100 bg-clip-text text-transparent">
-              LassoCut
+              AssetMaster
             </h1>
             <p className="hidden sm:block text-[10px] text-slate-400 font-medium">Smart Transparent Image Cutter</p>
             {image && (

@@ -9,16 +9,10 @@
   "theme_color": "#020617",
   "icons": [
     {
-      "src": "/assetmaster/logos/assetmaster-logo-mark.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
-      "purpose": "any"
-    },
-    {
-      "src": "/assetmaster/logos/assetmaster-logo-badge.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
-      "purpose": "maskable"
+      "src": "/assetmaster/logos/assetmaster-logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
     }
   ]
 }
