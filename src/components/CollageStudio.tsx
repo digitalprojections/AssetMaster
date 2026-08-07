@@ -38,6 +38,7 @@ import {
   CollageStudioProjectFile,
   SavedSegment,
 } from '../types';
+import { getClipboardImageFiles } from '../utils/collageClipboard';
 import { getIndexedDbRecord, setIndexedDbRecord } from '../utils/indexedDbStorage';
 import { buildSingleImagePdfBlob } from '../utils/pdfExport';
 
@@ -1424,6 +1425,35 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
     }
   };
 
+  const importImageFilesToProject = async (files: File[]) => {
+    const imageFiles = files.filter((file) => file.type.startsWith('image/'));
+    if (imageFiles.length === 0) {
+      return [];
+    }
+
+    const importedItems = await Promise.all(imageFiles.map(async (file, index) => {
+      const dataUrl = await readFileAsDataUrl(file);
+      const image = await loadImageElement(dataUrl);
+      return buildImageProjectItem({
+        name: file.name.replace(/\.[^.]+$/u, '') || `Pasted Image ${project.items.length + index + 1}`,
+        thumbnailUrl: dataUrl,
+        originalWidth: image.naturalWidth || image.width,
+        originalHeight: image.naturalHeight || image.height,
+        placementIndex: project.items.length + index,
+      });
+    }));
+
+    setProject((prev) => ({
+      ...prev,
+      updatedAt: Date.now(),
+      items: [...prev.items, ...importedItems],
+    }));
+    setSelectedItemId(importedItems[importedItems.length - 1]?.id ?? null);
+    setMobileStudioTab('canvas');
+
+    return importedItems;
+  };
+
   const handleImportImagesFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files: File[] = event.target.files
       ? (Array.from(event.target.files) as File[]).filter((file) => file.type.startsWith('image/'))
@@ -1434,24 +1464,7 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
     }
 
     try {
-      const importedItems = await Promise.all(files.map(async (file, index) => {
-        const dataUrl = await readFileAsDataUrl(file);
-        const image = await loadImageElement(dataUrl);
-        return buildImageProjectItem({
-          name: file.name.replace(/\.[^.]+$/u, ''),
-          thumbnailUrl: dataUrl,
-          originalWidth: image.naturalWidth || image.width,
-          originalHeight: image.naturalHeight || image.height,
-          placementIndex: project.items.length + index,
-        });
-      }));
-
-      setProject((prev) => ({
-        ...prev,
-        updatedAt: Date.now(),
-        items: [...prev.items, ...importedItems],
-      }));
-      setSelectedItemId(importedItems[importedItems.length - 1]?.id ?? null);
+      await importImageFilesToProject(files);
     } catch (error) {
       console.error('Failed to import images into collage studio', error);
       window.alert('One or more selected images could not be imported.');
@@ -1459,6 +1472,24 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
       event.target.value = '';
     }
   };
+
+  useEffect(() => {
+    const handlePaste = (event: ClipboardEvent) => {
+      const files = getClipboardImageFiles(event.clipboardData);
+      if (files.length === 0) {
+        return;
+      }
+
+      event.preventDefault();
+      void importImageFilesToProject(files).catch((error) => {
+        console.error('Failed to paste images into collage studio', error);
+        window.alert('The clipboard image could not be pasted into the collage.');
+      });
+    };
+
+    window.addEventListener('paste', handlePaste);
+    return () => window.removeEventListener('paste', handlePaste);
+  }, [project.height, project.items.length, project.width]);
 
   const handleImportFontsFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files: File[] = event.target.files
