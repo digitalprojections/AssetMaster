@@ -18,6 +18,7 @@ import {
   Image as ImageIcon,
   Layers,
   Lock,
+  MessageCircle,
   RotateCcw,
   Save,
   Search,
@@ -36,9 +37,19 @@ import {
   CollageProject,
   CollageShapeKind,
   CollageStudioProjectFile,
+  CollageTextBubbleStyle,
   SavedSegment,
 } from '../types';
 import { getClipboardImageFiles } from '../utils/collageClipboard';
+import {
+  DEFAULT_TEXT_BUBBLE_FILL_COLOR,
+  DEFAULT_TEXT_BUBBLE_PADDING,
+  DEFAULT_TEXT_BUBBLE_STROKE_COLOR,
+  DEFAULT_TEXT_BUBBLE_STROKE_WIDTH,
+  getTextBubbleLayout,
+  normalizeTextBubblePadding,
+  normalizeTextBubbleStyle,
+} from '../utils/collageTextBubble';
 import { getIndexedDbRecord, setIndexedDbRecord } from '../utils/indexedDbStorage';
 import { buildSingleImagePdfBlob } from '../utils/pdfExport';
 
@@ -174,6 +185,24 @@ const measureTextLayer = (text: string, fontSize: number, fontFamily: string, fo
   };
 };
 
+const measureTextItemContent = (item: CollageItem) =>
+  measureTextLayer(
+    item.text ?? 'Text',
+    item.fontSize ?? 72,
+    item.fontFamily ?? 'Arial',
+    item.fontWeight ?? 700
+  );
+
+const getTextItemBubbleLayout = (item: CollageItem) => {
+  const metrics = measureTextItemContent(item);
+  return getTextBubbleLayout({
+    contentWidth: metrics.width,
+    contentHeight: metrics.height,
+    style: item.textBubbleStyle,
+    padding: item.textBubblePadding,
+  });
+};
+
 const getLayerFilterCss = (item: CollageItem) =>
   `brightness(${item.brightness ?? 100}%) contrast(${item.contrast ?? 100}%) saturate(${item.saturation ?? 100}%) hue-rotate(${item.hueRotate ?? 0}deg)`;
 
@@ -213,6 +242,11 @@ const normalizeItem = (item: CollageItem): CollageItem => {
     fontFamily: item.fontFamily ?? 'Arial',
     fontWeight: item.fontWeight ?? 700,
     textAlign: item.textAlign ?? 'center',
+    textBubbleStyle: normalizeTextBubbleStyle(item.textBubbleStyle),
+    textBubbleFillColor: item.textBubbleFillColor ?? DEFAULT_TEXT_BUBBLE_FILL_COLOR,
+    textBubbleStrokeColor: item.textBubbleStrokeColor ?? DEFAULT_TEXT_BUBBLE_STROKE_COLOR,
+    textBubbleStrokeWidth: Math.max(0, item.textBubbleStrokeWidth ?? DEFAULT_TEXT_BUBBLE_STROKE_WIDTH),
+    textBubblePadding: normalizeTextBubblePadding(item.textBubblePadding),
     shapeKind: item.shapeKind ?? 'rectangle',
     fillColor: item.fillColor ?? '#f59e0b',
     strokeColor: item.strokeColor ?? '#ffffff',
@@ -220,16 +254,11 @@ const normalizeItem = (item: CollageItem): CollageItem => {
   };
 
   if (normalized.kind === 'text') {
-    const metrics = measureTextLayer(
-      normalized.text ?? 'Text',
-      normalized.fontSize ?? 72,
-      normalized.fontFamily ?? 'Arial',
-      normalized.fontWeight ?? 700
-    );
+    const layout = getTextItemBubbleLayout(normalized);
     return {
       ...normalized,
-      originalWidth: metrics.width,
-      originalHeight: metrics.height,
+      originalWidth: layout.width,
+      originalHeight: layout.height,
     };
   }
 
@@ -941,6 +970,58 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
     setMobileStudioTab('canvas');
   };
 
+  const addCommentBubbleLayer = () => {
+    const baseItem: CollageItem = {
+      id: createLayerId(),
+      kind: 'text',
+      name: `Bubble ${project.items.filter((item) => item.kind === 'text' && item.textBubbleStyle && item.textBubbleStyle !== 'none').length + 1}`,
+      sourceSegmentId: null,
+      thumbnailUrl: '',
+      originalWidth: 1,
+      originalHeight: 1,
+      x: 0,
+      y: 0,
+      scale: 1,
+      rotation: 0,
+      opacity: 1,
+      flipX: false,
+      flipY: false,
+      locked: false,
+      visible: true,
+      blendMode: 'normal',
+      brightness: 100,
+      contrast: 100,
+      saturation: 100,
+      hueRotate: 0,
+      text: 'Add a comment',
+      textColor: '#0f172a',
+      fontSize: 64,
+      fontFamily: 'Arial',
+      fontWeight: 700,
+      textAlign: 'center',
+      textBubbleStyle: 'speech',
+      textBubbleFillColor: DEFAULT_TEXT_BUBBLE_FILL_COLOR,
+      textBubbleStrokeColor: '#0f172a',
+      textBubbleStrokeWidth: DEFAULT_TEXT_BUBBLE_STROKE_WIDTH,
+      textBubblePadding: DEFAULT_TEXT_BUBBLE_PADDING,
+    };
+    const normalizedItem = normalizeItem(baseItem);
+    const placement = getLayerPlacement(normalizedItem.originalWidth, normalizedItem.originalHeight, normalizedItem.scale, project.items.length);
+    const newItem = {
+      ...normalizedItem,
+      x: placement.x,
+      y: placement.y,
+    };
+
+    setProject((prev) => ({
+      ...prev,
+      updatedAt: Date.now(),
+      items: [...prev.items, newItem],
+    }));
+    setSelectedItemId(newItem.id);
+    setMobileStudioTab('canvas');
+  };
+
   const addShapeLayer = (shapeKind: CollageShapeKind) => {
     const originalWidth = shapeKind === 'circle' ? 180 : 220;
     const originalHeight = 180;
@@ -1230,19 +1311,25 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
       if (item.kind === 'text') {
         const lines = (item.text?.trim().length ? item.text : 'Text').split('\n');
         const fontSize = item.fontSize ?? 72;
+        const layout = getTextItemBubbleLayout(item);
+
+        if (layout.style !== 'none') {
+          drawTextBubbleToCanvas(ctx, item, layout);
+        }
+
         ctx.font = `${item.fontWeight ?? 700} ${fontSize}px ${item.fontFamily ?? 'Arial'}`;
         ctx.fillStyle = item.textColor ?? '#ffffff';
         ctx.textBaseline = 'top';
         ctx.textAlign = item.textAlign ?? 'center';
 
         const anchorX = item.textAlign === 'left'
-          ? -item.originalWidth / 2
+          ? layout.contentLeft
           : item.textAlign === 'right'
-            ? item.originalWidth / 2
-            : 0;
+            ? layout.contentLeft + layout.contentWidth
+            : layout.contentLeft + layout.contentWidth / 2;
         const lineHeight = fontSize * TEXT_LINE_HEIGHT;
         lines.forEach((line, index) => {
-          ctx.fillText(line || ' ', anchorX, -item.originalHeight / 2 + index * lineHeight);
+          ctx.fillText(line || ' ', anchorX, layout.contentTop + index * lineHeight);
         });
       } else if (item.kind === 'shape') {
         ctx.fillStyle = item.fillColor ?? '#f59e0b';
@@ -1425,6 +1512,74 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
     }
   };
 
+  const createRoundedRectPath = (ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number) => {
+    const normalizedRadius = Math.min(radius, width / 2, height / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + normalizedRadius, y);
+    ctx.lineTo(x + width - normalizedRadius, y);
+    ctx.quadraticCurveTo(x + width, y, x + width, y + normalizedRadius);
+    ctx.lineTo(x + width, y + height - normalizedRadius);
+    ctx.quadraticCurveTo(x + width, y + height, x + width - normalizedRadius, y + height);
+    ctx.lineTo(x + normalizedRadius, y + height);
+    ctx.quadraticCurveTo(x, y + height, x, y + height - normalizedRadius);
+    ctx.lineTo(x, y + normalizedRadius);
+    ctx.quadraticCurveTo(x, y, x + normalizedRadius, y);
+    ctx.closePath();
+  };
+
+  const drawTextBubbleToCanvas = (ctx: CanvasRenderingContext2D, item: CollageItem, layout: ReturnType<typeof getTextBubbleLayout>) => {
+    const strokeWidth = Math.max(0, item.textBubbleStrokeWidth ?? DEFAULT_TEXT_BUBBLE_STROKE_WIDTH);
+    ctx.fillStyle = item.textBubbleFillColor ?? DEFAULT_TEXT_BUBBLE_FILL_COLOR;
+    ctx.strokeStyle = item.textBubbleStrokeColor ?? DEFAULT_TEXT_BUBBLE_STROKE_COLOR;
+    ctx.lineWidth = strokeWidth;
+
+    createRoundedRectPath(
+      ctx,
+      layout.bubbleLeft,
+      layout.bubbleTop,
+      layout.bubbleWidth,
+      layout.bubbleHeight,
+      Math.max(24, Math.min(layout.bubbleWidth, layout.bubbleHeight) * 0.18)
+    );
+    ctx.fill();
+    if (strokeWidth > 0) {
+      ctx.stroke();
+    }
+
+    if (layout.style === 'speech') {
+      const baseY = layout.bubbleTop + layout.bubbleHeight - 1;
+      const tailX = layout.bubbleLeft + layout.bubbleWidth * 0.32;
+      ctx.beginPath();
+      ctx.moveTo(tailX, baseY);
+      ctx.lineTo(tailX + layout.tailHeight * 1.2, baseY);
+      ctx.lineTo(tailX + layout.tailHeight * 0.15, baseY + layout.tailHeight);
+      ctx.closePath();
+      ctx.fill();
+      if (strokeWidth > 0) {
+        ctx.stroke();
+      }
+    } else if (layout.style === 'thought') {
+      const firstRadius = Math.max(7, layout.tailHeight * 0.42);
+      const secondRadius = Math.max(5, layout.tailHeight * 0.28);
+      const firstX = layout.bubbleLeft + layout.bubbleWidth * 0.36;
+      const firstY = layout.bubbleTop + layout.bubbleHeight + firstRadius;
+      const secondX = firstX - firstRadius * 1.45;
+      const secondY = firstY + firstRadius * 1.45;
+
+      for (const circle of [
+        { x: firstX, y: firstY, radius: firstRadius },
+        { x: secondX, y: secondY, radius: secondRadius },
+      ]) {
+        ctx.beginPath();
+        ctx.arc(circle.x, circle.y, circle.radius, 0, Math.PI * 2);
+        ctx.fill();
+        if (strokeWidth > 0) {
+          ctx.stroke();
+        }
+      }
+    }
+  };
+
   const importImageFilesToProject = async (files: File[]) => {
     const imageFiles = files.filter((file) => file.type.startsWith('image/'));
     if (imageFiles.length === 0) {
@@ -1538,10 +1693,13 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
 
   const renderLayerPreview = (item: CollageItem, sizeClassName: string) => {
     if (item.kind === 'text') {
+      const hasBubble = normalizeTextBubbleStyle(item.textBubbleStyle) !== 'none';
       return (
         <div
-          className={`${sizeClassName} flex items-center justify-center overflow-hidden rounded-md border border-slate-800 bg-slate-900 px-1 text-center text-[10px] font-semibold text-slate-100`}
+          className={`${sizeClassName} flex items-center justify-center overflow-hidden rounded-md border border-slate-800 px-1 text-center text-[10px] font-semibold`}
           style={{
+            backgroundColor: hasBubble ? item.textBubbleFillColor ?? DEFAULT_TEXT_BUBBLE_FILL_COLOR : undefined,
+            borderColor: hasBubble ? item.textBubbleStrokeColor ?? DEFAULT_TEXT_BUBBLE_STROKE_COLOR : undefined,
             color: item.textColor ?? '#ffffff',
             fontFamily: item.fontFamily ?? 'Arial',
             fontWeight: item.fontWeight ?? 700,
@@ -1576,7 +1734,9 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
   };
 
   const getLayerKindLabel = (item: CollageItem) =>
-    item.kind === 'text' ? 'Text Layer' : item.kind === 'shape' ? 'Shape Layer' : 'Image Layer';
+    item.kind === 'text'
+      ? normalizeTextBubbleStyle(item.textBubbleStyle) === 'none' ? 'Text Layer' : 'Bubble Layer'
+      : item.kind === 'shape' ? 'Shape Layer' : 'Image Layer';
 
   return (
     <div className="fixed inset-0 h-[100dvh] z-50 overflow-hidden bg-slate-950/95 backdrop-blur-md text-slate-100 flex items-start md:items-center justify-center p-0 md:p-6">
@@ -1727,20 +1887,96 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
                         }}
                       >
                         {item.kind === 'text' ? (
-                          <div
-                            className="w-full h-full pointer-events-none select-none whitespace-pre-wrap break-words"
-                            style={{
-                              transform: `scaleX(${item.flipX ? -1 : 1}) scaleY(${item.flipY ? -1 : 1})`,
-                              color: item.textColor ?? '#ffffff',
-                              fontSize: `${item.fontSize ?? 72}px`,
-                              fontFamily: item.fontFamily ?? 'Arial',
-                              fontWeight: item.fontWeight ?? 700,
-                              lineHeight: TEXT_LINE_HEIGHT,
-                              textAlign: item.textAlign ?? 'center',
-                            }}
-                          >
-                            {item.text?.trim().length ? item.text : 'Text'}
-                          </div>
+                          (() => {
+                            const layout = getTextItemBubbleLayout(item);
+                            const bubbleStrokeWidth = Math.max(0, item.textBubbleStrokeWidth ?? DEFAULT_TEXT_BUBBLE_STROKE_WIDTH);
+                            const bubbleFillColor = item.textBubbleFillColor ?? DEFAULT_TEXT_BUBBLE_FILL_COLOR;
+                            const bubbleStrokeColor = item.textBubbleStrokeColor ?? DEFAULT_TEXT_BUBBLE_STROKE_COLOR;
+                            return (
+                              <div
+                                className="relative w-full h-full pointer-events-none select-none"
+                                style={{
+                                  transform: `scaleX(${item.flipX ? -1 : 1}) scaleY(${item.flipY ? -1 : 1})`,
+                                }}
+                              >
+                                {layout.style !== 'none' ? (
+                                  <>
+                                    <div
+                                      className="absolute"
+                                      style={{
+                                        left: `${layout.bubbleLeft + item.originalWidth / 2}px`,
+                                        top: `${layout.bubbleTop + item.originalHeight / 2}px`,
+                                        width: `${layout.bubbleWidth}px`,
+                                        height: `${layout.bubbleHeight}px`,
+                                        backgroundColor: bubbleFillColor,
+                                        border: `${bubbleStrokeWidth}px solid ${bubbleStrokeColor}`,
+                                        borderRadius: `${Math.max(24, Math.min(layout.bubbleWidth, layout.bubbleHeight) * 0.18)}px`,
+                                        boxSizing: 'border-box',
+                                      }}
+                                    />
+                                    {layout.style === 'speech' ? (
+                                      <div
+                                        className="absolute"
+                                        style={{
+                                          left: `${layout.bubbleLeft + item.originalWidth / 2 + layout.bubbleWidth * 0.32}px`,
+                                          top: `${layout.bubbleTop + item.originalHeight / 2 + layout.bubbleHeight - 2}px`,
+                                          width: `${layout.tailHeight * 1.3}px`,
+                                          height: `${layout.tailHeight}px`,
+                                          backgroundColor: bubbleFillColor,
+                                          borderLeft: `${bubbleStrokeWidth}px solid ${bubbleStrokeColor}`,
+                                          borderBottom: `${bubbleStrokeWidth}px solid ${bubbleStrokeColor}`,
+                                          transform: 'skewX(-32deg) rotate(-8deg)',
+                                          transformOrigin: 'top left',
+                                          boxSizing: 'border-box',
+                                        }}
+                                      />
+                                    ) : null}
+                                    {layout.style === 'thought' ? (
+                                      <>
+                                        {[0, 1].map((index) => {
+                                          const radius = index === 0 ? Math.max(7, layout.tailHeight * 0.42) : Math.max(5, layout.tailHeight * 0.28);
+                                          const x = layout.bubbleLeft + item.originalWidth / 2 + layout.bubbleWidth * 0.36 - index * radius * 2;
+                                          const y = layout.bubbleTop + item.originalHeight / 2 + layout.bubbleHeight + radius + index * radius * 1.35;
+                                          return (
+                                            <div
+                                              key={index}
+                                              className="absolute rounded-full"
+                                              style={{
+                                                left: `${x - radius}px`,
+                                                top: `${y - radius}px`,
+                                                width: `${radius * 2}px`,
+                                                height: `${radius * 2}px`,
+                                                backgroundColor: bubbleFillColor,
+                                                border: `${bubbleStrokeWidth}px solid ${bubbleStrokeColor}`,
+                                                boxSizing: 'border-box',
+                                              }}
+                                            />
+                                          );
+                                        })}
+                                      </>
+                                    ) : null}
+                                  </>
+                                ) : null}
+                                <div
+                                  className="absolute whitespace-pre-wrap break-words"
+                                  style={{
+                                    left: `${layout.contentLeft + item.originalWidth / 2}px`,
+                                    top: `${layout.contentTop + item.originalHeight / 2}px`,
+                                    width: `${layout.contentWidth}px`,
+                                    minHeight: `${layout.contentHeight}px`,
+                                    color: item.textColor ?? '#ffffff',
+                                    fontSize: `${item.fontSize ?? 72}px`,
+                                    fontFamily: item.fontFamily ?? 'Arial',
+                                    fontWeight: item.fontWeight ?? 700,
+                                    lineHeight: TEXT_LINE_HEIGHT,
+                                    textAlign: item.textAlign ?? 'center',
+                                  }}
+                                >
+                                  {item.text?.trim().length ? item.text : 'Text'}
+                                </div>
+                              </div>
+                            );
+                          })()
                         ) : item.kind === 'shape' ? (
                           <div
                             className={`w-full h-full pointer-events-none ${item.shapeKind === 'circle' ? 'rounded-full' : 'rounded-sm'}`}
@@ -1889,13 +2125,20 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
                     </button>
                   </div>
 
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-4 gap-2">
                     <button
                       onClick={addTextLayer}
                       className="py-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-200 text-[11px] font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
                     >
                       <Type className="h-3 w-3" />
                       <span>Text</span>
+                    </button>
+                    <button
+                      onClick={addCommentBubbleLayer}
+                      className="py-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-200 text-[11px] font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <MessageCircle className="h-3 w-3" />
+                      <span>Bubble</span>
                     </button>
                     <button
                       onClick={() => addShapeLayer('rectangle')}
@@ -2600,6 +2843,69 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
                           onChange={(event) => updateSelectedItem((item) => ({ ...item, fontSize: Number(event.target.value) }))}
                           className="w-full accent-orange-500 cursor-pointer"
                         />
+                      </div>
+                      <div className="space-y-2 rounded-lg border border-slate-800 bg-slate-900/60 p-2.5">
+                        <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Comment Bubble</div>
+                        <label className="space-y-1 block">
+                          <span className="text-[10px] text-slate-500">Style</span>
+                          <select
+                            value={selectedItem.textBubbleStyle ?? 'none'}
+                            onChange={(event) => updateSelectedItem((item) => ({ ...item, textBubbleStyle: event.target.value as CollageTextBubbleStyle }))}
+                            className="w-full bg-slate-950 border border-slate-800 rounded-md px-2 py-1.5 text-[11px] text-slate-100 outline-none focus:border-orange-500"
+                          >
+                            <option value="none">None</option>
+                            <option value="speech">Speech Bubble</option>
+                            <option value="thought">Thought Bubble</option>
+                          </select>
+                        </label>
+                        {(selectedItem.textBubbleStyle ?? 'none') !== 'none' && (
+                          <>
+                            <div className="grid grid-cols-2 gap-2">
+                              <label className="space-y-1">
+                                <span className="text-[10px] text-slate-500">Fill</span>
+                                <input
+                                  type="color"
+                                  value={selectedItem.textBubbleFillColor ?? DEFAULT_TEXT_BUBBLE_FILL_COLOR}
+                                  onChange={(event) => updateSelectedItem((item) => ({ ...item, textBubbleFillColor: event.target.value }))}
+                                  className="h-8 w-full rounded-md border border-slate-700 bg-transparent p-1"
+                                />
+                              </label>
+                              <label className="space-y-1">
+                                <span className="text-[10px] text-slate-500">Outline</span>
+                                <input
+                                  type="color"
+                                  value={selectedItem.textBubbleStrokeColor ?? DEFAULT_TEXT_BUBBLE_STROKE_COLOR}
+                                  onChange={(event) => updateSelectedItem((item) => ({ ...item, textBubbleStrokeColor: event.target.value }))}
+                                  className="h-8 w-full rounded-md border border-slate-700 bg-transparent p-1"
+                                />
+                              </label>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                              <label className="space-y-1">
+                                <span className="text-[10px] text-slate-500">Outline Width</span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max="48"
+                                  value={Math.round(selectedItem.textBubbleStrokeWidth ?? DEFAULT_TEXT_BUBBLE_STROKE_WIDTH)}
+                                  onChange={(event) => updateSelectedItem((item) => ({ ...item, textBubbleStrokeWidth: Math.max(0, Number(event.target.value) || 0) }))}
+                                  className="w-full bg-slate-950 border border-slate-800 rounded-md px-2 py-1.5 text-[11px] text-slate-100 outline-none focus:border-orange-500"
+                                />
+                              </label>
+                              <label className="space-y-1">
+                                <span className="text-[10px] text-slate-500">Padding</span>
+                                <input
+                                  type="number"
+                                  min="8"
+                                  max="120"
+                                  value={Math.round(selectedItem.textBubblePadding ?? DEFAULT_TEXT_BUBBLE_PADDING)}
+                                  onChange={(event) => updateSelectedItem((item) => ({ ...item, textBubblePadding: normalizeTextBubblePadding(Number(event.target.value) || DEFAULT_TEXT_BUBBLE_PADDING) }))}
+                                  className="w-full bg-slate-950 border border-slate-800 rounded-md px-2 py-1.5 text-[11px] text-slate-100 outline-none focus:border-orange-500"
+                                />
+                              </label>
+                            </div>
+                          </>
+                        )}
                       </div>
                     </div>
                   )}

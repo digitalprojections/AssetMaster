@@ -87,6 +87,7 @@ export type CollageItemKind = 'image' | 'text' | 'shape';
 export type CollageBlendMode = 'normal' | 'multiply' | 'screen' | 'overlay' | 'darken' | 'lighten';
 export type CollageTextAlign = 'left' | 'center' | 'right';
 export type CollageShapeKind = 'rectangle' | 'circle';
+export type CollageTextBubbleStyle = 'none' | 'speech' | 'thought';
 
 export interface CollageItem {
   id: string;
@@ -116,6 +117,11 @@ export interface CollageItem {
   fontFamily?: string;
   fontWeight?: number;
   textAlign?: CollageTextAlign;
+  textBubbleStyle?: CollageTextBubbleStyle;
+  textBubbleFillColor?: string;
+  textBubbleStrokeColor?: string;
+  textBubbleStrokeWidth?: number;
+  textBubblePadding?: number;
   shapeKind?: CollageShapeKind;
   fillColor?: string;
   strokeColor?: string;
