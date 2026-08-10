@@ -94,7 +94,7 @@ export function parseArgs(argv) {
   return options;
 }
 
-export async function createScopedAccessToken(serviceAccount) {
+export async function createScopedAccessToken(serviceAccount, scope = ANDROID_PUBLISHER_SCOPE) {
   const issuedAt = Math.floor(Date.now() / 1000);
   const header = {
     alg: 'RS256',
@@ -102,7 +102,7 @@ export async function createScopedAccessToken(serviceAccount) {
   };
   const claim = {
     iss: serviceAccount.client_email,
-    scope: ANDROID_PUBLISHER_SCOPE,
+    scope,
     aud: TOKEN_URL,
     exp: issuedAt + 3600,
     iat: issuedAt,

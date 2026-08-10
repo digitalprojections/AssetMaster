@@ -25,6 +25,14 @@ npm.cmd run android:build
 
 Before production release, add the consent flow required for the audiences served, verify the real AdMob app/ad-unit IDs, and test the Android user path with test ads on a physical device.
 
+## Play Integrity boundary
+
+`src/utils/playIntegrity.ts` warms up the standard Play Integrity token provider on Android when `VITE_PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER` is configured. Token requests hash the protected action payload before calling the native bridge so sensitive request data is not sent as plain text in the `requestHash`.
+
+The Android wrapper includes a local Capacitor plugin named `PlayIntegrity` backed by `com.google.android.play:integrity:1.6.0`. Client tokens must be sent to a trusted backend and decoded with `playintegrity.googleapis.com`; do not trust a client-side token without server verification.
+
+To activate the runtime path, enable the Play Integrity API in Google Cloud and link the same Cloud project in Play Console under Protected with Play > Play Integrity API.
+
 ## Release blockers still pending
 
 - Production AdMob app ID and interstitial ad-unit ID.
