@@ -1,0 +1,43 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import {createReleaseBody, parseArgs} from '../scripts/publish-play-open-testing.mjs';
+
+test('Play release payload targets open testing with release notes', () => {
+  assert.deepEqual(createReleaseBody({
+    track: 'open',
+    versionCode: 1,
+    releaseName: '1.0',
+    releaseNotes: 'Initial AssetMaster Android release.',
+  }), {
+    track: 'open',
+    releases: [
+      {
+        name: '1.0',
+        status: 'completed',
+        versionCodes: ['1'],
+        releaseNotes: [
+          {
+            language: 'en-US',
+            text: 'Initial AssetMaster Android release.',
+          },
+        ],
+      },
+    ],
+  });
+});
+
+test('Play publisher arguments default to safe probe mode', () => {
+  assert.deepEqual(parseArgs([
+    '--package',
+    'link.created.assetmaster',
+    '--key',
+    '..\\big-genre-172004-b7bf916fca08.json',
+  ]), {
+    mode: 'probe',
+    track: 'open',
+    releaseName: '1.0',
+    releaseNotes: 'Initial AssetMaster Android release.',
+    package: 'link.created.assetmaster',
+    key: '..\\big-genre-172004-b7bf916fca08.json',
+  });
+});

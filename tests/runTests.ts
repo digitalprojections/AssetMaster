@@ -3,3 +3,4 @@ import './collageTextBubble.test';
 import './adsenseMetadata.test';
 import './interstitialAds.test';
 import './androidAdsConfig.test';
+import './playPublisherPayload.test';
