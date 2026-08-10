@@ -11,7 +11,7 @@ import {
   purchaseAdFreeUpgrade,
   restoreAdFreePurchase,
 } from './utils/playBilling';
-import { SAMPLE_IMAGES, SampleImage } from './data/samples';
+import { getEmptyWorkspaceCopy } from './utils/emptyWorkspace';
 import bmcButton from './assets/bmc-button.svg';
 import SegmentList from './components/SegmentList';
 import AnimationStudio from './components/AnimationStudio';
@@ -114,6 +114,7 @@ export default function App() {
   const [adFreeProduct, setAdFreeProduct] = useState<Awaited<ReturnType<typeof getAdFreeProduct>>>(null);
   const [isBillingBusy, setIsBillingBusy] = useState<boolean>(false);
   const [billingMessage, setBillingMessage] = useState<string | null>(null);
+  const emptyWorkspaceCopy = getEmptyWorkspaceCopy();
 
   // Auto-collapse sidebar on small screens on load
   useEffect(() => {
@@ -139,6 +140,7 @@ export default function App() {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const hiddenImageCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const hiddenImageCtxRef = useRef<CanvasRenderingContext2D | null>(null);
+  const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const libraryImportInputRef = useRef<HTMLInputElement | null>(null);
   const pageChangeAdGateRef = useRef<ReturnType<typeof createInterstitialPageChangeGate> | null>(null);
   const adFreeEntitlementRef = useRef<boolean>(false);
@@ -717,6 +719,10 @@ export default function App() {
       };
       reader.readAsDataURL(file);
     }
+  };
+
+  const openFilePicker = () => {
+    uploadInputRef.current?.click();
   };
 
   // Auto-close loop or manual key operations
@@ -1532,32 +1538,6 @@ export default function App() {
         </div>
 
         <div className="flex items-center justify-end gap-2 md:gap-3 flex-wrap">
-          {/* Preset Selector */}
-          <div className="relative hidden sm:block">
-            <select
-              onChange={(e) => {
-                const sample = SAMPLE_IMAGES.find((s) => s.id === e.target.value);
-                if (sample) {
-                  loadImage(
-                    sample.url,
-                    `${sample.id}.jpg`,
-                    sample.fallbackUrl,
-                    `The "${sample.name}" sample could not be loaded from its remote source. Try another sample or upload a local image.`
-                  );
-                }
-              }}
-              className="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-lg text-xs text-slate-300 px-2 md:px-3 py-2 cursor-pointer outline-none transition-all max-w-[110px] sm:max-w-[160px]"
-              defaultValue=""
-            >
-              <option value="" disabled>Select Preset Image...</option>
-              {SAMPLE_IMAGES.map((sample) => (
-                <option key={sample.id} value={sample.id}>
-                  Sample: {sample.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
           {/* Open Collage Studio button */}
           <button
             onClick={openCollageStudio}
@@ -1586,6 +1566,7 @@ export default function App() {
             <span className="hidden sm:inline">Upload Image</span>
             <span className="sm:hidden">Upload</span>
             <input
+              ref={uploadInputRef}
               type="file"
               accept="image/*"
               onChange={handleFileChange}
@@ -1792,28 +1773,38 @@ export default function App() {
 
           {!image && !isLoading && !errorMsg && (
             <div className="absolute inset-0 flex items-center justify-center z-10 p-6">
-              <div className="max-w-md w-full rounded-3xl border border-slate-800 bg-slate-950/80 backdrop-blur-xl p-6 sm:p-8 text-center shadow-2xl space-y-4">
+              <div className="max-w-md w-full rounded-3xl border border-slate-800 bg-slate-950/80 backdrop-blur-xl p-6 sm:p-8 text-center shadow-2xl space-y-5">
                 <div className="mx-auto w-14 h-14 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
                   <ImageIcon className="h-7 w-7" />
                 </div>
                 <div className="space-y-2">
-                  <h2 className="text-lg font-semibold text-slate-100">Start with an image</h2>
-                  <p className="text-sm text-slate-400">
-                    Upload a local image or pick one of the sample presets to begin cutting out assets.
-                  </p>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-blue-400">Editor ready</p>
+                  <h2 className="text-lg font-semibold text-slate-100">{emptyWorkspaceCopy.title}</h2>
+                  <p className="text-sm text-slate-400">{emptyWorkspaceCopy.description}</p>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-left">
-                  <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
-                    <p className="text-xs font-bold uppercase tracking-wider text-blue-300">Recommended</p>
-                    <p className="mt-1 text-sm font-medium text-slate-200">Upload your own image</p>
-                    <p className="mt-1 text-xs text-slate-500">Most reliable start, with no remote loading dependency.</p>
+                <button
+                  type="button"
+                  onClick={openFilePicker}
+                  className="mx-auto flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-500/20 transition-all hover:bg-blue-500 active:scale-[0.98]"
+                >
+                  <Upload className="h-4 w-4" />
+                  <span>{emptyWorkspaceCopy.actionLabel}</span>
+                </button>
+                <p className="text-xs text-slate-500">{emptyWorkspaceCopy.hint}</p>
+                {adFreeProduct?.available && !isAdFree && (
+                  <div className="border-t border-slate-800 pt-4">
+                    <button
+                      type="button"
+                      onClick={() => void handlePurchaseAdFree()}
+                      disabled={isBillingBusy}
+                      className="mx-auto flex items-center justify-center gap-1.5 text-xs font-semibold text-amber-300 transition-colors hover:text-amber-200 disabled:cursor-wait disabled:opacity-60"
+                    >
+                      <Crown className="h-3.5 w-3.5" />
+                      <span>Work without ads</span>
+                      <span className="text-amber-400/70">{adFreeProduct.formattedPrice}</span>
+                    </button>
                   </div>
-                  <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
-                    <p className="text-xs font-bold uppercase tracking-wider text-emerald-300">Optional</p>
-                    <p className="mt-1 text-sm font-medium text-slate-200">Use a sample preset</p>
-                    <p className="mt-1 text-xs text-slate-500">Good for testing tools quickly from the preset menu above.</p>
-                  </div>
-                </div>
+                )}
               </div>
             </div>
           )}
