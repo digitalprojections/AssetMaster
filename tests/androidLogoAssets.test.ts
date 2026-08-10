@@ -12,8 +12,16 @@ function readPngSize(path: string): { width: number; height: number } {
 
 test('Android launcher and splash assets are generated from the public AssetMaster logo', () => {
   const generator = readFileSync('scripts/generate-android-logo-assets.mjs', 'utf8');
+  const launcherBackground = readFileSync('android/app/src/main/res/values/ic_launcher_background.xml', 'utf8');
+  const fallbackLauncherBackground = readFileSync('android/app/src/main/res/drawable/ic_launcher_background.xml', 'utf8');
 
   assert.match(generator, /public\/logos\/512x512_play_store_icon\.png/);
+  assert.match(generator, /0x020617/);
+  assert.doesNotMatch(generator, /pad=.*0x00000000/);
+  assert.match(launcherBackground, /#020617/);
+  assert.match(fallbackLauncherBackground, /#020617/);
+  assert.doesNotMatch(launcherBackground, /#FFFFFF/i);
+  assert.doesNotMatch(fallbackLauncherBackground, /#FFFFFF/i);
   assert.deepEqual(readPngSize('public/logos/512x512_play_store_icon.png'), {width: 512, height: 512});
   assert.deepEqual(readPngSize('public/logos/192x192_ic_launcher.png'), {width: 192, height: 192});
   assert.deepEqual(readPngSize('android/app/src/main/res/mipmap-mdpi/ic_launcher.png'), {width: 48, height: 48});

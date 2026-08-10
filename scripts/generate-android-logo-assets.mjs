@@ -5,6 +5,8 @@ import process from 'node:process';
 
 const sourceLogo = 'public/logos/512x512_play_store_icon.png';
 const resRoot = 'android/app/src/main/res';
+const iconBackgroundColor = '0x020617';
+const splashBackgroundColor = '#020617';
 const iconDensities = [
   ['mdpi', 48, 108, '48x48_ic_launcher.png'],
   ['hdpi', 72, 162, '72x72_ic_launcher.png'],
@@ -47,7 +49,7 @@ function generateAdaptiveForeground(output, canvasSize) {
     '-i',
     sourceLogo,
     '-vf',
-    `scale=${logoSize}:${logoSize}:force_original_aspect_ratio=decrease,pad=${canvasSize}:${canvasSize}:(ow-iw)/2:(oh-ih)/2:color=0x00000000,format=rgba`,
+    `scale=${logoSize}:${logoSize}:force_original_aspect_ratio=decrease,pad=${canvasSize}:${canvasSize}:(ow-iw)/2:(oh-ih)/2:color=${iconBackgroundColor},format=rgba`,
     '-frames:v',
     '1',
     output,
@@ -61,7 +63,7 @@ function generateSplash(output, width, height) {
     '-f',
     'lavfi',
     '-i',
-    `color=c=#020617:s=${width}x${height}`,
+    `color=c=${splashBackgroundColor}:s=${width}x${height}`,
     '-i',
     sourceLogo,
     '-filter_complex',
