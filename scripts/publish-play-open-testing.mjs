@@ -1,6 +1,7 @@
 import {createSign} from 'node:crypto';
 import {readFile} from 'node:fs/promises';
 import {basename} from 'node:path';
+import {fileURLToPath} from 'node:url';
 import process from 'node:process';
 
 const ANDROID_PUBLISHER_SCOPE = 'https://www.googleapis.com/auth/androidpublisher';
@@ -297,7 +298,7 @@ async function main() {
   console.log(JSON.stringify(result, null, 2));
 }
 
-if (import.meta.url === `file://${process.argv[1].replaceAll('\\', '/')}`) {
+if (fileURLToPath(import.meta.url) === process.argv[1]) {
   main().catch((error) => {
     console.error(error.message);
     if (error.payload) {
