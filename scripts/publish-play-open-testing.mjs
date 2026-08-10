@@ -45,7 +45,7 @@ export function createReleaseBody({
 export function parseArgs(argv) {
   const options = {
     mode: 'probe',
-    track: 'open',
+    track: 'beta',
     releaseName: '1.0',
     releaseNotes: 'Initial AssetMaster Android release.',
   };

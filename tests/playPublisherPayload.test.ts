@@ -2,14 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {createReleaseBody, parseArgs} from '../scripts/publish-play-open-testing.mjs';
 
-test('Play release payload targets open testing with release notes', () => {
+test('Play release payload targets the API open testing track with release notes', () => {
   assert.deepEqual(createReleaseBody({
-    track: 'open',
+    track: 'beta',
     versionCode: 1,
     releaseName: '1.0',
     releaseNotes: 'Initial AssetMaster Android release.',
   }), {
-    track: 'open',
+    track: 'beta',
     releases: [
       {
         name: '1.0',
@@ -34,7 +34,7 @@ test('Play publisher arguments default to safe probe mode', () => {
     '..\\big-genre-172004-b7bf916fca08.json',
   ]), {
     mode: 'probe',
-    track: 'open',
+    track: 'beta',
     releaseName: '1.0',
     releaseNotes: 'Initial AssetMaster Android release.',
     package: 'link.created.assetmaster',

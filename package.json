@@ -11,7 +11,7 @@
     "android:build": "node scripts/prepare-capacitor-android.mjs --build-debug",
     "android:key": "node scripts/create-android-upload-key.mjs",
     "android:bundle": "node scripts/create-android-upload-key.mjs --if-missing && node scripts/prepare-capacitor-android.mjs && powershell -NoProfile -Command \"$env:JAVA_HOME='C:\\\\Program Files\\\\Android\\\\Android Studio\\\\jbr'; $env:ANDROID_HOME=\"$env:LOCALAPPDATA\\\\Android\\\\Sdk\"; $env:ANDROID_SDK_ROOT=$env:ANDROID_HOME; Set-Location android; .\\\\gradlew.bat bundleRelease\"",
-    "android:publish-open-testing": "node scripts/publish-play-open-testing.mjs --publish --package link.created.assetmaster --track open --releaseName 1.0 --releaseNotes \"Initial AssetMaster Android release.\" --key ..\\big-genre-172004-b7bf916fca08.json --bundle android\\app\\build\\outputs\\bundle\\release\\app-release.aab",
+    "android:publish-open-testing": "node scripts/publish-play-open-testing.mjs --publish --package link.created.assetmaster --track beta --releaseName 1.0 --releaseNotes \"Initial AssetMaster Android release.\" --key ..\\big-genre-172004-b7bf916fca08.json --bundle android\\app\\build\\outputs\\bundle\\release\\app-release.aab",
     "android:open": "npx cap open android",
     "deploy": "powershell -ExecutionPolicy Bypass -File .\\scripts\\deploy-lightsail.ps1",
     "deploy:lightsail": "powershell -ExecutionPolicy Bypass -File .\\scripts\\deploy-lightsail.ps1",
