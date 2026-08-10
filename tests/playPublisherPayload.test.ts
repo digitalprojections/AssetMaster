@@ -68,3 +68,14 @@ test('Play publisher arguments default to safe probe mode', () => {
     key: '..\\big-genre-172004-b7bf916fca08.json',
   });
 });
+
+test('Play publisher arguments can select a track for read-only probes', () => {
+  assert.equal(parseArgs([
+    '--package',
+    'link.created.assetmaster',
+    '--key',
+    'service-account.json',
+    '--track',
+    'beta',
+  ]).track, 'beta');
+});

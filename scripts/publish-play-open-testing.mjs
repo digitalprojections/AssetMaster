@@ -182,32 +182,33 @@ async function uploadBundle({token, packageName, editId, bundlePath}) {
   });
 }
 
-async function probe({token, packageName}) {
+async function probe({token, packageName, track = 'open'}) {
   const edit = await createEdit(token, packageName);
   try {
     const tracks = await apiRequest({
       token,
       url: `${API_BASE}/${packageName}/edits/${edit.id}/tracks`,
     });
-    const openTrack = await getOptional(() => apiRequest({
+    const selectedTrack = await getOptional(() => apiRequest({
       token,
-      url: `${API_BASE}/${packageName}/edits/${edit.id}/tracks/open`,
+      url: `${API_BASE}/${packageName}/edits/${edit.id}/tracks/${track}`,
     }));
-    const openCountryAvailability = await getOptional(() => apiRequest({
+    const selectedCountryAvailability = await getOptional(() => apiRequest({
       token,
-      url: `${API_BASE}/${packageName}/edits/${edit.id}/countryAvailability/open`,
+      url: `${API_BASE}/${packageName}/edits/${edit.id}/countryAvailability/${track}`,
     }));
-    const openTesters = await getOptional(() => apiRequest({
+    const selectedTesters = await getOptional(() => apiRequest({
       token,
-      url: `${API_BASE}/${packageName}/edits/${edit.id}/testers/open`,
+      url: `${API_BASE}/${packageName}/edits/${edit.id}/testers/${track}`,
     }));
 
     return {
       editId: edit.id,
       tracks: tracks.tracks?.map((track) => track.track) || [],
-      openTrack,
-      openCountryAvailability,
-      openTesters,
+      track,
+      selectedTrack,
+      selectedCountryAvailability,
+      selectedTesters,
     };
   } finally {
     await deleteEdit(token, packageName, edit.id);
@@ -310,7 +311,7 @@ async function main() {
       versionCode: options.versionCode,
       userFraction: options.userFraction,
     })
-    : await probe({token, packageName: options.package});
+    : await probe({token, packageName: options.package, track: options.track});
 
   console.log(JSON.stringify(result, null, 2));
 }
