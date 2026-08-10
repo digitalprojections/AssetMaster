@@ -21,6 +21,8 @@ test('AssetMaster exposes the AdSense publisher tag in the document head', () =>
 
 test('AssetMaster publishes the supplied AdMob seller authorization line', () => {
   const adsTxt = readFileSync('public/ads.txt', 'utf8').trim();
+  const appAdsTxt = readFileSync('public/app-ads.txt', 'utf8').trim();
 
   assert.equal(adsTxt, authorizedSellerLine);
+  assert.equal(appAdsTxt, authorizedSellerLine);
 });
