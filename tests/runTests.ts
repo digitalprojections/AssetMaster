@@ -6,3 +6,4 @@ import './androidAdsConfig.test';
 import './playPublisherPayload.test';
 import './playIntegrity.test';
 import './playIntegrityDecodePayload.test';
+import './androidLogoAssets.test';
