@@ -2,6 +2,10 @@
 
 The Android wrapper is a Capacitor 8 project in `android/`. The web app remains the source of truth; Capacitor copies the `dist/` output into the native project.
 
+## Play Billing ad-free upgrade
+
+The billing-enabled Android release uses the non-consumable product ID `assetmaster_ad_free`. After this version is published to a Play testing track, create and activate the one-time product in Play Console or through the Android Publisher API. The app queries the localized Play price, supports purchase restoration, and skips interstitials after Google Play acknowledges the purchase.
+
 ## Local setup
 
 1. Copy `.env.example` to `.env.local` for a release-configured build.

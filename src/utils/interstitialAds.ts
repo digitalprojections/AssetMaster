@@ -17,6 +17,7 @@ export type InterstitialAdAdapter = {
 export type InterstitialPageChangeGateOptions = {
   getPlatform?: () => string;
   getEnvironment?: () => AdEnvironment;
+  isAdFree?: () => boolean;
   adapter?: InterstitialAdAdapter;
   onError?: (error: unknown) => void;
 };
@@ -76,6 +77,7 @@ export async function showPreparedInterstitialAd(
 export function createInterstitialPageChangeGate({
   getPlatform = () => Capacitor.getPlatform(),
   getEnvironment = () => runtimeEnvironment,
+  isAdFree = () => false,
   adapter = AdMob,
   onError = () => {},
 }: InterstitialPageChangeGateOptions = {}) {
@@ -86,6 +88,11 @@ export function createInterstitialPageChangeGate({
   const prepareNext = async (): Promise<boolean> => {
     const platform = getPlatform();
     const environment = getEnvironment();
+    if (isAdFree()) {
+      prepared = false;
+      return false;
+    }
+
     if (!isConfiguredAndroid(platform, getInterstitialAdConfig(environment))) {
       prepared = false;
       return false;
@@ -122,6 +129,11 @@ export function createInterstitialPageChangeGate({
     const run = async () => {
       const platform = getPlatform();
       const environment = getEnvironment();
+      if (isAdFree()) {
+        prepared = false;
+        return false;
+      }
+
       if (!isConfiguredAndroid(platform, getInterstitialAdConfig(environment))) {
         return false;
       }

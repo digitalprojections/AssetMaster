@@ -110,3 +110,22 @@ test('page-change gate skips web transitions without calling the native adapter'
   assert.equal(await gate.showBeforePageChange(), false);
   assert.deepEqual(calls, []);
 });
+
+test('page-change gate skips all Android interstitial work for ad-free users', async () => {
+  const calls: string[] = [];
+  const adapter = {
+    initialize: async () => { calls.push('initialize'); },
+    prepareInterstitial: async () => { calls.push('prepare'); },
+    showInterstitial: async () => { calls.push('show'); },
+  };
+  const gate = createInterstitialPageChangeGate({
+    getPlatform: () => 'android',
+    getEnvironment: () => testEnv,
+    isAdFree: () => true,
+    adapter,
+  });
+
+  assert.equal(await gate.warmUp(), false);
+  assert.equal(await gate.showBeforePageChange(), false);
+  assert.deepEqual(calls, []);
+});

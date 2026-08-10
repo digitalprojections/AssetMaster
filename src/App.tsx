@@ -3,6 +3,14 @@ import { Point, SavedSegment, SelectionTool, RectBounds, AssetLibraryFile } from
 import { findAxisSnapGuides, findSnappedPoint, createSegmentImage, getPathBounds } from './utils/canvasUtils';
 import { getIndexedDbRecord, setIndexedDbRecord } from './utils/indexedDbStorage';
 import { createInterstitialPageChangeGate } from './utils/interstitialAds';
+import { Capacitor } from '@capacitor/core';
+import {
+  addAdFreePurchaseListener,
+  getAdFreeProduct,
+  PlayBillingEntitlement,
+  purchaseAdFreeUpgrade,
+  restoreAdFreePurchase,
+} from './utils/playBilling';
 import { SAMPLE_IMAGES, SampleImage } from './data/samples';
 import bmcButton from './assets/bmc-button.svg';
 import SegmentList from './components/SegmentList';
@@ -30,7 +38,8 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Crown
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -101,6 +110,10 @@ export default function App() {
   const [isLibraryHydrated, setIsLibraryHydrated] = useState<boolean>(false);
   const hasLoadedImage = Boolean(image) && !isLoading;
   const [isMobileViewport, setIsMobileViewport] = useState<boolean>(false);
+  const [isAdFree, setIsAdFree] = useState<boolean>(false);
+  const [adFreeProduct, setAdFreeProduct] = useState<Awaited<ReturnType<typeof getAdFreeProduct>>>(null);
+  const [isBillingBusy, setIsBillingBusy] = useState<boolean>(false);
+  const [billingMessage, setBillingMessage] = useState<string | null>(null);
 
   // Auto-collapse sidebar on small screens on load
   useEffect(() => {
@@ -128,8 +141,11 @@ export default function App() {
   const hiddenImageCtxRef = useRef<CanvasRenderingContext2D | null>(null);
   const libraryImportInputRef = useRef<HTMLInputElement | null>(null);
   const pageChangeAdGateRef = useRef<ReturnType<typeof createInterstitialPageChangeGate> | null>(null);
+  const adFreeEntitlementRef = useRef<boolean>(false);
+  adFreeEntitlementRef.current = isAdFree;
   if (!pageChangeAdGateRef.current) {
     pageChangeAdGateRef.current = createInterstitialPageChangeGate({
+      isAdFree: () => adFreeEntitlementRef.current,
       onError: (error) => {
         console.info('Interstitial page-change ad skipped or failed.', error);
       },
@@ -147,12 +163,94 @@ export default function App() {
     void pageChangeAdGateRef.current?.warmUp();
   }, []);
 
+  useEffect(() => {
+    if (Capacitor.getPlatform() !== 'android') {
+      return;
+    }
+
+    let active = true;
+    let listenerHandle: Awaited<ReturnType<typeof addAdFreePurchaseListener>> = null;
+
+    const applyEntitlement = (entitlement: PlayBillingEntitlement) => {
+      if (!active) {
+        return;
+      }
+
+      if (entitlement.hasAdFree) {
+        setIsAdFree(true);
+        setBillingMessage('Ads removed permanently.');
+      } else if (entitlement.purchaseState === 'pending') {
+        setBillingMessage('Your purchase is pending confirmation from Google Play.');
+      }
+    };
+
+    const loadPlayBilling = async () => {
+      try {
+        listenerHandle = await addAdFreePurchaseListener(Capacitor.getPlatform(), applyEntitlement);
+        const [product, entitlement] = await Promise.all([
+          getAdFreeProduct(),
+          restoreAdFreePurchase(),
+        ]);
+        if (!active) {
+          return;
+        }
+
+        setAdFreeProduct(product);
+        applyEntitlement(entitlement);
+      } catch (error) {
+        console.info('Play Billing setup skipped or failed.', error);
+      }
+    };
+
+    void loadPlayBilling();
+
+    return () => {
+      active = false;
+      void listenerHandle?.remove();
+    };
+  }, []);
+
   const changePageWithInterstitial = useCallback((changePage: () => void) => {
     void (async () => {
       await pageChangeAdGateRef.current?.showBeforePageChange();
       changePage();
     })();
   }, []);
+
+  const handlePurchaseAdFree = async () => {
+    setIsBillingBusy(true);
+    setBillingMessage(null);
+    try {
+      const result = await purchaseAdFreeUpgrade();
+      if (!result.started) {
+        setBillingMessage('The ad-free purchase is not available on this device.');
+      }
+    } catch (error) {
+      console.info('Ad-free purchase could not be started.', error);
+      setBillingMessage('The ad-free purchase could not be started.');
+    } finally {
+      setIsBillingBusy(false);
+    }
+  };
+
+  const handleRestoreAdFree = async () => {
+    setIsBillingBusy(true);
+    setBillingMessage(null);
+    try {
+      const entitlement = await restoreAdFreePurchase();
+      if (entitlement.hasAdFree) {
+        setIsAdFree(true);
+        setBillingMessage('Ads removed permanently.');
+      } else {
+        setBillingMessage('No ad-free purchase was found for this Google Play account.');
+      }
+    } catch (error) {
+      console.info('Ad-free purchase could not be restored.', error);
+      setBillingMessage('The ad-free purchase could not be restored.');
+    } finally {
+      setIsBillingBusy(false);
+    }
+  };
 
   // Load saved cutouts from IndexedDB on mount, falling back to legacy browser storage once for migration.
   useEffect(() => {
@@ -1494,6 +1592,38 @@ export default function App() {
               className="hidden"
             />
           </label>
+
+          {isAdFree ? (
+            <span
+              className="hidden sm:flex items-center gap-1 rounded-lg border border-emerald-800 bg-emerald-950/40 px-3 py-2 text-xs font-semibold text-emerald-300"
+              title={billingMessage ?? 'Ads removed permanently'}
+            >
+              <Crown className="h-3.5 w-3.5" />
+              <span>Ads removed</span>
+            </span>
+          ) : adFreeProduct?.available ? (
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => void handlePurchaseAdFree()}
+                disabled={isBillingBusy}
+                className="flex items-center space-x-1 md:space-x-1.5 rounded-lg bg-amber-600 px-3 py-2 text-xs font-semibold text-white shadow-md shadow-amber-500/10 transition-all hover:bg-amber-500 active:scale-[0.98] disabled:cursor-wait disabled:opacity-60"
+                title={billingMessage ?? 'Remove interstitial ads permanently'}
+              >
+                <Crown className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Remove ads</span>
+                <span>{adFreeProduct.formattedPrice}</span>
+              </button>
+              <button
+                onClick={() => void handleRestoreAdFree()}
+                disabled={isBillingBusy}
+                className="rounded-lg border border-slate-800 bg-slate-900 px-2 py-2 text-[10px] font-semibold text-slate-400 transition-all hover:border-slate-700 hover:text-slate-200 disabled:cursor-wait disabled:opacity-60"
+                title="Restore ad-free purchase"
+                aria-label="Restore ad-free purchase"
+              >
+                Restore
+              </button>
+            </div>
+          ) : null}
 
           <a
             href="https://buymeacoffee.com/ahmadfuzal"
