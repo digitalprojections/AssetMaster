@@ -26,6 +26,33 @@ test('Play release payload targets the API open testing track with release notes
   });
 });
 
+test('Play release payload can pause an existing production version', () => {
+  assert.deepEqual(createReleaseBody({
+    track: 'production',
+    versionCode: '1',
+    releaseName: '1.0',
+    releaseNotes: 'Initial AssetMaster Android release.',
+    status: 'halted',
+    userFraction: 0.01,
+  }), {
+    track: 'production',
+    releases: [
+      {
+        name: '1.0',
+        status: 'halted',
+        versionCodes: ['1'],
+        userFraction: 0.01,
+        releaseNotes: [
+          {
+            language: 'en-US',
+            text: 'Initial AssetMaster Android release.',
+          },
+        ],
+      },
+    ],
+  });
+});
+
 test('Play publisher arguments default to safe probe mode', () => {
   assert.deepEqual(parseArgs([
     '--package',

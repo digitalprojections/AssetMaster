@@ -19,26 +19,31 @@ export function createReleaseBody({
   releaseName,
   releaseNotes,
   status = 'completed',
+  userFraction = undefined,
 }) {
   if (!versionCode) {
     throw new Error('versionCode is required.');
   }
 
-  return {
-    track,
-    releases: [
+  const release = {
+    name: releaseName || String(versionCode),
+    status,
+    versionCodes: [String(versionCode)],
+    releaseNotes: [
       {
-        name: releaseName || String(versionCode),
-        status,
-        versionCodes: [String(versionCode)],
-        releaseNotes: [
-          {
-            language: 'en-US',
-            text: releaseNotes || 'Initial Android release.',
-          },
-        ],
+        language: 'en-US',
+        text: releaseNotes || 'Initial Android release.',
       },
     ],
+  };
+
+  if (userFraction !== undefined) {
+    release.userFraction = Number(userFraction);
+  }
+
+  return {
+    track,
+    releases: [release],
   };
 }
 
@@ -82,8 +87,8 @@ export function parseArgs(argv) {
     }
   }
 
-  if (options.mode === 'publish' && !options.bundle) {
-    throw new Error('Missing required --bundle option for --publish.');
+  if (options.mode === 'publish' && !options.bundle && !options.versionCode) {
+    throw new Error('Missing required --bundle or --versionCode option for --publish.');
   }
 
   return options;
@@ -225,22 +230,27 @@ async function publish({
   token,
   packageName,
   bundlePath,
+  versionCode: existingVersionCode,
   track,
   releaseName,
   releaseNotes,
   status,
+  userFraction,
 }) {
   const edit = await createEdit(token, packageName);
   let committed = false;
   try {
-    const bundle = await uploadBundle({token, packageName, editId: edit.id, bundlePath});
-    const versionCode = bundle.versionCode;
+    const bundle = bundlePath
+      ? await uploadBundle({token, packageName, editId: edit.id, bundlePath})
+      : null;
+    const versionCode = bundle?.versionCode || existingVersionCode;
     const trackBody = createReleaseBody({
       track,
       versionCode,
       releaseName,
       releaseNotes,
       status,
+      userFraction,
     });
     const updatedTrack = await apiRequest({
       token,
@@ -263,12 +273,17 @@ async function publish({
     return {
       editId: edit.id,
       packageName,
-      bundle: {
-        file: basename(bundlePath),
-        versionCode,
-        sha1: bundle.sha1,
-        sha256: bundle.sha256,
-      },
+      bundle: bundle
+        ? {
+          file: basename(bundlePath),
+          versionCode,
+          sha1: bundle.sha1,
+          sha256: bundle.sha256,
+        }
+        : {
+          versionCode: String(versionCode),
+          reused: true,
+        },
       track: updatedTrack,
       commit,
     };
@@ -292,6 +307,8 @@ async function main() {
       releaseName: options.releaseName,
       releaseNotes: options.releaseNotes,
       status: options.status || 'completed',
+      versionCode: options.versionCode,
+      userFraction: options.userFraction,
     })
     : await probe({token, packageName: options.package});
 
