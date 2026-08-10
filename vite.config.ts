@@ -3,9 +3,9 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 import {defineConfig} from 'vite';
 
-export default defineConfig(({ command }) => {
+export default defineConfig(({ command, mode }) => {
   return {
-    base: command === 'build' ? '/assetmaster/' : '/',
+    base: mode === 'capacitor' ? '/' : command === 'build' ? '/assetmaster/' : '/',
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {
