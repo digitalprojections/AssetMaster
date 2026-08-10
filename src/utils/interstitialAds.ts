@@ -14,6 +14,13 @@ export type InterstitialAdAdapter = {
   showInterstitial: () => Promise<void>;
 };
 
+export type InterstitialPageChangeGateOptions = {
+  getPlatform?: () => string;
+  getEnvironment?: () => AdEnvironment;
+  adapter?: InterstitialAdAdapter;
+  onError?: (error: unknown) => void;
+};
+
 const runtimeEnvironment = ((import.meta as ImportMeta & { env?: AdEnvironment }).env ?? {}) as AdEnvironment;
 
 export function getInterstitialAdConfig(environment: AdEnvironment = runtimeEnvironment): InterstitialAdConfig {
@@ -64,4 +71,85 @@ export async function showPreparedInterstitialAd(
 
   await adapter.showInterstitial();
   return true;
+}
+
+export function createInterstitialPageChangeGate({
+  getPlatform = () => Capacitor.getPlatform(),
+  getEnvironment = () => runtimeEnvironment,
+  adapter = AdMob,
+  onError = () => {},
+}: InterstitialPageChangeGateOptions = {}) {
+  let initialized = false;
+  let prepared = false;
+  let queue = Promise.resolve();
+
+  const prepareNext = async (): Promise<boolean> => {
+    const platform = getPlatform();
+    const environment = getEnvironment();
+    if (!isConfiguredAndroid(platform, getInterstitialAdConfig(environment))) {
+      prepared = false;
+      return false;
+    }
+
+    if (!initialized) {
+      await adapter.initialize();
+      initialized = true;
+    }
+
+    await adapter.prepareInterstitial(getInterstitialAdConfig(environment));
+    prepared = true;
+    return true;
+  };
+
+  const warmUp = async (): Promise<boolean> => {
+    try {
+      return await prepareNext();
+    } catch (error) {
+      prepared = false;
+      onError(error);
+      return false;
+    }
+  };
+
+  const prepareNextQuietly = () => {
+    void prepareNext().catch((error) => {
+      prepared = false;
+      onError(error);
+    });
+  };
+
+  const showBeforePageChange = async (): Promise<boolean> => {
+    const run = async () => {
+      const platform = getPlatform();
+      const environment = getEnvironment();
+      if (!isConfiguredAndroid(platform, getInterstitialAdConfig(environment))) {
+        return false;
+      }
+
+      try {
+        if (!prepared) {
+          await prepareNext();
+        }
+
+        await adapter.showInterstitial();
+        prepared = false;
+        prepareNextQuietly();
+        return true;
+      } catch (error) {
+        prepared = false;
+        onError(error);
+        prepareNextQuietly();
+        return false;
+      }
+    };
+
+    const result = queue.then(run, run);
+    queue = result.then(() => undefined, () => undefined);
+    return result;
+  };
+
+  return {
+    warmUp,
+    showBeforePageChange,
+  };
 }

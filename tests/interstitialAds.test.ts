@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  createInterstitialPageChangeGate,
   getInterstitialAdConfig,
   initializeInterstitialAds,
   prepareInterstitialAd,
@@ -62,4 +63,50 @@ test('Android interstitial operations delegate to the native adapter', async () 
     { name: 'prepare', options: { adId: 'test-interstitial-id', isTesting: true } },
     { name: 'show' },
   ]);
+});
+
+test('page-change gate shows an interstitial before every Android page transition', async () => {
+  const calls: string[] = [];
+  const adapter = {
+    initialize: async () => { calls.push('initialize'); },
+    prepareInterstitial: async () => { calls.push('prepare'); },
+    showInterstitial: async () => { calls.push('show'); },
+  };
+  const gate = createInterstitialPageChangeGate({
+    getPlatform: () => 'android',
+    getEnvironment: () => testEnv,
+    adapter,
+  });
+
+  assert.equal(await gate.showBeforePageChange(), true);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(await gate.showBeforePageChange(), true);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.deepEqual(calls, [
+    'initialize',
+    'prepare',
+    'show',
+    'prepare',
+    'show',
+    'prepare',
+  ]);
+});
+
+test('page-change gate skips web transitions without calling the native adapter', async () => {
+  const calls: string[] = [];
+  const adapter = {
+    initialize: async () => { calls.push('initialize'); },
+    prepareInterstitial: async () => { calls.push('prepare'); },
+    showInterstitial: async () => { calls.push('show'); },
+  };
+  const gate = createInterstitialPageChangeGate({
+    getPlatform: () => 'web',
+    getEnvironment: () => testEnv,
+    adapter,
+  });
+
+  assert.equal(await gate.warmUp(), false);
+  assert.equal(await gate.showBeforePageChange(), false);
+  assert.deepEqual(calls, []);
 });

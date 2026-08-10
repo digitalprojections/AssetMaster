@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Point, SavedSegment, SelectionTool, RectBounds, AssetLibraryFile } from './types';
 import { findAxisSnapGuides, findSnappedPoint, createSegmentImage, getPathBounds } from './utils/canvasUtils';
 import { getIndexedDbRecord, setIndexedDbRecord } from './utils/indexedDbStorage';
+import { createInterstitialPageChangeGate } from './utils/interstitialAds';
 import { SAMPLE_IMAGES, SampleImage } from './data/samples';
 import bmcButton from './assets/bmc-button.svg';
 import SegmentList from './components/SegmentList';
@@ -126,6 +127,14 @@ export default function App() {
   const hiddenImageCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const hiddenImageCtxRef = useRef<CanvasRenderingContext2D | null>(null);
   const libraryImportInputRef = useRef<HTMLInputElement | null>(null);
+  const pageChangeAdGateRef = useRef<ReturnType<typeof createInterstitialPageChangeGate> | null>(null);
+  if (!pageChangeAdGateRef.current) {
+    pageChangeAdGateRef.current = createInterstitialPageChangeGate({
+      onError: (error) => {
+        console.info('Interstitial page-change ad skipped or failed.', error);
+      },
+    });
+  }
 
   // Pinch-to-zoom and multi-touch panning refs
   const touchStartDistRef = useRef<number | null>(null);
@@ -133,6 +142,17 @@ export default function App() {
   const touchStartOffsetRef = useRef<Point>({ x: 0, y: 0 });
   const touchStartMidpointRef = useRef<Point>({ x: 0, y: 0 });
   const isMultiTouchingRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    void pageChangeAdGateRef.current?.warmUp();
+  }, []);
+
+  const changePageWithInterstitial = useCallback((changePage: () => void) => {
+    void (async () => {
+      await pageChangeAdGateRef.current?.showBeforePageChange();
+      changePage();
+    })();
+  }, []);
 
   // Load saved cutouts from IndexedDB on mount, falling back to legacy browser storage once for migration.
   useEffect(() => {
@@ -1329,7 +1349,7 @@ export default function App() {
 
   // Load selection path again back to active selection
   const handleSelectSavedSegment = (segment: SavedSegment) => {
-    setPreviewSegment(segment);
+    changePageWithInterstitial(() => setPreviewSegment(segment));
   };
 
   const handleSaveCleanedSegment = (sourceSegment: SavedSegment, updatedUrl: string) => {
@@ -1344,7 +1364,37 @@ export default function App() {
       return;
     }
 
-    handleSaveCleanedSegment(previewSegment, updatedUrl);
+    changePageWithInterstitial(() => {
+      handleSaveCleanedSegment(previewSegment, updatedUrl);
+    });
+  };
+
+  const openCollageStudio = () => {
+    changePageWithInterstitial(() => setShowCollageStudio(true));
+  };
+
+  const closeCollageStudio = () => {
+    changePageWithInterstitial(() => setShowCollageStudio(false));
+  };
+
+  const openAnimationStudio = () => {
+    changePageWithInterstitial(() => setShowAnimationStudio(true));
+  };
+
+  const closeAnimationStudio = () => {
+    changePageWithInterstitial(() => setShowAnimationStudio(false));
+  };
+
+  const openBackgroundRemover = () => {
+    changePageWithInterstitial(() => setShowBgRemover(true));
+  };
+
+  const closeBackgroundRemover = () => {
+    changePageWithInterstitial(() => setShowBgRemover(false));
+  };
+
+  const closePreviewSegment = () => {
+    changePageWithInterstitial(() => setPreviewSegment(null));
   };
 
   return (
@@ -1412,7 +1462,7 @@ export default function App() {
 
           {/* Open Collage Studio button */}
           <button
-            onClick={() => setShowCollageStudio(true)}
+            onClick={openCollageStudio}
             className="flex items-center space-x-1 md:space-x-1.5 bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white rounded-lg px-3 py-2 text-xs font-semibold cursor-pointer shadow-md shadow-orange-500/10 active:scale-[0.98] transition-all"
             title="Arrange saved cutouts into exportable collage layouts"
           >
@@ -1423,7 +1473,7 @@ export default function App() {
 
           {/* Create Animation button */}
           <button
-            onClick={() => setShowAnimationStudio(true)}
+            onClick={openAnimationStudio}
             className="flex items-center space-x-1 md:space-x-1.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white rounded-lg px-3 py-2 text-xs font-semibold cursor-pointer shadow-md shadow-indigo-500/10 active:scale-[0.98] transition-all"
             title="Create animations from saved cutout frames"
           >
@@ -1979,7 +2029,7 @@ export default function App() {
                   </div>
                 </div>
                 <button
-                  onClick={() => setPreviewSegment(null)}
+                  onClick={closePreviewSegment}
                   className="p-1.5 bg-slate-850 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 text-slate-400 hover:text-slate-200 rounded-lg transition-all cursor-pointer"
                 >
                   <X className="h-4 w-4" />
@@ -2003,7 +2053,7 @@ export default function App() {
                 </span>
                 <div className="flex flex-col sm:flex-row gap-2.5">
                   <button
-                    onClick={() => setShowBgRemover(true)}
+                    onClick={openBackgroundRemover}
                     className="w-full sm:w-auto flex items-center justify-center space-x-1.5 px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-semibold shadow shadow-emerald-500/10 active:scale-[0.98] transition-all cursor-pointer"
                   >
                     <Sparkles className="h-4 w-4" />
@@ -2022,7 +2072,7 @@ export default function App() {
                     <span>Download PNG</span>
                   </button>
                   <button
-                    onClick={() => setPreviewSegment(null)}
+                    onClick={closePreviewSegment}
                     className="w-full sm:w-auto px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold border border-slate-700 cursor-pointer"
                   >
                     Close Preview
@@ -2039,7 +2089,7 @@ export default function App() {
         {showCollageStudio && (
           <CollageStudio
             savedSegments={savedSegments}
-            onClose={() => setShowCollageStudio(false)}
+            onClose={closeCollageStudio}
           />
         )}
       </AnimatePresence>
@@ -2051,7 +2101,7 @@ export default function App() {
             savedSegments={savedSegments}
             workspaceImage={image}
             onCreateSegment={createCleanedSegment}
-            onClose={() => setShowAnimationStudio(false)}
+            onClose={closeAnimationStudio}
           />
         )}
       </AnimatePresence>
@@ -2062,7 +2112,7 @@ export default function App() {
           <BackgroundRemover
             segment={previewSegment}
             onSave={handleSavePreviewSegmentCleanup}
-            onClose={() => setShowBgRemover(false)}
+            onClose={closeBackgroundRemover}
           />
         )}
       </AnimatePresence>
