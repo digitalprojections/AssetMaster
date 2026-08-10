@@ -1,16 +1,16 @@
 import {spawnSync} from 'node:child_process';
-import {existsSync} from 'node:fs';
+import {copyFileSync, existsSync} from 'node:fs';
 import {join} from 'node:path';
 import process from 'node:process';
 
-const sourceLogo = 'public/logos/assetmaster-logo.png';
+const sourceLogo = 'public/logos/512x512_play_store_icon.png';
 const resRoot = 'android/app/src/main/res';
 const iconDensities = [
-  ['mdpi', 48, 108],
-  ['hdpi', 72, 162],
-  ['xhdpi', 96, 216],
-  ['xxhdpi', 144, 324],
-  ['xxxhdpi', 192, 432],
+  ['mdpi', 48, 108, '48x48_ic_launcher.png'],
+  ['hdpi', 72, 162, '72x72_ic_launcher.png'],
+  ['xhdpi', 96, 216, '96x96_ic_launcher.png'],
+  ['xxhdpi', 144, 324, '144x144_ic_launcher.png'],
+  ['xxxhdpi', 192, 432, '192x192_ic_launcher.png'],
 ];
 const splashAssets = [
   ['drawable/splash.png', 480, 320],
@@ -36,22 +36,12 @@ function runFfmpeg(args) {
   }
 }
 
-function generateIcon(output, size) {
-  const logoSize = Math.round(size * 0.86);
-  runFfmpeg([
-    '-y',
-    '-i',
-    sourceLogo,
-    '-vf',
-    `scale=${logoSize}:${logoSize}:force_original_aspect_ratio=decrease,pad=${size}:${size}:(ow-iw)/2:(oh-ih)/2:color=#020617`,
-    '-frames:v',
-    '1',
-    output,
-  ]);
+function copyProvidedIcon(output, sourceFileName) {
+  copyFileSync(join('public/logos', sourceFileName), output);
 }
 
 function generateAdaptiveForeground(output, canvasSize) {
-  const logoSize = Math.round(canvasSize * 0.58);
+  const logoSize = Math.round(canvasSize * 0.54);
   runFfmpeg([
     '-y',
     '-i',
@@ -65,7 +55,7 @@ function generateAdaptiveForeground(output, canvasSize) {
 }
 
 function generateSplash(output, width, height) {
-  const logoSize = Math.round(Math.min(width, height) * 0.28);
+  const logoSize = Math.round(Math.min(width, height) * 0.24);
   runFfmpeg([
     '-y',
     '-f',
@@ -87,10 +77,17 @@ function main() {
     throw new Error(`Logo not found: ${sourceLogo}`);
   }
 
-  for (const [density, iconSize, foregroundSize] of iconDensities) {
+  for (const [, , , sourceFileName] of iconDensities) {
+    const path = join('public/logos', sourceFileName);
+    if (!existsSync(path)) {
+      throw new Error(`Launcher icon source not found: ${path}`);
+    }
+  }
+
+  for (const [density, , foregroundSize, sourceFileName] of iconDensities) {
     const densityDir = join(resRoot, `mipmap-${density}`);
-    generateIcon(join(densityDir, 'ic_launcher.png'), iconSize);
-    generateIcon(join(densityDir, 'ic_launcher_round.png'), iconSize);
+    copyProvidedIcon(join(densityDir, 'ic_launcher.png'), sourceFileName);
+    copyProvidedIcon(join(densityDir, 'ic_launcher_round.png'), sourceFileName);
     generateAdaptiveForeground(join(densityDir, 'ic_launcher_foreground.png'), foregroundSize);
   }
 

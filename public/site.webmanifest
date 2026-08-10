@@ -9,7 +9,7 @@
   "theme_color": "#020617",
   "icons": [
     {
-      "src": "/assetmaster/logos/assetmaster-logo.png",
+      "src": "/assetmaster/logos/512x512_play_store_icon.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"

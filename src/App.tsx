@@ -50,7 +50,7 @@ const LEGACY_INDEX_KEY = 'lasso_cutout_index';
 const LIBRARY_STATE_KEY = 'assetmaster.library.state.v1';
 const LIBRARY_BACKUPS_KEY = 'assetmaster.library.backups.v1';
 const MAX_LIBRARY_BACKUPS = 5;
-const ASSETMASTER_LOGO_SRC = `${import.meta.env.BASE_URL}logos/assetmaster-logo.png`;
+const ASSETMASTER_LOGO_SRC = `${import.meta.env.BASE_URL}logos/512x512_play_store_icon.png`;
 
 const normalizeSavedSegment = (segment: SavedSegment): SavedSegment => ({
   ...segment,
