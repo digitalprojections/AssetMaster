@@ -25,6 +25,19 @@ canvas {
   touch-action: none;
 }
 
+.safe-area-top-bar {
+  padding-top: max(0.5rem, env(safe-area-inset-top));
+  padding-left: max(0.75rem, env(safe-area-inset-left));
+  padding-right: max(0.75rem, env(safe-area-inset-right));
+}
+
+@media (min-width: 768px) {
+  .safe-area-top-bar {
+    padding-left: max(1.5rem, env(safe-area-inset-left));
+    padding-right: max(1.5rem, env(safe-area-inset-right));
+  }
+}
+
 /* Classic checkerboard pattern for transparent PNG backgrounds */
 .bg-checkerboard {
   background-color: #ffffff;

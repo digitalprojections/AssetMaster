@@ -799,7 +799,7 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
       <div className="w-full max-w-5xl h-full md:h-[85vh] bg-slate-900 border-0 md:border border-slate-800 rounded-none md:rounded-3xl flex flex-col overflow-hidden shadow-2xl relative">
         
         {/* Header */}
-        <header className="min-h-16 border-b border-slate-800 bg-slate-950/50 flex items-center justify-between gap-3 px-4 py-2 md:px-6 shrink-0">
+        <header className="safe-area-top-bar min-h-16 border-b border-slate-800 bg-slate-950/50 flex items-center justify-between gap-3 px-4 py-2 md:px-6 shrink-0">
           <div className="flex items-center space-x-3 min-w-0">
             <div className="bg-emerald-500/10 p-2 border border-emerald-500/20 rounded-xl text-emerald-400">
               <Scissors className="h-5 w-5 animate-pulse" />

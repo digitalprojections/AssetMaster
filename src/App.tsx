@@ -1504,26 +1504,49 @@ export default function App() {
   return (
     <div id="app-root" className="h-[100dvh] w-full flex flex-col bg-slate-950 text-slate-100 overflow-hidden font-sans select-none antialiased">
       {/* 1. Header Navigation Bar */}
-      <header id="main-header" className="min-h-16 border-b border-slate-800 bg-slate-950 flex items-center justify-between gap-3 px-3 py-2 md:px-6 z-10 shrink-0">
-        <div className="flex items-center space-x-3 shrink min-w-0">
-          <img
-            src={ASSETMASTER_LOGO_SRC}
-            alt=""
-            aria-hidden="true"
-            draggable={false}
-            className="h-10 w-10 shrink-0 rounded-xl shadow-lg shadow-cyan-500/10"
-          />
-          <div className="min-w-0">
-            <h1 className="font-bold text-sm md:text-base tracking-tight bg-gradient-to-r from-blue-100 to-indigo-100 bg-clip-text text-transparent">
-              AssetMaster
-            </h1>
-            <p className="hidden sm:block text-[10px] text-slate-400 font-medium">Smart Transparent Image Cutter</p>
-            {image && (
-              <p className="md:hidden text-[10px] text-slate-500 font-mono truncate">
-                {image.width} x {image.height}px
-              </p>
-            )}
+      <header id="main-header" className="safe-area-top-bar min-h-16 border-b border-slate-800 bg-slate-950 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-2 md:gap-3 px-3 py-2 md:px-6 z-10 shrink-0">
+        <div className="flex w-full items-center justify-between gap-3 md:w-auto md:min-w-0">
+          <div className="flex min-w-0 flex-1 items-center space-x-3 md:flex-none">
+            <img
+              src={ASSETMASTER_LOGO_SRC}
+              alt=""
+              aria-hidden="true"
+              draggable={false}
+              className="h-10 w-10 shrink-0 rounded-xl shadow-lg shadow-cyan-500/10"
+            />
+            <div className="min-w-0">
+              <h1 className="truncate font-bold text-sm md:text-base tracking-tight bg-gradient-to-r from-blue-100 to-indigo-100 bg-clip-text text-transparent">
+                AssetMaster
+              </h1>
+              <p className="hidden sm:block text-[10px] text-slate-400 font-medium">Smart Transparent Image Cutter</p>
+              {image && (
+                <p className="md:hidden text-[10px] text-slate-500 font-mono truncate">
+                  {image.width} x {image.height}px
+                </p>
+              )}
+            </div>
           </div>
+
+          <button
+            onClick={() => {
+              setMobileSidebarTab('cuts');
+              setIsSidebarOpen(!isSidebarOpen);
+            }}
+            aria-label="Open settings and saved cuts"
+            className={`md:hidden p-2 rounded-lg border transition-all cursor-pointer relative shrink-0 ${
+              isSidebarOpen
+                ? 'bg-blue-900/20 border-blue-800 text-blue-400'
+                : 'bg-slate-900 border-slate-800 text-slate-400'
+            }`}
+            title="Toggle Settings & Cuts"
+          >
+            <Eye className="h-4 w-4" />
+            {savedSegments.length > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 bg-blue-500 text-white text-[9px] font-bold h-4 w-4 rounded-full flex items-center justify-center border border-slate-950">
+                {savedSegments.length}
+              </span>
+            )}
+          </button>
         </div>
 
         {/* Dynamic toolbar info */}
@@ -1537,7 +1560,7 @@ export default function App() {
           )}
         </div>
 
-        <div className="flex items-center justify-end gap-2 md:gap-3 flex-wrap">
+        <div className="flex w-full flex-wrap items-center justify-start gap-2 md:w-auto md:justify-end md:gap-3">
           {/* Open Collage Studio button */}
           <button
             onClick={openCollageStudio}
@@ -1617,27 +1640,6 @@ export default function App() {
             <img src={bmcButton} alt="Buy Me a Coffee" className="h-8 w-auto block" />
           </a>
 
-          {/* Mobile settings toggle */}
-          <button
-            onClick={() => {
-              setMobileSidebarTab('cuts');
-              setIsSidebarOpen(!isSidebarOpen);
-            }}
-            aria-label="Open settings and saved cuts"
-            className={`md:hidden p-2 rounded-lg border transition-all cursor-pointer relative ${
-              isSidebarOpen
-                ? 'bg-blue-900/20 border-blue-800 text-blue-400'
-                : 'bg-slate-900 border-slate-800 text-slate-400'
-            }`}
-            title="Toggle Settings & Cuts"
-          >
-            <Eye className="h-4 w-4" />
-            {savedSegments.length > 0 && (
-              <span className="absolute -top-1.5 -right-1.5 bg-blue-500 text-white text-[9px] font-bold h-4 w-4 rounded-full flex items-center justify-center border border-slate-950">
-                {savedSegments.length}
-              </span>
-            )}
-          </button>
         </div>
       </header>
 
@@ -1927,7 +1929,7 @@ export default function App() {
           }`}
         >
           {/* Mobile sidebar header */}
-          <div className="flex md:hidden items-center justify-between px-4 py-3 border-b border-slate-800 bg-slate-950 shrink-0">
+          <div className="safe-area-top-bar flex md:hidden items-center justify-between px-4 py-3 border-b border-slate-800 bg-slate-950 shrink-0">
             <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">Settings & Saved Cuts</span>
             <button
               onClick={() => setIsSidebarOpen(false)}

@@ -1653,7 +1653,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
       />
 
       {/* 1. Header Toolbar */}
-      <header className="z-20 min-h-16 border-b border-slate-800 bg-slate-950 flex items-center justify-between gap-3 px-3 py-2 sm:px-6 shrink-0">
+      <header className="safe-area-top-bar z-20 min-h-16 border-b border-slate-800 bg-slate-950 flex items-center justify-between gap-3 px-3 py-2 sm:px-6 shrink-0">
         <div className="flex items-center space-x-2 sm:space-x-3 min-w-0">
           <div className="bg-gradient-to-br from-indigo-500 to-purple-600 p-1.5 sm:p-2 rounded-xl shadow-lg shrink-0">
             <Layers className="h-4 w-4 sm:h-5 sm:w-5 text-white" />

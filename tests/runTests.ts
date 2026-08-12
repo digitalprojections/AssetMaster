@@ -6,6 +6,7 @@ import './playBilling.test';
 import './androidAdsConfig.test';
 import './androidBillingConfig.test';
 import './androidReleaseQuality.test';
+import './androidSafeArea.test';
 import './playPublisherPayload.test';
 import './playIntegrity.test';
 import './playIntegrityDecodePayload.test';
