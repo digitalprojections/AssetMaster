@@ -83,7 +83,7 @@ export function createInterstitialPageChangeGate({
 }: InterstitialPageChangeGateOptions = {}) {
   let initialized = false;
   let prepared = false;
-  let queue = Promise.resolve();
+  let activePageChange: Promise<boolean> | null = null;
 
   const prepareNext = async (): Promise<boolean> => {
     const platform = getPlatform();
@@ -126,6 +126,10 @@ export function createInterstitialPageChangeGate({
   };
 
   const showBeforePageChange = async (): Promise<boolean> => {
+    if (activePageChange) {
+      return activePageChange;
+    }
+
     const run = async () => {
       const platform = getPlatform();
       const environment = getEnvironment();
@@ -155,9 +159,10 @@ export function createInterstitialPageChangeGate({
       }
     };
 
-    const result = queue.then(run, run);
-    queue = result.then(() => undefined, () => undefined);
-    return result;
+    activePageChange = run().finally(() => {
+      activePageChange = null;
+    });
+    return activePageChange;
   };
 
   return {

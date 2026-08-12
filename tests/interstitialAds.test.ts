@@ -93,6 +93,46 @@ test('page-change gate shows an interstitial before every Android page transitio
   ]);
 });
 
+test('page-change gate coalesces rapid repeat taps into one interstitial', async () => {
+  const calls: string[] = [];
+  let releaseShow: (() => void) | null = null;
+  let markShowStarted: (() => void) | null = null;
+  let showCount = 0;
+  const showStarted = new Promise<void>((resolve) => {
+    markShowStarted = resolve;
+  });
+  const adapter = {
+    initialize: async () => { calls.push('initialize'); },
+    prepareInterstitial: async () => { calls.push('prepare'); },
+    showInterstitial: async () => {
+      calls.push('show');
+      showCount += 1;
+      if (showCount === 1) {
+        markShowStarted?.();
+        await new Promise<void>((release) => {
+          releaseShow = release;
+        });
+      }
+    },
+  };
+  const gate = createInterstitialPageChangeGate({
+    getPlatform: () => 'android',
+    getEnvironment: () => testEnv,
+    adapter,
+  });
+
+  const firstShow = gate.showBeforePageChange();
+  const secondShow = gate.showBeforePageChange();
+
+  await showStarted;
+  assert.deepEqual(calls, ['initialize', 'prepare', 'show']);
+  releaseShow?.();
+
+  assert.deepEqual(await Promise.all([firstShow, secondShow]), [true, true]);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(calls, ['initialize', 'prepare', 'show', 'prepare']);
+});
+
 test('page-change gate skips web transitions without calling the native adapter', async () => {
   const calls: string[] = [];
   const adapter = {

@@ -2,6 +2,7 @@ import './collageClipboard.test';
 import './collageTextBubble.test';
 import './adsenseMetadata.test';
 import './interstitialAds.test';
+import './appNavigationAds.test';
 import './playBilling.test';
 import './androidAdsConfig.test';
 import './androidBillingConfig.test';

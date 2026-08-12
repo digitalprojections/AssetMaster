@@ -143,6 +143,7 @@ export default function App() {
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const libraryImportInputRef = useRef<HTMLInputElement | null>(null);
   const pageChangeAdGateRef = useRef<ReturnType<typeof createInterstitialPageChangeGate> | null>(null);
+  const pageChangeInProgressRef = useRef<boolean>(false);
   const adFreeEntitlementRef = useRef<boolean>(false);
   adFreeEntitlementRef.current = isAdFree;
   if (!pageChangeAdGateRef.current) {
@@ -213,9 +214,18 @@ export default function App() {
   }, []);
 
   const changePageWithInterstitial = useCallback((changePage: () => void) => {
+    if (pageChangeInProgressRef.current) {
+      return;
+    }
+
+    pageChangeInProgressRef.current = true;
     void (async () => {
-      await pageChangeAdGateRef.current?.showBeforePageChange();
-      changePage();
+      try {
+        await pageChangeAdGateRef.current?.showBeforePageChange();
+        changePage();
+      } finally {
+        pageChangeInProgressRef.current = false;
+      }
     })();
   }, []);
 
