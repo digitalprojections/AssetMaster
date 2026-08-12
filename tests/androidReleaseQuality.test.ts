@@ -31,3 +31,10 @@ test('Android bundle automation avoids nested PowerShell quoting', () => {
   assert.match(capacitorPrepareScript, /const bundleRelease = process\.argv\.includes\('--bundle-release'\);/u);
   assert.match(capacitorPrepareScript, /\['bundleRelease'\]/u);
 });
+
+test('Android Open testing publish metadata uses a fresh release version', () => {
+  assert.match(appBuildGradle, /versionCode 4/u);
+  assert.match(appBuildGradle, /versionName "1\.1\.2"/u);
+  assert.match(packageJson, /--releaseName 1\.1\.2/u);
+  assert.match(packageJson, /prevents repeated taps from opening duplicate interstitial ads/u);
+});
