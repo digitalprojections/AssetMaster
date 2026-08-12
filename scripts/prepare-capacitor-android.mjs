@@ -7,6 +7,7 @@ const repoRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const isWindows = process.platform === 'win32';
 const bin = (name) => resolve(repoRoot, 'node_modules', '.bin', `${name}${isWindows ? '.cmd' : ''}`);
 const buildDebug = process.argv.includes('--build-debug');
+const bundleRelease = process.argv.includes('--bundle-release');
 const androidDirectory = resolve(repoRoot, 'android');
 const androidStudioJavaHome = resolve(
   process.env.ProgramFiles || 'C:\\Program Files',
@@ -54,4 +55,8 @@ run(bin('cap'), ['sync', 'android']);
 
 if (buildDebug) {
   run(isWindows ? resolve(androidDirectory, 'gradlew.bat') : './gradlew', ['assembleDebug'], androidDirectory);
+}
+
+if (bundleRelease) {
+  run(isWindows ? resolve(androidDirectory, 'gradlew.bat') : './gradlew', ['bundleRelease'], androidDirectory);
 }

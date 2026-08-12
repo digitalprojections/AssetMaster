@@ -5,6 +5,7 @@ import './interstitialAds.test';
 import './playBilling.test';
 import './androidAdsConfig.test';
 import './androidBillingConfig.test';
+import './androidReleaseQuality.test';
 import './playPublisherPayload.test';
 import './playIntegrity.test';
 import './playIntegrityDecodePayload.test';
