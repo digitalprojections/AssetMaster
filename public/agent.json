@@ -1,0 +1,143 @@
+{
+  "schema_version": "1.0",
+  "name": "AssetMaster Agent Control",
+  "application": {
+    "name": "AssetMaster",
+    "url": "https://created.link/assetmaster/",
+    "description": "AssetMaster is a browser-based creative studio for transparent image cutouts, background cleanup, collages, sprite sheet slicing, and animation previews."
+  },
+  "discovery": {
+    "manifest_url": "https://created.link/assetmaster/agent.json",
+    "well_known_url": "https://created.link/assetmaster/.well-known/assetmaster-agent.json",
+    "llms_url": "https://created.link/assetmaster/llms.txt",
+    "sitemap_url": "https://created.link/assetmaster/sitemap.xml"
+  },
+  "control_surfaces": [
+    {
+      "type": "browser_window_api",
+      "name": "window.assetMasterAgent",
+      "version": "1.0",
+      "ready_event": "assetmaster-agent-ready",
+      "state_method": "window.assetMasterAgent.getState()",
+      "capabilities_method": "window.assetMasterAgent.getCapabilities()",
+      "run_method": "window.assetMasterAgent.run(command)",
+      "dom_hooks": {
+        "ready": "[data-agent-control=\"ready\"]",
+        "actions": "[data-agent-action]",
+        "tools": "[data-agent-tool]"
+      }
+    }
+  ],
+  "commands": [
+    {
+      "action": "readState",
+      "description": "Inspect the current editor state.",
+      "confirmation_required": false
+    },
+    {
+      "action": "setTool",
+      "description": "Switch the active selection tool.",
+      "value": {
+        "type": "string",
+        "enum": ["select", "rectangle", "lasso", "magnetic"]
+      },
+      "requires_loaded_image": true,
+      "confirmation_required": false
+    },
+    {
+      "action": "setFeather",
+      "description": "Set feathering in pixels.",
+      "value": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 40
+      },
+      "confirmation_required": false
+    },
+    {
+      "action": "setSnapRadius",
+      "description": "Set snapping radius in pixels.",
+      "value": {
+        "type": "integer",
+        "minimum": 5,
+        "maximum": 40
+      },
+      "confirmation_required": false
+    },
+    {
+      "action": "clearSelection",
+      "description": "Discard the active unsaved selection.",
+      "confirmation_required": false
+    },
+    {
+      "action": "toggleSidebar",
+      "description": "Open or close the settings and saved cuts panel.",
+      "value": {
+        "type": "boolean",
+        "field": "open",
+        "optional": true
+      },
+      "confirmation_required": false
+    },
+    {
+      "action": "openCollageStudio",
+      "description": "Open the collage workspace.",
+      "confirmation_required": false
+    },
+    {
+      "action": "openAnimationStudio",
+      "description": "Open the animation workspace.",
+      "confirmation_required": false
+    },
+    {
+      "action": "closeOverlays",
+      "description": "Close open preview, cleanup, collage, or animation overlays.",
+      "confirmation_required": false
+    },
+    {
+      "action": "zoomIn",
+      "description": "Zoom into the loaded image.",
+      "requires_loaded_image": true,
+      "confirmation_required": false
+    },
+    {
+      "action": "zoomOut",
+      "description": "Zoom out from the loaded image.",
+      "requires_loaded_image": true,
+      "confirmation_required": false
+    },
+    {
+      "action": "zoomFit",
+      "description": "Fit the loaded image inside the workspace.",
+      "requires_loaded_image": true,
+      "confirmation_required": false
+    },
+    {
+      "action": "zoom100",
+      "description": "Center the loaded image at actual size.",
+      "requires_loaded_image": true,
+      "confirmation_required": false
+    },
+    {
+      "action": "requestUpload",
+      "description": "Open the image picker for user-approved import.",
+      "confirmation_required": true,
+      "confirmation_reason": "This opens a local file picker."
+    },
+    {
+      "action": "exportLibrary",
+      "description": "Download the saved cutout library as JSON.",
+      "confirmation_required": true,
+      "confirmation_reason": "This starts a local file download."
+    }
+  ],
+  "privacy": {
+    "storage": "Project images and cutouts stay in the user's browser unless the user exports files.",
+    "network": "The static control manifest does not receive commands or upload user files.",
+    "confirmation_policy": "Local file picker and download actions require confirm: true."
+  },
+  "limits": [
+    "The current control surface is available after the web app loads JavaScript.",
+    "The current command set covers top-level editor controls, not every nested collage or animation operation."
+  ]
+}

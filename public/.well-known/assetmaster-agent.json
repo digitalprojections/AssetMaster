@@ -1,0 +1,8 @@
+{
+  "schema_version": "1.0",
+  "name": "AssetMaster Agent Control",
+  "manifest_url": "https://created.link/assetmaster/agent.json",
+  "application_url": "https://created.link/assetmaster/",
+  "llms_url": "https://created.link/assetmaster/llms.txt",
+  "control_surface": "window.assetMasterAgent"
+}

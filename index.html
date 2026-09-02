@@ -24,6 +24,9 @@
     <link rel="alternate" hreflang="en" href="https://created.link/assetmaster/" />
     <link rel="alternate" hreflang="en-us" href="https://created.link/assetmaster/" />
     <link rel="alternate" hreflang="x-default" href="https://created.link/assetmaster/" />
+    <link rel="agent-manifest" type="application/json" href="%BASE_URL%agent.json" />
+    <link rel="alternate" type="application/json" href="%BASE_URL%agent.json" title="AI agent control manifest" />
+    <link rel="alternate" type="text/plain" href="%BASE_URL%llms.txt" title="LLMs context" />
     <link rel="icon" type="image/png" href="%BASE_URL%logos/512x512_play_store_icon.png" />
     <link rel="apple-touch-icon" href="%BASE_URL%logos/512x512_play_store_icon.png" />
     <link rel="manifest" href="%BASE_URL%site.webmanifest" />
@@ -63,6 +66,12 @@
         "applicationSubCategory": "Image editing and animation tool",
         "operatingSystem": "Any operating system with a modern web browser",
         "browserRequirements": "Requires JavaScript and a modern web browser",
+        "softwareHelp": "https://created.link/assetmaster/llms.txt",
+        "sameAs": [
+          "https://created.link/assetmaster/agent.json",
+          "https://created.link/assetmaster/.well-known/assetmaster-agent.json",
+          "https://created.link/assetmaster/llms.txt"
+        ],
         "isAccessibleForFree": true,
         "inLanguage": "en",
         "areaServed": [

@@ -23,4 +23,24 @@ Canonical application: https://created.link/assetmaster/
 ## Discovery
 
 - Sitemap: https://created.link/assetmaster/sitemap.xml
+- AI agent manifest: https://created.link/assetmaster/agent.json
+- Well-known agent pointer: https://created.link/assetmaster/.well-known/assetmaster-agent.json
 - Logo: https://created.link/assetmaster/logos/512x512_play_store_icon.png
+
+## AI agent control
+
+AssetMaster exposes a browser-session control bridge after the JavaScript app loads.
+
+- Bridge: `window.assetMasterAgent`
+- Ready event: `assetmaster-agent-ready`
+- State method: `window.assetMasterAgent.getState()`
+- Capability method: `window.assetMasterAgent.getCapabilities()`
+- Command method: `window.assetMasterAgent.run(command)`
+- DOM action hooks: `[data-agent-action]`
+- DOM tool hooks: `[data-agent-tool]`
+
+Supported top-level commands include `readState`, `setTool`, `setFeather`, `setSnapRadius`,
+`clearSelection`, `toggleSidebar`, `openCollageStudio`, `openAnimationStudio`, `closeOverlays`,
+`zoomIn`, `zoomOut`, `zoomFit`, `zoom100`, `requestUpload`, and `exportLibrary`.
+
+Local file picker and download actions require explicit confirmation with `confirm: true`.
