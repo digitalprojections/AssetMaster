@@ -39,9 +39,17 @@ import {
   ChevronRight,
   ChevronDown,
   ChevronUp,
-  Crown
+  Crown,
+  Bot
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import {
+  AgentCommand,
+  AgentControlSnapshot,
+  clampAgentNumber,
+  getAgentControlCapabilities,
+  validateAgentCommand,
+} from './utils/agentControl';
 
 type GuideCandidate = {
   value: number;
@@ -65,6 +73,17 @@ const normalizeSavedSegment = (segment: SavedSegment): SavedSegment => ({
   ...segment,
   tags: Array.isArray(segment.tags) ? segment.tags : [],
 });
+
+declare global {
+  interface Window {
+    assetMasterAgent?: {
+      version: '1.0';
+      getState: () => AgentControlSnapshot;
+      getCapabilities: () => ReturnType<typeof getAgentControlCapabilities>;
+      run: (command: AgentCommand) => Promise<{ ok: boolean; message: string; state: AgentControlSnapshot }>;
+    };
+  }
+}
 
 export default function App() {
   // Image states
@@ -114,6 +133,7 @@ export default function App() {
   const [adFreeProduct, setAdFreeProduct] = useState<Awaited<ReturnType<typeof getAdFreeProduct>>>(null);
   const [isBillingBusy, setIsBillingBusy] = useState<boolean>(false);
   const [billingMessage, setBillingMessage] = useState<string | null>(null);
+  const [lastAgentCommandMessage, setLastAgentCommandMessage] = useState<string>('Ready for local agent control');
   const emptyWorkspaceCopy = getEmptyWorkspaceCopy();
 
   // Auto-collapse sidebar on small screens on load
@@ -731,9 +751,9 @@ export default function App() {
     }
   };
 
-  const openFilePicker = () => {
+  const openFilePicker = useCallback(() => {
     uploadInputRef.current?.click();
-  };
+  }, []);
 
   // Auto-close loop or manual key operations
   useEffect(() => {
@@ -1511,6 +1531,134 @@ export default function App() {
     changePageWithInterstitial(() => setPreviewSegment(null));
   };
 
+  useEffect(() => {
+    const getAgentSnapshot = (): AgentControlSnapshot => ({
+      activeTool,
+      hasImage: Boolean(image),
+      imageName,
+      imageSize: image ? { width: image.width, height: image.height } : null,
+      activeSelectionPoints: activePath.length,
+      savedSegmentCount: savedSegments.length,
+      zoomPercent: Math.round(zoom * 100),
+      sidebarOpen: isSidebarOpen,
+      overlays: {
+        preview: Boolean(previewSegment),
+        collageStudio: showCollageStudio,
+        animationStudio: showAnimationStudio,
+        backgroundRemover: showBgRemover,
+      },
+    });
+
+    const runAgentCommand = async (command: AgentCommand) => {
+      const validation = validateAgentCommand(command, getAgentSnapshot());
+      if (validation.ok === false) {
+        setLastAgentCommandMessage(validation.message);
+        return {
+          ok: false,
+          message: validation.message,
+          state: getAgentSnapshot(),
+        };
+      }
+
+      switch (validation.command.action) {
+        case 'readState':
+          break;
+        case 'setTool':
+          setActiveTool(validation.command.value as SelectionTool);
+          setRectStart(null);
+          setRectEnd(null);
+          setRectSnapPreview(null);
+          setHoverPoint(null);
+          break;
+        case 'setFeather':
+          setFeather((current) => clampAgentNumber(validation.command.value, current, 0, 40));
+          break;
+        case 'setSnapRadius':
+          setSnapRadius((current) => clampAgentNumber(validation.command.value, current, 5, 40));
+          break;
+        case 'clearSelection':
+          setActivePath([]);
+          setIsClosed(false);
+          setRectStart(null);
+          setRectEnd(null);
+          setRectSnapPreview(null);
+          setHoverPoint(null);
+          break;
+        case 'toggleSidebar':
+          setIsSidebarOpen((current) => validation.command.open ?? !current);
+          break;
+        case 'openCollageStudio':
+          openCollageStudio();
+          break;
+        case 'openAnimationStudio':
+          openAnimationStudio();
+          break;
+        case 'closeOverlays':
+          setPreviewSegment(null);
+          setShowBgRemover(false);
+          setShowCollageStudio(false);
+          setShowAnimationStudio(false);
+          break;
+        case 'zoomIn':
+          handleZoomIn();
+          break;
+        case 'zoomOut':
+          handleZoomOut();
+          break;
+        case 'zoomFit':
+          handleZoomFit();
+          break;
+        case 'zoom100':
+          handleZoom100();
+          break;
+        case 'requestUpload':
+          openFilePicker();
+          break;
+        case 'exportLibrary':
+          handleExportLibrary();
+          break;
+      }
+
+      const message = `${validation.command.action} completed`;
+      setLastAgentCommandMessage(message);
+      await Promise.resolve();
+      return {
+        ok: true,
+        message,
+        state: getAgentSnapshot(),
+      };
+    };
+
+    window.assetMasterAgent = {
+      version: '1.0',
+      getState: getAgentSnapshot,
+      getCapabilities: () => getAgentControlCapabilities(getAgentSnapshot()),
+      run: runAgentCommand,
+    };
+
+    window.dispatchEvent(new CustomEvent('assetmaster-agent-ready', {
+      detail: window.assetMasterAgent.getState(),
+    }));
+
+    return () => {
+      delete window.assetMasterAgent;
+    };
+  }, [
+    activePath.length,
+    activeTool,
+    image,
+    imageName,
+    isSidebarOpen,
+    lastCutoutIndex,
+    openFilePicker,
+    previewSegment,
+    savedSegments,
+    showAnimationStudio,
+    showBgRemover,
+    showCollageStudio,
+    zoom,
+  ]);
+
   return (
     <div id="app-root" className="h-[100dvh] w-full flex flex-col bg-slate-950 text-slate-100 overflow-hidden font-sans select-none antialiased">
       {/* 1. Header Navigation Bar */}
@@ -1571,8 +1719,18 @@ export default function App() {
         </div>
 
         <div className="flex w-full flex-wrap items-center justify-start gap-2 md:w-auto md:justify-end md:gap-3">
+          <span
+            data-agent-control="ready"
+            className="hidden lg:flex items-center gap-1.5 rounded-lg border border-cyan-800/70 bg-cyan-950/30 px-3 py-2 text-xs font-semibold text-cyan-200"
+            title={`window.assetMasterAgent is available. ${lastAgentCommandMessage}`}
+          >
+            <Bot className="h-3.5 w-3.5" />
+            <span>Agent ready</span>
+          </span>
+
           {/* Open Collage Studio button */}
           <button
+            data-agent-action="openCollageStudio"
             onClick={openCollageStudio}
             className="flex items-center space-x-1 md:space-x-1.5 bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white rounded-lg px-3 py-2 text-xs font-semibold cursor-pointer shadow-md shadow-orange-500/10 active:scale-[0.98] transition-all"
             title="Arrange saved cutouts into exportable collage layouts"
@@ -1584,6 +1742,7 @@ export default function App() {
 
           {/* Create Animation button */}
           <button
+            data-agent-action="openAnimationStudio"
             onClick={openAnimationStudio}
             className="flex items-center space-x-1 md:space-x-1.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white rounded-lg px-3 py-2 text-xs font-semibold cursor-pointer shadow-md shadow-indigo-500/10 active:scale-[0.98] transition-all"
             title="Create animations from saved cutout frames"
@@ -1594,7 +1753,10 @@ export default function App() {
           </button>
 
           {/* Local Upload */}
-          <label className="flex items-center space-x-1 md:space-x-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg px-3 py-2 text-xs font-semibold cursor-pointer shadow-md shadow-blue-500/10 active:scale-[0.98] transition-all">
+          <label
+            data-agent-action="requestUpload"
+            className="flex items-center space-x-1 md:space-x-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg px-3 py-2 text-xs font-semibold cursor-pointer shadow-md shadow-blue-500/10 active:scale-[0.98] transition-all"
+          >
             <Upload className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">Upload Image</span>
             <span className="sm:hidden">Upload</span>
@@ -1705,6 +1867,7 @@ export default function App() {
                   return (
                     <button
                       key={tool.id}
+                      data-agent-tool={tool.id}
                       disabled={!isEnabled}
                       onClick={() => {
                         if (!isEnabled) return;
