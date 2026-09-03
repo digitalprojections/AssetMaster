@@ -3,6 +3,7 @@ import { Point, SavedSegment, SelectionTool, RectBounds, AssetLibraryFile } from
 import { findAxisSnapGuides, findSnappedPoint, createSegmentImage, getPathBounds } from './utils/canvasUtils';
 import { getIndexedDbRecord, setIndexedDbRecord } from './utils/indexedDbStorage';
 import { createInterstitialPageChangeGate } from './utils/interstitialAds';
+import { saveCleanedSegmentResult } from './utils/segmentCleanup';
 import { Capacitor } from '@capacitor/core';
 import {
   addAdFreePurchaseListener,
@@ -452,27 +453,17 @@ export default function App() {
 
   const createCleanedSegment = useCallback((sourceSegment: SavedSegment, updatedUrl: string) => {
     const timestamp = Date.now();
-    const newSegment: SavedSegment = {
-      ...sourceSegment,
-      id: `seg_${timestamp}_${Math.random().toString(36).slice(2, 8)}`,
-      name: createUniqueSegmentName(sourceSegment.name),
-      thumbnailUrl: updatedUrl,
-      createdAt: timestamp,
-      backgroundRemovedAt: timestamp,
-      cleanupProcessedAt: timestamp,
-      derivedFromSegmentId: sourceSegment.id,
-      tags: [...(sourceSegment.tags ?? [])],
-    };
+    const result = saveCleanedSegmentResult({
+      segments: savedSegments,
+      sourceSegment,
+      updatedUrl,
+      timestamp,
+      createSegmentId: () => `seg_${timestamp}_${Math.random().toString(36).slice(2, 8)}`,
+      createSegmentName: createUniqueSegmentName,
+    });
 
-    updateSavedSegments([
-      newSegment,
-      ...savedSegments.map((segment) => (
-        segment.id === sourceSegment.id && !segment.backgroundRemovedAt
-          ? { ...segment, cleanupProcessedAt: timestamp }
-          : segment
-      )),
-    ]);
-    return newSegment;
+    updateSavedSegments(result.nextSegments);
+    return result.savedSegment;
   }, [createUniqueSegmentName, savedSegments]);
 
   const addGeneratedSegments = useCallback((segments: SavedSegment[]) => {
