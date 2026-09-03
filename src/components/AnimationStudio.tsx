@@ -31,13 +31,21 @@ import {
   Square,
   Upload,
   Tags,
-  Save
+  Save,
+  Film
 } from 'lucide-react';
 import JSZip from 'jszip';
 import { motion, AnimatePresence } from 'motion/react';
 import BackgroundRemover from './BackgroundRemover';
 import { createSegmentImage } from '../utils/canvasUtils';
 import { getIndexedDbRecord, setIndexedDbRecord } from '../utils/indexedDbStorage';
+import {
+  MAX_VIDEO_FRAME_FPS,
+  MAX_VIDEO_FRAME_SOURCE_SECONDS,
+  MIN_VIDEO_FRAME_FPS,
+  getVideoFrameCaptureTimes,
+  normalizeVideoFrameFps,
+} from '../utils/videoFrames';
 
 type DetectedSpriteComponent = {
   minX: number;
@@ -107,9 +115,13 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
 
   const [isExporting, setIsExporting] = useState<boolean>(false);
   const [isProjectHydrated, setIsProjectHydrated] = useState<boolean>(false);
+  const [videoFrameFps, setVideoFrameFps] = useState<number>(12);
+  const [isExtractingVideoFrames, setIsExtractingVideoFrames] = useState<boolean>(false);
+  const [videoImportMessage, setVideoImportMessage] = useState<string>('Videos up to 3 seconds become editable PNG frames.');
 
   // Canvas ref for generating sub-frame slices
   const sliceCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const videoImportInputRef = useRef<HTMLInputElement | null>(null);
 
   // Cache for segment images to ensure synchronous, buttery-smooth on-the-fly re-slicing
   const segmentImageCacheRef = useRef<Record<string, SegmentImageCacheEntry>>({});
@@ -779,6 +791,136 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
     if (project.frames.length === 0) {
       setActiveFrameIndex(0);
     }
+  };
+
+  const waitForVideoEvent = (video: HTMLVideoElement, eventName: 'loadedmetadata' | 'loadeddata' | 'seeked'): Promise<void> => (
+    new Promise((resolve, reject) => {
+      const handleEvent = () => {
+        cleanup();
+        resolve();
+      };
+      const handleError = () => {
+        cleanup();
+        reject(new Error('The video could not be read.'));
+      };
+      const cleanup = () => {
+        video.removeEventListener(eventName, handleEvent);
+        video.removeEventListener('error', handleError);
+      };
+
+      video.addEventListener(eventName, handleEvent, { once: true });
+      video.addEventListener('error', handleError, { once: true });
+    })
+  );
+
+  const seekVideoToCaptureTime = async (video: HTMLVideoElement, captureTime: number): Promise<void> => {
+    if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+      await waitForVideoEvent(video, 'loadeddata');
+    }
+
+    if (Math.abs(video.currentTime - captureTime) < 0.0005) {
+      return;
+    }
+
+    video.currentTime = captureTime;
+    await waitForVideoEvent(video, 'seeked');
+  };
+
+  const captureVideoFrames = async (file: File) => {
+    setIsExtractingVideoFrames(true);
+    setVideoImportMessage('Reading video...');
+
+    const objectUrl = URL.createObjectURL(file);
+    const video = document.createElement('video');
+    video.preload = 'auto';
+    video.muted = true;
+    video.playsInline = true;
+    video.src = objectUrl;
+
+    try {
+      await waitForVideoEvent(video, 'loadedmetadata');
+
+      const captureTimes = getVideoFrameCaptureTimes(video.duration, videoFrameFps);
+      const width = video.videoWidth;
+      const height = video.videoHeight;
+      if (width <= 0 || height <= 0) {
+        throw new Error('The video dimensions could not be read.');
+      }
+
+      const canvas = sliceCanvasRef.current || document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        throw new Error('The frame canvas is not available.');
+      }
+
+      canvas.width = width;
+      canvas.height = height;
+      const timestamp = Date.now();
+      const frames: AnimationFrame[] = [];
+
+      for (let index = 0; index < captureTimes.length; index += 1) {
+        const captureTime = captureTimes[index];
+        setVideoImportMessage(`Extracting frame ${index + 1} of ${captureTimes.length}...`);
+        await seekVideoToCaptureTime(video, captureTime);
+        ctx.clearRect(0, 0, width, height);
+        ctx.drawImage(video, 0, 0, width, height);
+
+        frames.push({
+          id: `video_frame_${timestamp}_${index}`,
+          thumbnailUrl: canvas.toDataURL('image/png'),
+          offsetX: 0,
+          offsetY: 0,
+          scale: 1,
+          duration: 1,
+          pivotX: Math.round(width / 2),
+          pivotY: Math.round(height / 2),
+          sliceX: 0,
+          sliceY: 0,
+          sliceW: width,
+          sliceH: height,
+          originalSliceX: 0,
+          originalSliceY: 0,
+          originalSliceW: width,
+          originalSliceH: height,
+          originalPivotX: Math.round(width / 2),
+          originalPivotY: Math.round(height / 2),
+        });
+      }
+
+      setProject((prev) => normalizeProject({
+        ...prev,
+        name: file.name.replace(/\.[^.]+$/, '').replace(/\s+/g, '_') || prev.name,
+        frames,
+        fps: normalizeVideoFrameFps(videoFrameFps),
+        width,
+        height,
+      }));
+      setActiveFrameIndex(0);
+      setIsPlaying(true);
+      setVideoImportMessage(`Extracted ${frames.length} frame${frames.length === 1 ? '' : 's'} at ${normalizeVideoFrameFps(videoFrameFps)} FPS.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Video frames could not be extracted.';
+      setVideoImportMessage(message);
+    } finally {
+      video.removeAttribute('src');
+      video.load();
+      URL.revokeObjectURL(objectUrl);
+      setIsExtractingVideoFrames(false);
+    }
+  };
+
+  const handleVideoImportRequest = () => {
+    videoImportInputRef.current?.click();
+  };
+
+  const handleVideoImportFile = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) {
+      return;
+    }
+
+    void captureVideoFrames(file);
   };
 
   // Helper to generate new sliced thumbnail url from original segment image
@@ -1651,6 +1793,13 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
         className="hidden"
         onChange={handleImportProjectFile}
       />
+      <input
+        ref={videoImportInputRef}
+        type="file"
+        accept="video/*"
+        className="hidden"
+        onChange={handleVideoImportFile}
+      />
 
       {/* 1. Header Toolbar */}
       <header className="safe-area-top-bar z-20 min-h-16 border-b border-slate-800 bg-slate-950 flex items-center justify-between gap-3 px-3 py-2 sm:px-6 shrink-0">
@@ -1846,6 +1995,40 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
                 Pick a saved cutout to enable slicing actions here.
               </div>
             )}
+
+            <div className="space-y-3 rounded-xl border border-sky-500/20 bg-sky-500/5 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center space-x-2">
+                  <Film className="h-4 w-4 text-sky-300" />
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-300">Video to Frames</span>
+                </div>
+                <span className="text-[10px] font-mono text-sky-300">{videoFrameFps} FPS</span>
+              </div>
+              <input
+                type="range"
+                min={MIN_VIDEO_FRAME_FPS}
+                max={MAX_VIDEO_FRAME_FPS}
+                step="1"
+                value={videoFrameFps}
+                onChange={(event) => setVideoFrameFps(normalizeVideoFrameFps(parseInt(event.target.value, 10)))}
+                className="w-full accent-sky-400 cursor-pointer"
+                aria-label="Video frame extraction FPS"
+              />
+              <div className="flex items-center justify-between gap-3 text-[10px] text-slate-500">
+                <span>{MIN_VIDEO_FRAME_FPS} FPS min</span>
+                <span>{MAX_VIDEO_FRAME_SOURCE_SECONDS}s max</span>
+                <span>{MAX_VIDEO_FRAME_FPS} FPS max</span>
+              </div>
+              <button
+                onClick={handleVideoImportRequest}
+                disabled={isExtractingVideoFrames}
+                className="w-full py-2.5 px-3 bg-sky-600 hover:bg-sky-500 disabled:bg-slate-800 disabled:text-slate-500 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-1.5 shadow-md shadow-sky-600/10 cursor-pointer"
+              >
+                <Upload className="h-4 w-4" />
+                <span>{isExtractingVideoFrames ? 'Extracting Frames...' : 'Choose Video'}</span>
+              </button>
+              <p className="text-[10px] text-slate-500 leading-relaxed">{videoImportMessage}</p>
+            </div>
           </div>
           <div className="flex-none lg:flex-1 overflow-visible lg:overflow-y-auto overscroll-contain p-4 space-y-5">
           {/* Mobile-only Project Properties inside Left Panel */}

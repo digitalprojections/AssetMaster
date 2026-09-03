@@ -15,3 +15,4 @@ import './androidLogoAssets.test';
 import './emptyWorkspace.test';
 import './agentControl.test';
 import './agentDiscoverability.test';
+import './videoFrames.test';
