@@ -2366,7 +2366,7 @@ export default function App() {
                     className="w-full sm:w-auto flex items-center justify-center space-x-1.5 px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-semibold shadow shadow-emerald-500/10 active:scale-[0.98] transition-all cursor-pointer"
                   >
                     <Sparkles className="h-4 w-4" />
-                    <span>Clean & Polish Background</span>
+                    <span>{previewSegment.backgroundRemovedAt ? 'Refine Cleanup' : 'Clean Background'}</span>
                   </button>
                   <button
                     onClick={() => {

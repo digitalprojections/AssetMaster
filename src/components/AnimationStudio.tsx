@@ -40,6 +40,11 @@ import BackgroundRemover from './BackgroundRemover';
 import { createSegmentImage } from '../utils/canvasUtils';
 import { getIndexedDbRecord, setIndexedDbRecord } from '../utils/indexedDbStorage';
 import {
+  getSegmentCleanupStatusLabel,
+  isVisibleForSegmentSourceFilter,
+  type SegmentSourceFilter,
+} from '../utils/segmentFilters';
+import {
   MAX_VIDEO_FRAME_FPS,
   MAX_VIDEO_FRAME_SOURCE_SECONDS,
   MIN_VIDEO_FRAME_FPS,
@@ -67,7 +72,7 @@ type SegmentImageCacheEntry = {
   src: string;
 };
 
-type SourceFilter = 'all' | 'needs-cleanup' | 'cleaned';
+type SourceFilter = SegmentSourceFilter;
 
 const STUDIO_PROJECT_STORAGE_KEY = 'assetmaster.animationStudio.project.v1';
 
@@ -546,10 +551,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
   const hasActiveFrame = project.frames.length > 0 && Boolean(project.frames[activeFrameIndex]);
   const normalizedSourceSearch = sourceSearch.trim().toLowerCase();
   const filteredSegments = savedSegments.filter((segment) => {
-    const matchesFilter =
-      (sourceFilter === 'all' && (Boolean(segment.backgroundRemovedAt) || !segment.cleanupProcessedAt)) ||
-      (sourceFilter === 'needs-cleanup' && !segment.backgroundRemovedAt && !segment.cleanupProcessedAt) ||
-      (sourceFilter === 'cleaned' && Boolean(segment.backgroundRemovedAt));
+    const matchesFilter = isVisibleForSegmentSourceFilter(segment, sourceFilter);
     const matchesSearch =
       normalizedSourceSearch.length === 0 ||
       segment.name.toLowerCase().includes(normalizedSourceSearch) ||
@@ -558,9 +560,9 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
     return matchesFilter && matchesSearch;
   });
   const filterCounts = {
-    all: savedSegments.filter((segment) => Boolean(segment.backgroundRemovedAt) || !segment.cleanupProcessedAt).length,
-    'needs-cleanup': savedSegments.filter((segment) => !segment.backgroundRemovedAt && !segment.cleanupProcessedAt).length,
-    cleaned: savedSegments.filter((segment) => Boolean(segment.backgroundRemovedAt)).length,
+    all: savedSegments.filter((segment) => isVisibleForSegmentSourceFilter(segment, 'all')).length,
+    'needs-cleanup': savedSegments.filter((segment) => isVisibleForSegmentSourceFilter(segment, 'needs-cleanup')).length,
+    cleaned: savedSegments.filter((segment) => isVisibleForSegmentSourceFilter(segment, 'cleaned')).length,
   };
   const queuedSegments = cleanupQueue
     .map((segmentId) => savedSegments.find((segment) => segment.id === segmentId))
@@ -1380,6 +1382,9 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
 
     const newSegment = onCreateSegment?.(activeSegment, updatedUrl);
     setCleanupQueue(remainingQueue);
+    const nextQueuedSegmentId = remainingQueue.find((segmentId) => (
+      savedSegments.some((segment) => segment.id === segmentId)
+    ));
     if (newSegment) {
       setProject((prev) => ({
         ...prev,
@@ -1395,13 +1400,13 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
         updatedAt: Date.now(),
       }));
       setSelectedSegmentId(newSegment.id);
+      if (!nextQueuedSegmentId) {
+        setSourceFilter('cleaned');
+      }
       setAutoDetectedGridLabel('Reassessing cleaned cutout...');
       setGridAssessmentNonce((prev) => prev + 1);
     }
 
-    const nextQueuedSegmentId = remainingQueue.find((segmentId) => (
-      savedSegments.some((segment) => segment.id === segmentId)
-    ));
     if (nextQueuedSegmentId) {
       setSelectedSegmentId(nextQueuedSegmentId);
       setShowBgRemover(true);
@@ -2184,7 +2189,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
                               : 'border-amber-500/30 bg-amber-500/10 text-amber-300'
                           }`}
                         >
-                          {activeSegment.backgroundRemovedAt ? 'Cleaned' : 'Needs Cleanup'}
+                          {getSegmentCleanupStatusLabel(activeSegment)}
                         </span>
                       </div>
                     ) : (
@@ -2233,7 +2238,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
                                       : 'border-amber-500/30 bg-amber-500/10 text-amber-300'
                                   }`}
                                 >
-                                  {seg.backgroundRemovedAt ? 'Cleaned' : 'Needs Cleanup'}
+                                  {getSegmentCleanupStatusLabel(seg)}
                                 </span>
                               </div>
                               {seg.tags && seg.tags.length > 0 && (
@@ -2290,7 +2295,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
                       className="w-full py-2 bg-gradient-to-r from-emerald-600/20 to-teal-600/20 hover:from-emerald-600/30 hover:to-teal-600/30 border border-emerald-500/30 text-emerald-300 rounded-xl text-xs font-bold flex items-center justify-center space-x-1.5 transition-all cursor-pointer"
                     >
                       <Sparkles className="h-3.5 w-3.5" />
-                      <span>Clean / Polish Background</span>
+                      <span>{activeSegment.backgroundRemovedAt ? 'Refine Cleaned Frame' : 'Clean / Polish Background'}</span>
                     </button>
                     <button
                       onClick={reassessSelectedSegment}
