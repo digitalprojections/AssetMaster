@@ -15,18 +15,23 @@ import {
   Minus,
   Plus
 } from 'lucide-react';
+import {
+  MAX_KEY_EDGE_FADE_PERCENT,
+  MAX_KEY_STRENGTH_PERCENT,
+  MIN_KEY_EDGE_FADE_PERCENT,
+  MIN_KEY_STRENGTH_PERCENT,
+  applyKeyRemovalToAlpha,
+  getRgbDistance,
+  normalizeKeyEdgeFadePercent,
+  normalizeKeyStrengthPercent,
+  type RgbColor,
+} from '../utils/backgroundKeying';
 
 interface BackgroundRemoverProps {
   segment: SavedSegment;
   onSave: (updatedUrl: string) => void;
   onClose: () => void;
 }
-
-type RgbColor = {
-  r: number;
-  g: number;
-  b: number;
-};
 
 type PixelPoint = {
   x: number;
@@ -57,6 +62,8 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
 
   // Parameters
   const [magicTolerance, setMagicTolerance] = useState<number>(30);
+  const [keyStrengthPercent, setKeyStrengthPercent] = useState<number>(100);
+  const [keyEdgeFadePercent, setKeyEdgeFadePercent] = useState<number>(45);
   const [magicBrushSize, setMagicBrushSize] = useState<number>(10);
   const [brushSize, setBrushSize] = useState<number>(16);
   const [shaveWidth, setShaveWidth] = useState<number>(1);
@@ -327,7 +334,7 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
     handleCanvasMouseUp();
   };
 
-  // Initialize and redraw on canvas whenever the baseImage, previewColor, pickedPoint, isContiguous or magicTolerance changes
+  // Initialize and redraw when key preview settings change.
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -353,7 +360,7 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
       }
     };
     img.src = baseImage;
-  }, [baseImage, previewColor, pickedPoint, isContiguous, magicTolerance]);
+  }, [baseImage, previewColor, pickedPoint, isContiguous, magicTolerance, keyStrengthPercent, keyEdgeFadePercent]);
 
   // Push current canvas state to history
   const pushHistory = () => {
@@ -412,17 +419,25 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
           continue;
         }
 
-        const distance = Math.sqrt(
-          Math.pow(data[idx] - targetColor.r, 2) +
-          Math.pow(data[idx + 1] - targetColor.g, 2) +
-          Math.pow(data[idx + 2] - targetColor.b, 2)
+        const distance = getRgbDistance(
+          { r: data[idx], g: data[idx + 1], b: data[idx + 2] },
+          targetColor
         );
 
         if (distance <= tolerance) {
-          data[idx] = 0;
-          data[idx + 1] = 0;
-          data[idx + 2] = 0;
-          data[idx + 3] = 0;
+          const nextAlpha = applyKeyRemovalToAlpha({
+            alpha,
+            distance,
+            tolerance,
+            strengthPercent: keyStrengthPercent,
+            edgeFadePercent: keyEdgeFadePercent,
+          });
+          data[idx + 3] = nextAlpha;
+          if (nextAlpha === 0) {
+            data[idx] = 0;
+            data[idx + 1] = 0;
+            data[idx + 2] = 0;
+          }
         }
       }
     }
@@ -565,15 +580,16 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
 
       if (a === 0) continue;
 
-      // Color distance
-      const distance = Math.sqrt(
-        Math.pow(r - targetR, 2) +
-        Math.pow(g - targetG, 2) +
-        Math.pow(b - targetB, 2)
-      );
+      const distance = getRgbDistance({ r, g, b }, { r: targetR, g: targetG, b: targetB });
 
       if (distance <= tolerance) {
-        data[i + 3] = 0; // Set Alpha to 0 (fully transparent)
+        data[i + 3] = applyKeyRemovalToAlpha({
+          alpha: a,
+          distance,
+          tolerance,
+          strengthPercent: keyStrengthPercent,
+          edgeFadePercent: keyEdgeFadePercent,
+        });
       }
     }
 
@@ -623,18 +639,22 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
 
       if (a === 0) continue;
 
-      // Color distance
-      const distance = Math.sqrt(
-        Math.pow(r - targetR, 2) +
-        Math.pow(g - targetG, 2) +
-        Math.pow(b - targetB, 2)
-      );
+      const distance = getRgbDistance({ r, g, b }, { r: targetR, g: targetG, b: targetB });
 
       if (distance <= tolerance) {
-        data[idx + 3] = 0; // Fully transparent
-        data[idx] = 0;
-        data[idx + 1] = 0;
-        data[idx + 2] = 0;
+        const nextAlpha = applyKeyRemovalToAlpha({
+          alpha: a,
+          distance,
+          tolerance,
+          strengthPercent: keyStrengthPercent,
+          edgeFadePercent: keyEdgeFadePercent,
+        });
+        data[idx + 3] = nextAlpha;
+        if (nextAlpha === 0) {
+          data[idx] = 0;
+          data[idx + 1] = 0;
+          data[idx + 2] = 0;
+        }
 
         const n1 = curr - 1;       // left
         const n2 = curr + 1;       // right
@@ -793,6 +813,52 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
   const displayWidth = Math.max(1, Math.round(canvasSize.width * fitScale * viewZoom));
   const displayHeight = Math.max(1, Math.round(canvasSize.height * fitScale * viewZoom));
   const zoomPercent = Math.round(viewZoom * 100);
+  const keyRefinementControls = (
+    <div className="space-y-3 rounded-xl border border-emerald-500/20 bg-slate-900/70 p-3">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Key Refinement</span>
+        <span className="text-[10px] font-mono text-emerald-300">{keyStrengthPercent}%</span>
+      </div>
+
+      <div className="space-y-1.5">
+        <div className="flex justify-between text-xs text-slate-300">
+          <span>Removal Strength</span>
+          <span className="font-mono text-emerald-400 font-bold">{keyStrengthPercent}%</span>
+        </div>
+        <input
+          type="range"
+          min={MIN_KEY_STRENGTH_PERCENT}
+          max={MAX_KEY_STRENGTH_PERCENT}
+          step="1"
+          value={keyStrengthPercent}
+          onChange={(e) => setKeyStrengthPercent(normalizeKeyStrengthPercent(parseInt(e.target.value, 10)))}
+          className="w-full accent-emerald-500 cursor-pointer h-1.5"
+        />
+        <p className="text-[9px] text-slate-500 leading-relaxed">
+          Lower strength keeps similar object edges more opaque.
+        </p>
+      </div>
+
+      <div className="space-y-1.5">
+        <div className="flex justify-between text-xs text-slate-300">
+          <span>Edge Fade</span>
+          <span className="font-mono text-emerald-400 font-bold">{keyEdgeFadePercent}%</span>
+        </div>
+        <input
+          type="range"
+          min={MIN_KEY_EDGE_FADE_PERCENT}
+          max={MAX_KEY_EDGE_FADE_PERCENT}
+          step="1"
+          value={keyEdgeFadePercent}
+          onChange={(e) => setKeyEdgeFadePercent(normalizeKeyEdgeFadePercent(parseInt(e.target.value, 10)))}
+          className="w-full accent-emerald-500 cursor-pointer h-1.5"
+        />
+        <p className="text-[9px] text-slate-500 leading-relaxed">
+          Higher fade softens pixels near the tolerance edge.
+        </p>
+      </div>
+    </div>
+  );
 
   return (
     <div id="bg-remover-modal" className="fixed inset-0 h-[100dvh] overflow-hidden bg-slate-950/95 backdrop-blur-md z-50 flex items-start md:items-center justify-center p-0 md:p-6 text-slate-100 font-sans">
@@ -1141,6 +1207,8 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
                     </p>
                   </div>
 
+                  {keyRefinementControls}
+
                   <div className="space-y-2 rounded-xl border border-slate-850 bg-slate-900 p-3">
                     <div className="flex items-center justify-between gap-3">
                       <div>
@@ -1279,6 +1347,8 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
                           Only matching pixels inside the brush are erased.
                         </p>
                       </div>
+
+                      {keyRefinementControls}
 
                       <div className="space-y-1.5">
                         <div className="flex justify-between text-xs text-slate-300">
