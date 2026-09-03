@@ -475,6 +475,19 @@ export default function App() {
     return newSegment;
   }, [createUniqueSegmentName, savedSegments]);
 
+  const addGeneratedSegments = useCallback((segments: SavedSegment[]) => {
+    if (segments.length === 0) {
+      return;
+    }
+
+    setSavedSegments((prevSegments) => [
+      ...segments.map(normalizeSavedSegment),
+      ...prevSegments,
+    ]);
+    setLastCutoutIndex((prevIndex) => prevIndex + segments.length);
+    setIsSidebarOpen(true);
+  }, []);
+
   // Keep ants marching
   useEffect(() => {
     let frameId: number;
@@ -2397,6 +2410,7 @@ export default function App() {
             savedSegments={savedSegments}
             workspaceImage={image}
             onCreateSegment={createCleanedSegment}
+            onCreateSegments={addGeneratedSegments}
             onClose={closeAnimationStudio}
           />
         )}

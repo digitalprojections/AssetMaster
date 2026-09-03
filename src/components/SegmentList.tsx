@@ -278,6 +278,14 @@ export default function SegmentList({
                   <div className="absolute top-2 right-2 bg-blue-900/90 backdrop-blur-sm border border-blue-800 text-[10px] font-semibold tracking-wide uppercase px-1.5 py-0.5 rounded text-blue-300 shadow">
                     {segment.type}
                   </div>
+                  {segment.collectionName && (
+                    <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between gap-2 rounded border border-sky-500/30 bg-slate-950/95 px-2 py-1 text-[10px] text-sky-200 shadow">
+                      <span className="truncate font-semibold">{segment.collectionName}</span>
+                      <span className="font-mono shrink-0">
+                        {segment.collectionIndex ?? 1}/{segment.collectionCount ?? 1}
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Info and action row */}

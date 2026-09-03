@@ -22,6 +22,10 @@ export interface SavedSegment {
   backgroundRemovedAt?: number; // Present when the cutout has been processed in cleanup/bg removal
   cleanupProcessedAt?: number; // Present when the original source has already been reviewed/processed for cleanup
   derivedFromSegmentId?: string; // Original cutout ID when this segment was created from a cleanup pass
+  collectionId?: string; // Shared ID for imported/generated cutouts that belong together
+  collectionName?: string; // Human-readable collection label
+  collectionIndex?: number; // 1-based position inside the collection
+  collectionCount?: number; // Total number of items in the collection
   tags?: string[];
 }
 

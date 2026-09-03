@@ -43,7 +43,10 @@ import {
   MAX_VIDEO_FRAME_FPS,
   MAX_VIDEO_FRAME_SOURCE_SECONDS,
   MIN_VIDEO_FRAME_FPS,
+  createVideoFrameCutoutSegment,
+  getVideoFrameCount,
   getVideoFrameCaptureTimes,
+  normalizeVideoFrameCollectionName,
   normalizeVideoFrameFps,
 } from '../utils/videoFrames';
 
@@ -72,10 +75,11 @@ interface AnimationStudioProps {
   savedSegments: SavedSegment[];
   workspaceImage?: HTMLImageElement | null;
   onCreateSegment?: (sourceSegment: SavedSegment, updatedUrl: string) => SavedSegment | undefined;
+  onCreateSegments?: (segments: SavedSegment[]) => void;
   onClose: () => void;
 }
 
-export default function AnimationStudio({ savedSegments, workspaceImage, onCreateSegment, onClose }: AnimationStudioProps) {
+export default function AnimationStudio({ savedSegments, workspaceImage, onCreateSegment, onCreateSegments, onClose }: AnimationStudioProps) {
   // Current animation project
   const [project, setProject] = useState<AnimationProject>({
     id: 'anim_proj',
@@ -118,6 +122,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
   const [videoFrameFps, setVideoFrameFps] = useState<number>(12);
   const [isExtractingVideoFrames, setIsExtractingVideoFrames] = useState<boolean>(false);
   const [videoImportMessage, setVideoImportMessage] = useState<string>('Videos up to 3 seconds become editable PNG frames.');
+  const [videoSourceSeconds, setVideoSourceSeconds] = useState<number | null>(null);
 
   // Canvas ref for generating sub-frame slices
   const sliceCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -841,6 +846,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
       await waitForVideoEvent(video, 'loadedmetadata');
 
       const captureTimes = getVideoFrameCaptureTimes(video.duration, videoFrameFps);
+      setVideoSourceSeconds(video.duration);
       const width = video.videoWidth;
       const height = video.videoHeight;
       if (width <= 0 || height <= 0) {
@@ -856,7 +862,10 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
       canvas.width = width;
       canvas.height = height;
       const timestamp = Date.now();
+      const collectionId = `video_${timestamp}_${Math.random().toString(36).slice(2, 8)}`;
+      const collectionName = normalizeVideoFrameCollectionName(file.name);
       const frames: AnimationFrame[] = [];
+      const frameSegments: SavedSegment[] = [];
 
       for (let index = 0; index < captureTimes.length; index += 1) {
         const captureTime = captureTimes[index];
@@ -865,9 +874,22 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
         ctx.clearRect(0, 0, width, height);
         ctx.drawImage(video, 0, 0, width, height);
 
+        const thumbnailUrl = canvas.toDataURL('image/png');
+        const frameSegment = createVideoFrameCutoutSegment({
+          thumbnailUrl,
+          width,
+          height,
+          collectionId,
+          collectionName,
+          index,
+          count: captureTimes.length,
+          createdAt: timestamp + index,
+        });
+        frameSegments.push(frameSegment);
+
         frames.push({
           id: `video_frame_${timestamp}_${index}`,
-          thumbnailUrl: canvas.toDataURL('image/png'),
+          thumbnailUrl,
           offsetX: 0,
           offsetY: 0,
           scale: 1,
@@ -876,6 +898,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
           pivotY: Math.round(height / 2),
           sliceX: 0,
           sliceY: 0,
+          sourceSegmentId: frameSegment.id,
           sliceW: width,
           sliceH: height,
           originalSliceX: 0,
@@ -889,15 +912,17 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
 
       setProject((prev) => normalizeProject({
         ...prev,
-        name: file.name.replace(/\.[^.]+$/, '').replace(/\s+/g, '_') || prev.name,
+        name: collectionName,
         frames,
         fps: normalizeVideoFrameFps(videoFrameFps),
         width,
         height,
       }));
+      onCreateSegments?.(frameSegments);
       setActiveFrameIndex(0);
+      setSelectedSegmentId(frameSegments[0]?.id ?? selectedSegmentId);
       setIsPlaying(true);
-      setVideoImportMessage(`Extracted ${frames.length} frame${frames.length === 1 ? '' : 's'} at ${normalizeVideoFrameFps(videoFrameFps)} FPS.`);
+      setVideoImportMessage(`Saved ${frames.length} frame${frames.length === 1 ? '' : 's'} as a cutout collection at ${normalizeVideoFrameFps(videoFrameFps)} frames per second.`);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Video frames could not be extracted.';
       setVideoImportMessage(message);
@@ -908,6 +933,10 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
       setIsExtractingVideoFrames(false);
     }
   };
+
+  const videoFrameCountPreview = videoSourceSeconds
+    ? getVideoFrameCount(videoSourceSeconds, videoFrameFps)
+    : null;
 
   const handleVideoImportRequest = () => {
     videoImportInputRef.current?.click();
@@ -1352,6 +1381,19 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
     const newSegment = onCreateSegment?.(activeSegment, updatedUrl);
     setCleanupQueue(remainingQueue);
     if (newSegment) {
+      setProject((prev) => ({
+        ...prev,
+        frames: prev.frames.map((frame) => (
+          frame.sourceSegmentId === processedSegmentId
+            ? normalizeFrame({
+                ...frame,
+                sourceSegmentId: newSegment.id,
+                thumbnailUrl: updatedUrl,
+              }, prev.width, prev.height)
+            : frame
+        )),
+        updatedAt: Date.now(),
+      }));
       setSelectedSegmentId(newSegment.id);
       setAutoDetectedGridLabel('Reassessing cleaned cutout...');
       setGridAssessmentNonce((prev) => prev + 1);
@@ -2002,7 +2044,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
                   <Film className="h-4 w-4 text-sky-300" />
                   <span className="text-[10px] font-bold uppercase tracking-wider text-slate-300">Video to Frames</span>
                 </div>
-                <span className="text-[10px] font-mono text-sky-300">{videoFrameFps} FPS</span>
+                <span className="text-[10px] font-mono text-sky-300">{videoFrameFps} frames/sec</span>
               </div>
               <input
                 type="range"
@@ -2015,10 +2057,15 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
                 aria-label="Video frame extraction FPS"
               />
               <div className="flex items-center justify-between gap-3 text-[10px] text-slate-500">
-                <span>{MIN_VIDEO_FRAME_FPS} FPS min</span>
+                <span>{MIN_VIDEO_FRAME_FPS}/sec min</span>
                 <span>{MAX_VIDEO_FRAME_SOURCE_SECONDS}s max</span>
-                <span>{MAX_VIDEO_FRAME_FPS} FPS max</span>
+                <span>{MAX_VIDEO_FRAME_FPS}/sec max</span>
               </div>
+              {videoFrameCountPreview !== null && (
+                <div className="rounded-lg border border-sky-500/20 bg-slate-950/50 px-2.5 py-2 text-[10px] text-sky-200">
+                  This setting creates {videoFrameCountPreview} actual PNG frame{videoFrameCountPreview === 1 ? '' : 's'} from the current video length.
+                </div>
+              )}
               <button
                 onClick={handleVideoImportRequest}
                 disabled={isExtractingVideoFrames}
@@ -2369,7 +2416,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
 
             {/* Playback FPS selector slider */}
             <div className="flex items-center space-x-1.5 sm:space-x-3 min-w-0">
-              <span className="hidden sm:inline text-[10px] sm:text-xs font-medium text-slate-400">FPS:</span>
+              <span className="hidden sm:inline text-[10px] sm:text-xs font-medium text-slate-400">Loop speed:</span>
               <span className="text-[11px] sm:text-xs font-mono font-bold text-indigo-400 w-5 text-center">{project.fps}</span>
               <input
                 type="range"
