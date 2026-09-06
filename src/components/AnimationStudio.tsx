@@ -16,6 +16,9 @@ import {
   RefreshCw,
   Move,
   Maximize,
+  Undo2,
+  Redo2,
+  Eraser,
   AlignCenterHorizontal,
   AlignCenterVertical,
   ArrowLeftToLine,
@@ -54,6 +57,13 @@ import {
   normalizeVideoFrameCollectionName,
   normalizeVideoFrameFps,
 } from '../utils/videoFrames';
+import {
+  createAnimationProjectHistory,
+  getActiveFrameIndexAfterFrameRemoval,
+  pushAnimationProjectHistory,
+  redoAnimationProjectHistory,
+  undoAnimationProjectHistory,
+} from '../utils/animationHistory';
 
 type DetectedSpriteComponent = {
   minX: number;
@@ -97,6 +107,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
   });
 
   const [activeFrameIndex, setActiveFrameIndex] = useState<number>(0);
+  const [projectHistory, setProjectHistory] = useState(createAnimationProjectHistory);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [selectedSegmentId, setSelectedSegmentId] = useState<string>('');
   const [showBgRemover, setShowBgRemover] = useState<boolean>(false);
@@ -161,6 +172,60 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
     updatedAt: Date.now(),
     frames: incomingProject.frames.map((frame) => normalizeFrame(frame, incomingProject.width, incomingProject.height)),
   });
+
+  const applyProjectEdit = (
+    updateProject: (currentProject: AnimationProject) => AnimationProject,
+    nextActiveFrameIndex?: number
+  ) => {
+    const currentSnapshot = {
+      project: normalizeProject(project),
+      activeFrameIndex,
+    };
+    const nextProject = normalizeProject(updateProject(project));
+    const clampedFrameIndex = Math.max(
+      0,
+      Math.min(nextActiveFrameIndex ?? activeFrameIndex, Math.max(0, nextProject.frames.length - 1))
+    );
+
+    setProjectHistory((prev) => pushAnimationProjectHistory(prev, currentSnapshot));
+    setProject(nextProject);
+    setActiveFrameIndex(clampedFrameIndex);
+  };
+
+  const restoreProjectSnapshot = (snapshot: { project: AnimationProject; activeFrameIndex: number }) => {
+    const restoredProject = normalizeProject(snapshot.project);
+    setProject(restoredProject);
+    setActiveFrameIndex(Math.max(0, Math.min(snapshot.activeFrameIndex, Math.max(0, restoredProject.frames.length - 1))));
+    setIsPlaying(false);
+  };
+
+  const handleUndoProjectEdit = () => {
+    const currentSnapshot = {
+      project: normalizeProject(project),
+      activeFrameIndex,
+    };
+    const result = undoAnimationProjectHistory(projectHistory, currentSnapshot);
+    if (!result) return;
+
+    setProjectHistory(result.history);
+    restoreProjectSnapshot(result.snapshot);
+  };
+
+  const handleRedoProjectEdit = () => {
+    const currentSnapshot = {
+      project: normalizeProject(project),
+      activeFrameIndex,
+    };
+    const result = redoAnimationProjectHistory(projectHistory, currentSnapshot);
+    if (!result) return;
+
+    setProjectHistory(result.history);
+    restoreProjectSnapshot(result.snapshot);
+  };
+
+  const resetProjectHistory = () => {
+    setProjectHistory(createAnimationProjectHistory());
+  };
 
   const getFramePivot = (frame: AnimationFrame, imageWidth: number, imageHeight: number) => ({
     x: frame.pivotX ?? frame.originalPivotX ?? Math.round(imageWidth / 2),
@@ -567,6 +632,44 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
   const queuedSegments = cleanupQueue
     .map((segmentId) => savedSegments.find((segment) => segment.id === segmentId))
     .filter(Boolean) as SavedSegment[];
+  const canUndoProjectEdit = projectHistory.past.length > 0;
+  const canRedoProjectEdit = projectHistory.future.length > 0;
+  const canRemoveActiveFrame = hasActiveFrame && !isPlaying;
+  const stageToolButtonClass = 'h-10 w-10 rounded-lg border border-slate-800 bg-slate-950/90 text-slate-300 shadow-lg shadow-slate-950/30 backdrop-blur flex items-center justify-center transition-all hover:bg-slate-900 hover:text-white disabled:cursor-not-allowed disabled:opacity-35';
+  const animationViewTools = (
+    <div className="absolute right-3 top-3 z-10 flex gap-2 rounded-xl border border-slate-800/80 bg-slate-950/70 p-1.5 shadow-xl shadow-slate-950/30 backdrop-blur lg:right-4 lg:top-1/2 lg:-translate-y-1/2 lg:flex-col">
+      <button
+        type="button"
+        onClick={handleUndoProjectEdit}
+        disabled={!canUndoProjectEdit}
+        className={stageToolButtonClass}
+        title="Undo"
+        aria-label="Undo animation edit"
+      >
+        <Undo2 className="h-4 w-4" />
+      </button>
+      <button
+        type="button"
+        onClick={handleRedoProjectEdit}
+        disabled={!canRedoProjectEdit}
+        className={stageToolButtonClass}
+        title="Redo"
+        aria-label="Redo animation edit"
+      >
+        <Redo2 className="h-4 w-4" />
+      </button>
+      <button
+        type="button"
+        onClick={() => removeFrameAt(activeFrameIndex)}
+        disabled={!canRemoveActiveFrame}
+        className={`${stageToolButtonClass} hover:border-rose-500/40 hover:text-rose-300`}
+        title={isPlaying ? 'Pause before removing a frame' : 'Remove frame'}
+        aria-label="Remove active animation frame"
+      >
+        <Eraser className="h-4 w-4" />
+      </button>
+    </div>
+  );
   const previewGuideControls = (
     <div className="space-y-3 rounded-xl border border-slate-800 bg-slate-900/35 p-3">
       <div className="flex items-center space-x-2">
@@ -744,13 +847,12 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
           }
         }
 
-        setProject((prev) => normalizeProject({
+        applyProjectEdit((prev) => ({
           ...prev,
           frames: newFrames,
           width: frameW,
           height: frameH,
-        }));
-        setActiveFrameIndex(0);
+        }), 0);
         setIsPlaying(true);
       };
       srcImg.src = segment.thumbnailUrl;
@@ -782,7 +884,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
       originalPivotY: Math.round(segment.bounds.height / 2),
     };
 
-    setProject((prev) => {
+    applyProjectEdit((prev) => {
       const updatedFrames = [...prev.frames, newFrame];
       // Adapt workspace bounds to largest frame size if empty
       const maxW = Math.max(prev.width, segment.bounds.width);
@@ -793,11 +895,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
         width: prev.frames.length === 0 ? segment.bounds.width : maxW,
         height: prev.frames.length === 0 ? segment.bounds.height : maxH,
       };
-    });
-
-    if (project.frames.length === 0) {
-      setActiveFrameIndex(0);
-    }
+    }, project.frames.length === 0 ? 0 : undefined);
   };
 
   const waitForVideoEvent = (video: HTMLVideoElement, eventName: 'loadedmetadata' | 'loadeddata' | 'seeked'): Promise<void> => (
@@ -912,14 +1010,14 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
         });
       }
 
-      setProject((prev) => normalizeProject({
+      applyProjectEdit((prev) => ({
         ...prev,
         name: collectionName,
         frames,
         fps: normalizeVideoFrameFps(videoFrameFps),
         width,
         height,
-      }));
+      }), 0);
       onCreateSegments?.(frameSegments);
       setActiveFrameIndex(0);
       setSelectedSegmentId(frameSegments[0]?.id ?? selectedSegmentId);
@@ -1071,7 +1169,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
       const newSliceY = currentSliceY + dy;
 
       const newUrl = await getRegeneratedUrl(frame, newSliceX, newSliceY);
-      setProject((prev) => {
+      applyProjectEdit((prev) => {
         const newFrames = [...prev.frames];
         newFrames[frameIndex] = {
           ...newFrames[frameIndex],
@@ -1083,7 +1181,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
       });
     } else {
       // Fallback to visual nudge if not generated from a source segment
-      setProject((prev) => {
+      applyProjectEdit((prev) => {
         const newFrames = [...prev.frames];
         const target = { ...newFrames[frameIndex] };
         target.offsetX += dx;
@@ -1097,7 +1195,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
   // Change scale factor of selected frame
   const adjustActiveFrameScale = (scaleValue: number) => {
     if (project.frames.length === 0) return;
-    setProject((prev) => {
+    applyProjectEdit((prev) => {
       const newFrames = [...prev.frames];
       const target = { ...newFrames[activeFrameIndex] };
       target.scale = Math.max(0.1, Math.min(3.0, scaleValue));
@@ -1108,10 +1206,11 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
 
   // Delete a frame from timeline
   const removeFrameAt = (index: number) => {
-    setProject((prev) => {
+    const nextActiveFrameIndex = getActiveFrameIndexAfterFrameRemoval(project.frames.length, activeFrameIndex, index);
+    applyProjectEdit((prev) => {
       const newFrames = prev.frames.filter((_, idx) => idx !== index);
       return { ...prev, frames: newFrames };
-    });
+    }, nextActiveFrameIndex);
   };
 
   // Move frame in timeline (reordering)
@@ -1119,14 +1218,13 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
     const targetIdx = direction === 'left' ? index - 1 : index + 1;
     if (targetIdx < 0 || targetIdx >= project.frames.length) return;
 
-    setProject((prev) => {
+    applyProjectEdit((prev) => {
       const newFrames = [...prev.frames];
       const temp = newFrames[index];
       newFrames[index] = newFrames[targetIdx];
       newFrames[targetIdx] = temp;
       return { ...prev, frames: newFrames };
-    });
-    setActiveFrameIndex(targetIdx);
+    }, targetIdx);
   };
 
   // Reset all adjustments for active frame
@@ -1145,7 +1243,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
       newUrl = await getRegeneratedUrl(frame, newSliceX, newSliceY);
     }
 
-    setProject((prev) => {
+    applyProjectEdit((prev) => {
       const newFrames = [...prev.frames];
       newFrames[frameIndex] = {
         ...newFrames[frameIndex],
@@ -1191,7 +1289,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
     });
 
     const newFrames = await Promise.all(resetFramesPromises);
-    setProject((prev) => ({
+    applyProjectEdit((prev) => ({
       ...prev,
       frames: newFrames.map((frame) => normalizeFrame(frame, prev.width, prev.height)),
       updatedAt: Date.now(),
@@ -1243,7 +1341,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
         })
       );
 
-      setProject((prev) => ({
+      applyProjectEdit((prev) => ({
         ...prev,
         frames: alignedFrames,
       }));
@@ -1386,7 +1484,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
       savedSegments.some((segment) => segment.id === segmentId)
     ));
     if (newSegment) {
-      setProject((prev) => ({
+      applyProjectEdit((prev) => ({
         ...prev,
         frames: prev.frames.map((frame) => (
           frame.sourceSegmentId === processedSegmentId
@@ -1464,6 +1562,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
       }
 
       setProject(normalizeProject(parsed.project));
+      resetProjectHistory();
       setCols(parsed.cols ?? 4);
       setRows(parsed.rows ?? 1);
       setShowSubdivisionGrid(parsed.showSubdivisionGrid ?? false);
@@ -1481,7 +1580,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
   const setActiveFramePivotPreset = (preset: 'center' | 'bottom-center' | 'top-center' | 'top-left') => {
     if (!hasActiveFrame) return;
 
-    setProject((prev) => {
+    applyProjectEdit((prev) => {
       const frames = [...prev.frames];
       const target = { ...frames[activeFrameIndex] };
       const width = target.sliceW ?? target.originalSliceW ?? prev.width;
@@ -1509,7 +1608,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
   const nudgeActiveFramePivot = (dx: number, dy: number) => {
     if (!hasActiveFrame) return;
 
-    setProject((prev) => {
+    applyProjectEdit((prev) => {
       const frames = [...prev.frames];
       const target = { ...frames[activeFrameIndex] };
       const width = target.sliceW ?? target.originalSliceW ?? prev.width;
@@ -1591,7 +1690,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
     const trimmedFrame = await trimFrameAt(activeFrameIndex);
     if (!trimmedFrame) return;
 
-    setProject((prev) => {
+    applyProjectEdit((prev) => {
       const frames = [...prev.frames];
       frames[activeFrameIndex] = trimmedFrame;
       return { ...prev, frames, updatedAt: Date.now() };
@@ -1602,7 +1701,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
     if (project.frames.length === 0) return;
     const nextFrames = await Promise.all(project.frames.map((_, index) => trimFrameAt(index)));
 
-    setProject((prev) => ({
+    applyProjectEdit((prev) => ({
       ...prev,
       frames: nextFrames.map((frame, index) => frame ?? prev.frames[index]),
       updatedAt: Date.now(),
@@ -1650,12 +1749,11 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
       return;
     }
 
-    setProject((prev) => ({
+    applyProjectEdit((prev) => ({
       ...prev,
       frames: uniqueFrames,
       updatedAt: Date.now(),
-    }));
-    setActiveFrameIndex((prev) => Math.min(prev, uniqueFrames.length - 1));
+    }), Math.min(activeFrameIndex, uniqueFrames.length - 1));
   };
 
   const buildSpriteMetadata = () => ({
@@ -1766,6 +1864,23 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
         return;
       }
 
+      const isHistoryShortcut = event.ctrlKey || event.metaKey;
+      if (isHistoryShortcut && event.key.toLowerCase() === 'z') {
+        event.preventDefault();
+        if (event.shiftKey) {
+          handleRedoProjectEdit();
+        } else {
+          handleUndoProjectEdit();
+        }
+        return;
+      }
+
+      if (isHistoryShortcut && event.key.toLowerCase() === 'y') {
+        event.preventDefault();
+        handleRedoProjectEdit();
+        return;
+      }
+
       if (event.key === ' ') {
         if (project.frames.length === 0) return;
         event.preventDefault();
@@ -1873,7 +1988,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
             <input
               type="text"
               value={project.name}
-              onChange={(e) => setProject({ ...project, name: e.target.value.replace(/\s+/g, '_') })}
+              onChange={(e) => applyProjectEdit((prev) => ({ ...prev, name: e.target.value.replace(/\s+/g, '_') }))}
               className="bg-transparent border-none text-white font-semibold outline-none focus:ring-1 focus:ring-indigo-500 rounded px-1 w-32"
             />
           </div>
@@ -1883,14 +1998,14 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
             <input
               type="number"
               value={project.width}
-              onChange={(e) => setProject({ ...project, width: Math.max(16, parseInt(e.target.value) || 256) })}
+              onChange={(e) => applyProjectEdit((prev) => ({ ...prev, width: Math.max(16, parseInt(e.target.value) || 256) }))}
               className="bg-slate-950 border border-slate-800 text-center text-white font-mono w-14 rounded py-0.5 outline-none"
             />
             <span className="text-slate-600">×</span>
             <input
               type="number"
               value={project.height}
-              onChange={(e) => setProject({ ...project, height: Math.max(16, parseInt(e.target.value) || 256) })}
+              onChange={(e) => applyProjectEdit((prev) => ({ ...prev, height: Math.max(16, parseInt(e.target.value) || 256) }))}
               className="bg-slate-950 border border-slate-800 text-center text-white font-mono w-14 rounded py-0.5 outline-none"
             />
             <span className="text-slate-500">px</span>
@@ -2092,7 +2207,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
                 <input
                   type="text"
                   value={project.name}
-                  onChange={(e) => setProject({ ...project, name: e.target.value.replace(/\s+/g, '_') })}
+                  onChange={(e) => applyProjectEdit((prev) => ({ ...prev, name: e.target.value.replace(/\s+/g, '_') }))}
                   className="w-full bg-slate-950 border border-slate-800 px-2 py-1.5 text-xs text-white rounded-lg outline-none focus:border-indigo-500"
                 />
               </div>
@@ -2102,14 +2217,14 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
                   <input
                     type="number"
                     value={project.width}
-                    onChange={(e) => setProject({ ...project, width: Math.max(16, parseInt(e.target.value) || 256) })}
+                    onChange={(e) => applyProjectEdit((prev) => ({ ...prev, width: Math.max(16, parseInt(e.target.value) || 256) }))}
                     className="w-14 bg-slate-950 border border-slate-800 px-1 py-1.5 text-xs text-center text-white rounded-lg font-mono outline-none focus:border-indigo-500"
                   />
                   <span className="text-slate-600">×</span>
                   <input
                     type="number"
                     value={project.height}
-                    onChange={(e) => setProject({ ...project, height: Math.max(16, parseInt(e.target.value) || 256) })}
+                    onChange={(e) => applyProjectEdit((prev) => ({ ...prev, height: Math.max(16, parseInt(e.target.value) || 256) }))}
                     className="w-14 bg-slate-950 border border-slate-800 px-1 py-1.5 text-xs text-center text-white rounded-lg font-mono outline-none focus:border-indigo-500"
                   />
                 </div>
@@ -2429,7 +2544,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
                 max="30"
                 step="1"
                 value={project.fps}
-                onChange={(e) => setProject({ ...project, fps: parseInt(e.target.value, 10) })}
+                onChange={(e) => applyProjectEdit((prev) => ({ ...prev, fps: parseInt(e.target.value, 10) }))}
                 className="w-20 sm:w-28 accent-indigo-500 cursor-pointer h-1"
               />
             </div>
@@ -2449,6 +2564,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
 
           {/* Animation rendering stage */}
           <div className="flex-none h-[38dvh] min-h-[240px] lg:flex-1 lg:h-auto lg:min-h-0 flex items-center justify-center p-3 sm:p-8 overflow-hidden relative">
+            {animationViewTools}
             {project.frames.length === 0 ? (
               <div className="text-center max-w-sm space-y-3 p-6 bg-slate-950/40 rounded-2xl border border-slate-800/40">
                 <div className="p-4 bg-slate-900/60 rounded-full inline-block border border-slate-800/60 text-slate-500">
