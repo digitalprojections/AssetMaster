@@ -9,6 +9,7 @@ import './androidBillingConfig.test';
 import './androidReleaseQuality.test';
 import './androidSafeArea.test';
 import './playPublisherPayload.test';
+import './playStoreListingPublisher.test';
 import './playIntegrity.test';
 import './playIntegrityDecodePayload.test';
 import './androidLogoAssets.test';
