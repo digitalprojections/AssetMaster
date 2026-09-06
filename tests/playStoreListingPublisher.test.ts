@@ -13,12 +13,12 @@ test('store listing config advertises AssetMaster features in English and Uzbek'
   const summary = validateStoreListingConfig(config);
 
   assert.equal(summary.packageName, 'link.created.assetmaster');
-  assert.deepEqual(summary.languages, ['en-US', 'uz-UZ', 'uz']);
-  assert.equal(summary.customListings[0].language, 'uz-UZ');
+  assert.deepEqual(summary.languages, ['en-US', 'ru-RU', 'uz']);
+  assert.equal(summary.customListings[0].language, 'ru-RU');
   assert.match(config.listings['en-US'].fullDescription, /Transparent PNG cutout editor/u);
   assert.match(config.listings['en-US'].fullDescription, /Sprite sheet slicing/u);
-  assert.match(config.listings['uz-UZ'].fullDescription, /Shaffof PNG qirqimlar/u);
-  assert.match(config.listings['uz-UZ'].fullDescription, /Sprite sheet/u);
+  assert.match(config.listings['ru-RU'].fullDescription, /Shaffof PNG qirqimlar/u);
+  assert.match(config.listings['ru-RU'].fullDescription, /Sprite sheet/u);
 });
 
 test('store listing text stays inside Google Play field limits', () => {
@@ -50,7 +50,7 @@ test('listing publisher builds one update request per selected language', () => 
     packageName: 'link.created.assetmaster',
     editId: 'edit-123',
     config,
-    languages: ['en-US', 'uz-UZ'],
+    languages: ['en-US', 'ru-RU'],
   }), [
     {
       language: 'en-US',
@@ -58,9 +58,9 @@ test('listing publisher builds one update request per selected language', () => 
       body: config.listings['en-US'],
     },
     {
-      language: 'uz-UZ',
-      url: 'https://androidpublisher.googleapis.com/androidpublisher/v3/applications/link.created.assetmaster/edits/edit-123/listings/uz-UZ',
-      body: config.listings['uz-UZ'],
+      language: 'ru-RU',
+      url: 'https://androidpublisher.googleapis.com/androidpublisher/v3/applications/link.created.assetmaster/edits/edit-123/listings/ru-RU',
+      body: config.listings['ru-RU'],
     },
   ]);
 });

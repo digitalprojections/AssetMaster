@@ -11,7 +11,7 @@
       "shortDescription": "Cut out images, clean backgrounds, compose collages, and export assets.",
       "fullDescription": "AssetMaster is a practical creative workspace for making clean image assets on your phone.\n\nCreate transparent PNG cutouts with rectangle, lasso, and magnetic selection tools. Refine edges, remove leftover background pixels, and polish cutouts before export.\n\nBuild more than single images. Arrange saved cutouts into layered collages, add text, shapes, speech bubbles, blend modes, and backgrounds, then export as PNG, JPEG, WebP, or PDF.\n\nFor game and animation work, AssetMaster can divide sprite sheets, capture short video clips as frame sequences, align frames, preview loops, and export ready-to-use assets.\n\nYour projects and asset library stay local on your device unless you choose to export them. Optional project JSON export makes it easy to keep a portable backup or continue a layout later.\n\nKey features:\n- Transparent PNG cutout editor\n- Background cleanup and edge refinement\n- Rectangle, lasso, and magnetic selection tools\n- Local saved asset library\n- Layered collage studio with text, shapes, and bubbles\n- PNG, JPEG, WebP, PDF, ZIP, and project export options\n- Sprite sheet slicing and frame alignment\n- Short video frame capture for animation references\n- Animation preview and export tools\n- Optional ad-free upgrade on Android"
     },
-    "uz-UZ": {
+    "ru-RU": {
       "title": "AssetMaster",
       "shortDescription": "Rasmlarni qirqing, fonni tozalang, kollaj yarating va asset eksport qiling.",
       "fullDescription": "AssetMaster telefonda toza vizual assetlar tayyorlash uchun qulay ijodiy ish maydoni.\n\nRasm qismlarini shaffof PNG ko'rinishida ajrating. To'rtburchak, lasso va magnit tanlash vositalari bilan kerakli obyektni qirqing, chetlarini tekislang va qolgan fon dog'larini eksportdan oldin tozalang.\n\nAssetMaster faqat bitta rasmni tahrirlash bilan cheklanmaydi. Saqlangan qirqimlardan qatlamli kollajlar yarating, matn, shakl, nutq pufakchalari, fon va aralashtirish uslublarini qo'shing. Natijani PNG, JPEG, WebP yoki PDF formatida eksport qiling.\n\nO'yin, animatsiya va kontent yaratish ishlarida ham foydali: sprite sheetlarni bo'laklarga ajrating, qisqa videodan kadrlar oling, freymlarni tekislang, animatsiya aylanishini ko'rib chiqing va tayyor assetlarni eksport qiling.\n\nLoyihalar va asset kutubxonasi qurilmangizda lokal saqlanadi. Xohlasangiz, ishni keyin davom ettirish yoki zaxira nusxa olish uchun loyiha JSON faylini eksport qilishingiz mumkin.\n\nAsosiy imkoniyatlar:\n- Shaffof PNG qirqimlar yaratish\n- Fonni tozalash va chetlarni silliqlash\n- To'rtburchak, lasso va magnit tanlash vositalari\n- Lokal asset kutubxonasi\n- Matn, shakl va nutq pufakchalari bilan qatlamli kollajlar\n- PNG, JPEG, WebP, PDF, ZIP va loyiha eksporti\n- Sprite sheet bo'lish va freymlarni tekislash\n- Qisqa videodan animatsiya uchun kadrlar olish\n- Animatsiyani oldindan ko'rish va eksport qilish\n- Android uchun ixtiyoriy reklamasiz rejim"
@@ -25,9 +25,9 @@
   "customListings": [
     {
       "name": "Uzbek creators",
-      "language": "uz-UZ",
+      "language": "ru-RU",
       "urlParameter": "uzbek-creators",
-      "targeting": "Use country/region targeting for Uzbekistan, or use the unique custom listing URL when Play Console requires manual custom-listing setup.",
+      "targeting": "Play rejected uz-UZ and uz through the Android Publisher API, so publish this Uzbek text under ru-RU or use the unique custom listing URL when Play Console requires manual custom-listing setup.",
       "title": "AssetMaster",
       "shortDescription": "Rasmlarni qirqing, fonni tozalang, kollaj yarating va asset eksport qiling.",
       "fullDescription": "AssetMaster telefonda toza vizual assetlar tayyorlash uchun qulay ijodiy ish maydoni.\n\nRasm qismlarini shaffof PNG ko'rinishida ajrating. To'rtburchak, lasso va magnit tanlash vositalari bilan kerakli obyektni qirqing, chetlarini tekislang va qolgan fon dog'larini eksportdan oldin tozalang.\n\nAssetMaster faqat bitta rasmni tahrirlash bilan cheklanmaydi. Saqlangan qirqimlardan qatlamli kollajlar yarating, matn, shakl, nutq pufakchalari, fon va aralashtirish uslublarini qo'shing. Natijani PNG, JPEG, WebP yoki PDF formatida eksport qiling.\n\nO'yin, animatsiya va kontent yaratish ishlarida ham foydali: sprite sheetlarni bo'laklarga ajrating, qisqa videodan kadrlar oling, freymlarni tekislang, animatsiya aylanishini ko'rib chiqing va tayyor assetlarni eksport qiling.\n\nLoyihalar va asset kutubxonasi qurilmangizda lokal saqlanadi. Xohlasangiz, ishni keyin davom ettirish yoki zaxira nusxa olish uchun loyiha JSON faylini eksport qilishingiz mumkin."
@@ -42,7 +42,7 @@
         "android/play-assets/phone-2.png"
       ]
     },
-    "uz-UZ": {
+    "ru-RU": {
       "icon": ["public/logos/512x512_play_store_icon.png"],
       "featureGraphic": ["android/play-assets/feature-graphic.png"],
       "phoneScreenshots": [
