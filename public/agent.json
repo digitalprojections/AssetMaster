@@ -129,6 +129,72 @@
       "description": "Download the saved cutout library as JSON.",
       "confirmation_required": true,
       "confirmation_reason": "This starts a local file download."
+    },
+    {
+      "action": "animationUndo",
+      "description": "Undo the latest animation edit.",
+      "requires_overlay": "animationStudio",
+      "confirmation_required": false
+    },
+    {
+      "action": "animationRedo",
+      "description": "Redo the next animation edit.",
+      "requires_overlay": "animationStudio",
+      "confirmation_required": false
+    },
+    {
+      "action": "animationSetEraser",
+      "description": "Turn the animation frame eraser on or off.",
+      "requires_overlay": "animationStudio",
+      "value": {
+        "type": "boolean"
+      },
+      "confirmation_required": false
+    },
+    {
+      "action": "animationSetEraserRadius",
+      "description": "Set the animation frame eraser radius in pixels.",
+      "requires_overlay": "animationStudio",
+      "value": {
+        "type": "integer",
+        "minimum": 2,
+        "maximum": 64
+      },
+      "confirmation_required": false
+    },
+    {
+      "action": "animationEraseStroke",
+      "description": "Erase pixels from the active animation frame using frame-local points.",
+      "requires_overlay": "animationStudio",
+      "value": {
+        "type": "integer",
+        "description": "Optional eraser radius in pixels.",
+        "minimum": 2,
+        "maximum": 64
+      },
+      "points": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "x": { "type": "number" },
+            "y": { "type": "number" }
+          },
+          "required": ["x", "y"]
+        },
+        "minItems": 1
+      },
+      "confirmation_required": false
+    },
+    {
+      "action": "animationSetFrame",
+      "description": "Select the active animation frame by zero-based index.",
+      "requires_overlay": "animationStudio",
+      "value": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "confirmation_required": false
     }
   ],
   "privacy": {
@@ -138,6 +204,6 @@
   },
   "limits": [
     "The current control surface is available after the web app loads JavaScript.",
-    "The current command set covers top-level editor controls, not every nested collage or animation operation."
+    "Animation commands are available after the animation workspace opens and registers its controls."
   ]
 }

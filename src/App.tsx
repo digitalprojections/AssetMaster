@@ -15,7 +15,7 @@ import {
 import { getEmptyWorkspaceCopy } from './utils/emptyWorkspace';
 import bmcButton from './assets/bmc-button.svg';
 import SegmentList from './components/SegmentList';
-import AnimationStudio from './components/AnimationStudio';
+import AnimationStudio, { type AnimationStudioAgentControls } from './components/AnimationStudio';
 import BackgroundRemover from './components/BackgroundRemover';
 import CollageStudio from './components/CollageStudio';
 import {
@@ -163,6 +163,7 @@ export default function App() {
   const hiddenImageCtxRef = useRef<CanvasRenderingContext2D | null>(null);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const libraryImportInputRef = useRef<HTMLInputElement | null>(null);
+  const animationAgentControlsRef = useRef<AnimationStudioAgentControls | null>(null);
   const pageChangeAdGateRef = useRef<ReturnType<typeof createInterstitialPageChangeGate> | null>(null);
   const pageChangeInProgressRef = useRef<boolean>(false);
   const adFreeEntitlementRef = useRef<boolean>(false);
@@ -1523,6 +1524,10 @@ export default function App() {
     changePageWithInterstitial(() => setShowAnimationStudio(false));
   };
 
+  const registerAnimationAgentControls = useCallback((controls: AnimationStudioAgentControls | null) => {
+    animationAgentControlsRef.current = controls;
+  }, []);
+
   const openBackgroundRemover = () => {
     changePageWithInterstitial(() => setShowBgRemover(true));
   };
@@ -1545,6 +1550,20 @@ export default function App() {
       savedSegmentCount: savedSegments.length,
       zoomPercent: Math.round(zoom * 100),
       sidebarOpen: isSidebarOpen,
+      animationStudio: showAnimationStudio
+        ? animationAgentControlsRef.current?.getSnapshot() ?? {
+          available: false,
+          frameCount: 0,
+          activeFrameIndex: 0,
+          isPlaying: false,
+          eraserActive: false,
+          eraserRadius: 12,
+          canUndo: false,
+          canRedo: false,
+          canErase: false,
+          activeFrameHasEraseMask: false,
+        }
+        : null,
       overlays: {
         preview: Boolean(previewSegment),
         collageStudio: showCollageStudio,
@@ -1621,6 +1640,27 @@ export default function App() {
         case 'exportLibrary':
           handleExportLibrary();
           break;
+        case 'animationUndo':
+          animationAgentControlsRef.current?.undo();
+          break;
+        case 'animationRedo':
+          animationAgentControlsRef.current?.redo();
+          break;
+        case 'animationSetEraser':
+          animationAgentControlsRef.current?.setEraserActive(validation.command.value as boolean);
+          break;
+        case 'animationSetEraserRadius':
+          animationAgentControlsRef.current?.setEraserRadius(validation.command.value as number);
+          break;
+        case 'animationEraseStroke':
+          await animationAgentControlsRef.current?.eraseActiveFramePixels(
+            validation.command.points ?? [],
+            typeof validation.command.value === 'number' ? validation.command.value : undefined
+          );
+          break;
+        case 'animationSetFrame':
+          animationAgentControlsRef.current?.setActiveFrameIndex(validation.command.value as number);
+          break;
       }
 
       const message = `${validation.command.action} completed`;
@@ -1633,19 +1673,28 @@ export default function App() {
       };
     };
 
-    window.assetMasterAgent = {
+    const agentApi = {
       version: '1.0',
       getState: getAgentSnapshot,
       getCapabilities: () => getAgentControlCapabilities(getAgentSnapshot()),
       run: runAgentCommand,
     };
 
+    Object.defineProperty(window, 'assetMasterAgent', {
+      configurable: true,
+      enumerable: true,
+      writable: true,
+      value: agentApi,
+    });
+
     window.dispatchEvent(new CustomEvent('assetmaster-agent-ready', {
       detail: window.assetMasterAgent.getState(),
     }));
 
     return () => {
-      delete window.assetMasterAgent;
+      if (window.assetMasterAgent === agentApi) {
+        delete window.assetMasterAgent;
+      }
     };
   }, [
     activePath.length,
@@ -1656,6 +1705,7 @@ export default function App() {
     lastCutoutIndex,
     openFilePicker,
     previewSegment,
+    registerAnimationAgentControls,
     savedSegments,
     showAnimationStudio,
     showBgRemover,
@@ -1725,6 +1775,9 @@ export default function App() {
         <div className="flex w-full flex-wrap items-center justify-start gap-2 md:w-auto md:justify-end md:gap-3">
           <span
             data-agent-control="ready"
+            data-agent-api="assetMasterAgent"
+            data-agent-version="1.0"
+            data-agent-actions="readState,setTool,setFeather,setSnapRadius,clearSelection,toggleSidebar,openCollageStudio,openAnimationStudio,closeOverlays,zoomIn,zoomOut,zoomFit,zoom100,requestUpload,exportLibrary,animationUndo,animationRedo,animationSetEraser,animationSetEraserRadius,animationEraseStroke,animationSetFrame"
             className="hidden lg:flex items-center gap-1.5 rounded-lg border border-cyan-800/70 bg-cyan-950/30 px-3 py-2 text-xs font-semibold text-cyan-200"
             title={`window.assetMasterAgent is available. ${lastAgentCommandMessage}`}
           >
@@ -2402,6 +2455,7 @@ export default function App() {
             workspaceImage={image}
             onCreateSegment={createCleanedSegment}
             onCreateSegments={addGeneratedSegments}
+            onRegisterAgentControls={registerAnimationAgentControls}
             onClose={closeAnimationStudio}
           />
         )}

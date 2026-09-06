@@ -91,15 +91,46 @@ type SourceFilter = SegmentSourceFilter;
 
 const STUDIO_PROJECT_STORAGE_KEY = 'assetmaster.animationStudio.project.v1';
 
+export type AnimationStudioAgentSnapshot = {
+  available: boolean;
+  frameCount: number;
+  activeFrameIndex: number;
+  isPlaying: boolean;
+  eraserActive: boolean;
+  eraserRadius: number;
+  canUndo: boolean;
+  canRedo: boolean;
+  canErase: boolean;
+  activeFrameHasEraseMask: boolean;
+};
+
+export type AnimationStudioAgentControls = {
+  getSnapshot: () => AnimationStudioAgentSnapshot;
+  setEraserActive: (active: boolean) => void;
+  setEraserRadius: (radius: number) => void;
+  eraseActiveFramePixels: (points: Point[], radius?: number) => Promise<void>;
+  undo: () => boolean;
+  redo: () => boolean;
+  setActiveFrameIndex: (index: number) => void;
+};
+
 interface AnimationStudioProps {
   savedSegments: SavedSegment[];
   workspaceImage?: HTMLImageElement | null;
   onCreateSegment?: (sourceSegment: SavedSegment, updatedUrl: string) => SavedSegment | undefined;
   onCreateSegments?: (segments: SavedSegment[]) => void;
+  onRegisterAgentControls?: (controls: AnimationStudioAgentControls | null) => void;
   onClose: () => void;
 }
 
-export default function AnimationStudio({ savedSegments, workspaceImage, onCreateSegment, onCreateSegments, onClose }: AnimationStudioProps) {
+export default function AnimationStudio({
+  savedSegments,
+  workspaceImage,
+  onCreateSegment,
+  onCreateSegments,
+  onRegisterAgentControls,
+  onClose,
+}: AnimationStudioProps) {
   // Current animation project
   const [project, setProject] = useState<AnimationProject>({
     id: 'anim_proj',
@@ -711,6 +742,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
     <div className="absolute right-3 top-3 z-10 flex gap-2 rounded-xl border border-slate-800/80 bg-slate-950/70 p-1.5 shadow-xl shadow-slate-950/30 backdrop-blur lg:right-4 lg:top-1/2 lg:-translate-y-1/2 lg:flex-col">
       <button
         type="button"
+        data-agent-action="animationUndo"
         onClick={handleUndoProjectEdit}
         disabled={!canUndoProjectEdit}
         className={stageToolButtonClass}
@@ -721,6 +753,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
       </button>
       <button
         type="button"
+        data-agent-action="animationRedo"
         onClick={handleRedoProjectEdit}
         disabled={!canRedoProjectEdit}
         className={stageToolButtonClass}
@@ -731,6 +764,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
       </button>
       <button
         type="button"
+        data-agent-action="animationSetEraser"
         onClick={() => {
           setIsFrameEraserActive((prev) => !prev);
           setIsPlaying(false);
@@ -748,6 +782,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
       </button>
       {isFrameEraserActive && (
         <input
+          data-agent-action="animationSetEraserRadius"
           type="range"
           min="2"
           max="40"
@@ -1304,6 +1339,28 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
     }, nextActiveFrameIndex);
   };
 
+  const applyEraseStrokeToActiveFrame = async (strokePoints: Point[], radius = frameEraserRadius) => {
+    if (!hasActiveFrame || isPlaying || strokePoints.length === 0) {
+      return;
+    }
+
+    const frameIndex = activeFrameIndex;
+    const frame = project.frames[frameIndex];
+    const nextStroke = createAnimationEraseStroke(strokePoints, radius);
+    const nextEraseStrokes = [...(frame.eraseStrokes ?? []), nextStroke];
+    const nextThumbnailUrl = await applyEraseStrokesToFrameUrl(frame.thumbnailUrl, [nextStroke]);
+
+    applyProjectEdit((prev) => {
+      const frames = [...prev.frames];
+      frames[frameIndex] = normalizeFrame({
+        ...frames[frameIndex],
+        thumbnailUrl: nextThumbnailUrl,
+        eraseStrokes: nextEraseStrokes,
+      }, prev.width, prev.height);
+      return { ...prev, frames, updatedAt: Date.now() };
+    });
+  };
+
   const getFramePixelPointFromPointer = (
     event: React.PointerEvent<HTMLDivElement>,
     frame: AnimationFrame
@@ -1378,22 +1435,79 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
       return;
     }
 
-    const frameIndex = activeFrameIndex;
-    const frame = project.frames[frameIndex];
-    const nextStroke = createAnimationEraseStroke(strokePoints, frameEraserRadius);
-    const nextEraseStrokes = [...(frame.eraseStrokes ?? []), nextStroke];
-    const nextThumbnailUrl = await applyEraseStrokesToFrameUrl(frame.thumbnailUrl, [nextStroke]);
-
-    applyProjectEdit((prev) => {
-      const frames = [...prev.frames];
-      frames[frameIndex] = normalizeFrame({
-        ...frames[frameIndex],
-        thumbnailUrl: nextThumbnailUrl,
-        eraseStrokes: nextEraseStrokes,
-      }, prev.width, prev.height);
-      return { ...prev, frames, updatedAt: Date.now() };
-    });
+    await applyEraseStrokeToActiveFrame(strokePoints);
   };
+
+  useEffect(() => {
+    if (!onRegisterAgentControls) {
+      return;
+    }
+
+    const controls: AnimationStudioAgentControls = {
+      getSnapshot: () => ({
+        available: true,
+        frameCount: project.frames.length,
+        activeFrameIndex,
+        isPlaying,
+        eraserActive: isFrameEraserActive,
+        eraserRadius: frameEraserRadius,
+        canUndo: canUndoProjectEdit,
+        canRedo: canRedoProjectEdit,
+        canErase: canUseFrameEraser,
+        activeFrameHasEraseMask: Boolean(activeFrame?.eraseStrokes?.length),
+      }),
+      setEraserActive: (active: boolean) => {
+        setIsPlaying(false);
+        setIsFrameEraserActive(active);
+        setActiveEraseStrokePoints([]);
+        activeEraseStrokePointsRef.current = [];
+        isDrawingEraseStrokeRef.current = false;
+      },
+      setEraserRadius: (radius: number) => {
+        setFrameEraserRadius(clampFrameEraserRadius(radius));
+      },
+      eraseActiveFramePixels: async (points: Point[], radius?: number) => {
+        setIsPlaying(false);
+        await applyEraseStrokeToActiveFrame(points, radius);
+      },
+      undo: () => {
+        if (!canUndoProjectEdit) {
+          return false;
+        }
+
+        handleUndoProjectEdit();
+        return true;
+      },
+      redo: () => {
+        if (!canRedoProjectEdit) {
+          return false;
+        }
+
+        handleRedoProjectEdit();
+        return true;
+      },
+      setActiveFrameIndex: (index: number) => {
+        setIsPlaying(false);
+        setActiveFrameIndex(Math.max(0, Math.min(index, Math.max(0, project.frames.length - 1))));
+      },
+    };
+
+    onRegisterAgentControls(controls);
+    return () => {
+      onRegisterAgentControls(null);
+    };
+  }, [
+    activeFrame,
+    activeFrameIndex,
+    canRedoProjectEdit,
+    canUndoProjectEdit,
+    canUseFrameEraser,
+    frameEraserRadius,
+    isFrameEraserActive,
+    isPlaying,
+    onRegisterAgentControls,
+    project.frames,
+  ]);
 
   // Move frame in timeline (reordering)
   const shiftFrameOrder = (index: number, direction: 'left' | 'right') => {
@@ -2763,6 +2877,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
               </div>
             ) : (
               <div
+                data-agent-control="animation-stage"
                 className={`relative bg-checkerboard border border-slate-800 rounded-xl shadow-2xl flex items-center justify-center transition-all ${isFrameEraserActive && !isPlaying ? 'cursor-crosshair touch-none' : ''}`}
                 onPointerDown={startFrameEraseStroke}
                 onPointerMove={extendFrameEraseStroke}

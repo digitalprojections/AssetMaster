@@ -43,4 +43,8 @@ Supported top-level commands include `readState`, `setTool`, `setFeather`, `setS
 `clearSelection`, `toggleSidebar`, `openCollageStudio`, `openAnimationStudio`, `closeOverlays`,
 `zoomIn`, `zoomOut`, `zoomFit`, `zoom100`, `requestUpload`, and `exportLibrary`.
 
+When Animation Studio is open, supported animation commands include `animationUndo`,
+`animationRedo`, `animationSetEraser`, `animationSetEraserRadius`, `animationEraseStroke`,
+and `animationSetFrame`.
+
 Local file picker and download actions require explicit confirmation with `confirm: true`.

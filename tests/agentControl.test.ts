@@ -16,6 +16,7 @@ const createSnapshot = (overrides: Partial<AgentControlSnapshot> = {}): AgentCon
   savedSegmentCount: 2,
   zoomPercent: 100,
   sidebarOpen: true,
+  animationStudio: null,
   overlays: {
     preview: false,
     collageStudio: false,
@@ -63,4 +64,54 @@ test('agent numeric values clamp to the configured control range', () => {
   assert.equal(clampAgentNumber(100, 12, 5, 40), 40);
   assert.equal(clampAgentNumber(-10, 12, 5, 40), 5);
   assert.equal(clampAgentNumber('30', 12, 5, 40), 12);
+});
+
+test('animation agent commands are disabled until animation controls are registered', () => {
+  const capabilities = getAgentControlCapabilities(createSnapshot({
+    overlays: {
+      preview: false,
+      collageStudio: false,
+      animationStudio: true,
+      backgroundRemover: false,
+    },
+  }));
+
+  assert.equal(capabilities.find((item) => item.action === 'animationSetEraser')?.enabled, false);
+  assert.equal(capabilities.find((item) => item.action === 'animationEraseStroke')?.enabled, false);
+});
+
+test('animation agent commands validate frame controls and erase strokes', () => {
+  const snapshot = createSnapshot({
+    overlays: {
+      preview: false,
+      collageStudio: false,
+      animationStudio: true,
+      backgroundRemover: false,
+    },
+    animationStudio: {
+      available: true,
+      frameCount: 3,
+      activeFrameIndex: 1,
+      isPlaying: false,
+      eraserActive: false,
+      eraserRadius: 12,
+      canUndo: true,
+      canRedo: false,
+      canErase: true,
+      activeFrameHasEraseMask: false,
+    },
+  });
+
+  assert.equal(validateAgentCommand({ action: 'animationUndo' }, snapshot).ok, true);
+  assert.equal(validateAgentCommand({ action: 'animationRedo' }, snapshot).ok, false);
+  assert.equal(validateAgentCommand({ action: 'animationSetEraser', value: true }, snapshot).ok, true);
+  assert.equal(validateAgentCommand({ action: 'animationSetEraserRadius', value: 18 }, snapshot).ok, true);
+  assert.equal(validateAgentCommand({ action: 'animationSetFrame', value: 2 }, snapshot).ok, true);
+  assert.equal(validateAgentCommand({ action: 'animationSetFrame', value: 3 }, snapshot).ok, false);
+  assert.equal(validateAgentCommand({
+    action: 'animationEraseStroke',
+    points: [{ x: 10, y: 12 }, { x: 20, y: 24 }],
+    value: 6,
+  }, snapshot).ok, true);
+  assert.equal(validateAgentCommand({ action: 'animationEraseStroke', points: [] }, snapshot).ok, false);
 });

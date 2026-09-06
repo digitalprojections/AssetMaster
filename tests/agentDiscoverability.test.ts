@@ -31,8 +31,15 @@ test('public agent manifest describes the browser bridge and guarded commands', 
   assert.equal(commands.has('readState'), true);
   assert.equal(commands.has('setTool'), true);
   assert.equal(commands.has('exportLibrary'), true);
+  assert.equal(commands.has('animationUndo'), true);
+  assert.equal(commands.has('animationRedo'), true);
+  assert.equal(commands.has('animationSetEraser'), true);
+  assert.equal(commands.has('animationSetEraserRadius'), true);
+  assert.equal(commands.has('animationEraseStroke'), true);
+  assert.equal(commands.has('animationSetFrame'), true);
   assert.equal((commands.get('requestUpload') as { confirmation_required: boolean }).confirmation_required, true);
   assert.equal((commands.get('exportLibrary') as { confirmation_required: boolean }).confirmation_required, true);
+  assert.equal((commands.get('animationEraseStroke') as { requires_overlay: string }).requires_overlay, 'animationStudio');
 });
 
 test('well-known agent pointer resolves back to the canonical manifest', () => {
