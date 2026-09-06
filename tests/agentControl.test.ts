@@ -4,6 +4,7 @@ import {
   AgentControlSnapshot,
   clampAgentNumber,
   getAgentControlCapabilities,
+  parseAgentDomCommandPayload,
   validateAgentCommand,
 } from '../src/utils/agentControl';
 
@@ -114,4 +115,33 @@ test('animation agent commands validate frame controls and erase strokes', () =>
     value: 6,
   }, snapshot).ok, true);
   assert.equal(validateAgentCommand({ action: 'animationEraseStroke', points: [] }, snapshot).ok, false);
+});
+
+test('agent DOM command payload parser accepts object and JSON details', () => {
+  assert.deepEqual(parseAgentDomCommandPayload({
+    id: 'cmd-1',
+    command: { action: 'readState' },
+  }), {
+    id: 'cmd-1',
+    command: { action: 'readState' },
+  });
+
+  assert.deepEqual(parseAgentDomCommandPayload(JSON.stringify({
+    id: 'cmd-2',
+    command: { action: 'openAnimationStudio' },
+  })), {
+    id: 'cmd-2',
+    command: { action: 'openAnimationStudio' },
+  });
+
+  assert.deepEqual(parseAgentDomCommandPayload({ action: 'readState' }), {
+    id: undefined,
+    command: { action: 'readState' },
+  });
+});
+
+test('agent DOM command payload parser rejects malformed details', () => {
+  assert.equal(parseAgentDomCommandPayload('not-json'), null);
+  assert.equal(parseAgentDomCommandPayload({ id: 'cmd-3' }), null);
+  assert.equal(parseAgentDomCommandPayload(null), null);
 });

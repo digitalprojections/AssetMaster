@@ -1,5 +1,11 @@
 import { Point, SelectionTool } from '../types';
 
+export const AGENT_CONTROL_READY_EVENT = 'assetmaster-agent-ready';
+export const AGENT_CONTROL_COMMAND_EVENT = 'assetmaster-agent-command';
+export const AGENT_CONTROL_RESULT_EVENT = 'assetmaster-agent-result';
+export const AGENT_CONTROL_STATE_ELEMENT_ID = 'assetmaster-agent-state';
+export const AGENT_CONTROL_RESULT_ELEMENT_ID = 'assetmaster-agent-result';
+
 export type AgentAction =
   | 'readState'
   | 'setTool'
@@ -71,6 +77,11 @@ export type AgentCommandValidation =
   | { ok: true; command: AgentCommand }
   | { ok: false; message: string; needsConfirmation?: boolean };
 
+export type AgentDomCommandPayload = {
+  id?: string;
+  command: unknown;
+};
+
 const SELECTION_TOOLS: SelectionTool[] = ['select', 'rectangle', 'lasso', 'magnetic'];
 
 const hasValidPoint = (point: unknown): point is Point => (
@@ -81,6 +92,34 @@ const hasValidPoint = (point: unknown): point is Point => (
   typeof (point as Point).y === 'number' &&
   Number.isFinite((point as Point).y)
 );
+
+export const parseAgentDomCommandPayload = (detail: unknown): AgentDomCommandPayload | null => {
+  let payload = detail;
+  if (typeof payload === 'string') {
+    try {
+      payload = JSON.parse(payload) as unknown;
+    } catch {
+      return null;
+    }
+  }
+
+  if (!payload || typeof payload !== 'object') {
+    return null;
+  }
+
+  const id = typeof (payload as { id?: unknown }).id === 'string'
+    ? (payload as { id: string }).id
+    : undefined;
+  const command = (payload as { command?: unknown }).command ?? payload;
+  if (!command || typeof command !== 'object') {
+    return null;
+  }
+  if (typeof (command as { action?: unknown }).action !== 'string') {
+    return null;
+  }
+
+  return { id, command };
+};
 
 export const getAgentControlCapabilities = (
   snapshot: AgentControlSnapshot

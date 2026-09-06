@@ -25,7 +25,12 @@ test('public agent manifest describes the browser bridge and guarded commands', 
   assert.equal(manifest.discovery.llms_url, llmsUrl);
   assert.equal(manifest.control_surfaces[0].name, 'window.assetMasterAgent');
   assert.equal(manifest.control_surfaces[0].ready_event, 'assetmaster-agent-ready');
+  assert.equal(manifest.control_surfaces[0].command_event, 'assetmaster-agent-command');
+  assert.equal(manifest.control_surfaces[0].result_event, 'assetmaster-agent-result');
   assert.equal(manifest.control_surfaces[0].dom_hooks.actions, '[data-agent-action]');
+  assert.equal(manifest.control_surfaces[0].dom_hooks.state, '#assetmaster-agent-state');
+  assert.equal(manifest.control_surfaces[0].dom_hooks.result, '#assetmaster-agent-result');
+  assert.deepEqual(manifest.control_surfaces[0].event_command_detail.required, ['command']);
 
   const commands = new Map(manifest.commands.map((command: { action: string }) => [command.action, command]));
   assert.equal(commands.has('readState'), true);

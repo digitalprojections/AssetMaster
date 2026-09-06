@@ -45,10 +45,16 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
+  AGENT_CONTROL_COMMAND_EVENT,
+  AGENT_CONTROL_READY_EVENT,
+  AGENT_CONTROL_RESULT_ELEMENT_ID,
+  AGENT_CONTROL_RESULT_EVENT,
+  AGENT_CONTROL_STATE_ELEMENT_ID,
   AgentCommand,
   AgentControlSnapshot,
   clampAgentNumber,
   getAgentControlCapabilities,
+  parseAgentDomCommandPayload,
   validateAgentCommand,
 } from './utils/agentControl';
 
@@ -164,6 +170,7 @@ export default function App() {
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const libraryImportInputRef = useRef<HTMLInputElement | null>(null);
   const animationAgentControlsRef = useRef<AnimationStudioAgentControls | null>(null);
+  const handledAgentDomEventsRef = useRef<WeakSet<Event>>(new WeakSet());
   const pageChangeAdGateRef = useRef<ReturnType<typeof createInterstitialPageChangeGate> | null>(null);
   const pageChangeInProgressRef = useRef<boolean>(false);
   const adFreeEntitlementRef = useRef<boolean>(false);
@@ -1673,6 +1680,72 @@ export default function App() {
       };
     };
 
+    const writeAgentJsonElement = (id: string, payload: unknown) => {
+      let element = document.getElementById(id) as HTMLScriptElement | null;
+      if (!element) {
+        element = document.createElement('script');
+        element.id = id;
+        element.type = 'application/json';
+        element.setAttribute('data-agent-control', id === AGENT_CONTROL_STATE_ELEMENT_ID ? 'state' : 'result');
+        document.body.appendChild(element);
+      }
+
+      element.textContent = JSON.stringify(payload);
+    };
+
+    const publishAgentDomState = () => {
+      const state = getAgentSnapshot();
+      const capabilities = getAgentControlCapabilities(state);
+      const payload = {
+        updatedAt: new Date().toISOString(),
+        state,
+        capabilities,
+      };
+      writeAgentJsonElement(AGENT_CONTROL_STATE_ELEMENT_ID, payload);
+      return payload;
+    };
+
+    const publishAgentDomResult = (id: string, result: Awaited<ReturnType<typeof runAgentCommand>>) => {
+      publishAgentDomState();
+      const payload = {
+        id,
+        completedAt: new Date().toISOString(),
+        ...result,
+      };
+
+      writeAgentJsonElement(AGENT_CONTROL_RESULT_ELEMENT_ID, payload);
+      window.dispatchEvent(new CustomEvent(AGENT_CONTROL_RESULT_EVENT, { detail: payload }));
+      document.dispatchEvent(new CustomEvent(AGENT_CONTROL_RESULT_EVENT, { detail: payload }));
+    };
+
+    const runAgentDomCommand = (event: Event) => {
+      if (handledAgentDomEventsRef.current.has(event)) {
+        return;
+      }
+
+      handledAgentDomEventsRef.current.add(event);
+      const payload = parseAgentDomCommandPayload((event as CustomEvent).detail);
+      const commandId = payload?.id ?? `agent_cmd_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      if (!payload) {
+        publishAgentDomResult(commandId, {
+          ok: false,
+          message: `${AGENT_CONTROL_COMMAND_EVENT} detail must include a command object or JSON payload.`,
+          state: getAgentSnapshot(),
+        });
+        return;
+      }
+
+      void runAgentCommand(payload.command as AgentCommand)
+        .then((result) => publishAgentDomResult(commandId, result))
+        .catch((error: unknown) => {
+          publishAgentDomResult(commandId, {
+            ok: false,
+            message: error instanceof Error ? error.message : 'Agent command failed.',
+            state: getAgentSnapshot(),
+          });
+        });
+    };
+
     const agentApi = {
       version: '1.0',
       getState: getAgentSnapshot,
@@ -1687,11 +1760,19 @@ export default function App() {
       value: agentApi,
     });
 
-    window.dispatchEvent(new CustomEvent('assetmaster-agent-ready', {
-      detail: window.assetMasterAgent.getState(),
+    const readyPayload = publishAgentDomState();
+    window.addEventListener(AGENT_CONTROL_COMMAND_EVENT, runAgentDomCommand);
+    document.addEventListener(AGENT_CONTROL_COMMAND_EVENT, runAgentDomCommand);
+    window.dispatchEvent(new CustomEvent(AGENT_CONTROL_READY_EVENT, {
+      detail: readyPayload,
+    }));
+    document.dispatchEvent(new CustomEvent(AGENT_CONTROL_READY_EVENT, {
+      detail: readyPayload,
     }));
 
     return () => {
+      window.removeEventListener(AGENT_CONTROL_COMMAND_EVENT, runAgentDomCommand);
+      document.removeEventListener(AGENT_CONTROL_COMMAND_EVENT, runAgentDomCommand);
       if (window.assetMasterAgent === agentApi) {
         delete window.assetMasterAgent;
       }
@@ -1777,6 +1858,10 @@ export default function App() {
             data-agent-control="ready"
             data-agent-api="assetMasterAgent"
             data-agent-version="1.0"
+            data-agent-command-event={AGENT_CONTROL_COMMAND_EVENT}
+            data-agent-result-event={AGENT_CONTROL_RESULT_EVENT}
+            data-agent-state-element={AGENT_CONTROL_STATE_ELEMENT_ID}
+            data-agent-result-element={AGENT_CONTROL_RESULT_ELEMENT_ID}
             data-agent-actions="readState,setTool,setFeather,setSnapRadius,clearSelection,toggleSidebar,openCollageStudio,openAnimationStudio,closeOverlays,zoomIn,zoomOut,zoomFit,zoom100,requestUpload,exportLibrary,animationUndo,animationRedo,animationSetEraser,animationSetEraserRadius,animationEraseStroke,animationSetFrame"
             className="hidden lg:flex items-center gap-1.5 rounded-lg border border-cyan-800/70 bg-cyan-950/30 px-3 py-2 text-xs font-semibold text-cyan-200"
             title={`window.assetMasterAgent is available. ${lastAgentCommandMessage}`}

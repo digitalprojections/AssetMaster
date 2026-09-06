@@ -18,11 +18,29 @@
       "name": "window.assetMasterAgent",
       "version": "1.0",
       "ready_event": "assetmaster-agent-ready",
+      "command_event": "assetmaster-agent-command",
+      "result_event": "assetmaster-agent-result",
       "state_method": "window.assetMasterAgent.getState()",
       "capabilities_method": "window.assetMasterAgent.getCapabilities()",
       "run_method": "window.assetMasterAgent.run(command)",
+      "event_command_detail": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Optional caller-supplied command identifier echoed by the result event."
+          },
+          "command": {
+            "type": "object",
+            "description": "Same command object accepted by window.assetMasterAgent.run(command)."
+          }
+        },
+        "required": ["command"]
+      },
       "dom_hooks": {
         "ready": "[data-agent-control=\"ready\"]",
+        "state": "#assetmaster-agent-state",
+        "result": "#assetmaster-agent-result",
         "actions": "[data-agent-action]",
         "tools": "[data-agent-tool]"
       }

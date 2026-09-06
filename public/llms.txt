@@ -36,6 +36,10 @@ AssetMaster exposes a browser-session control bridge after the JavaScript app lo
 - State method: `window.assetMasterAgent.getState()`
 - Capability method: `window.assetMasterAgent.getCapabilities()`
 - Command method: `window.assetMasterAgent.run(command)`
+- DOM command event: dispatch `assetmaster-agent-command` with `{ "id": "...", "command": { "action": "readState" } }`
+- DOM result event: `assetmaster-agent-result`
+- DOM state snapshot: `#assetmaster-agent-state`
+- DOM latest result: `#assetmaster-agent-result`
 - DOM action hooks: `[data-agent-action]`
 - DOM tool hooks: `[data-agent-tool]`
 
