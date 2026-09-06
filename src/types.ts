@@ -35,6 +35,8 @@ export interface AnimationEraseStroke {
   id: string;
   points: Point[];
   radius: number;
+  sourceSliceX?: number;
+  sourceSliceY?: number;
 }
 
 export interface AnimationFrame {

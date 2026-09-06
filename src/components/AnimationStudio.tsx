@@ -68,6 +68,8 @@ import {
   appendPointToEraseStroke,
   clampFrameEraserRadius,
   createAnimationEraseStroke,
+  getAdjustedEraseStrokePoints,
+  getFrameImagePointFromRenderedRect,
 } from '../utils/animationFrameEraser';
 
 type DetectedSpriteComponent = {
@@ -180,6 +182,7 @@ export default function AnimationStudio({
   const [activeEraseStrokePoints, setActiveEraseStrokePoints] = useState<Point[]>([]);
   const isDrawingEraseStrokeRef = useRef<boolean>(false);
   const activeEraseStrokePointsRef = useRef<Point[]>([]);
+  const activeFrameImageRef = useRef<HTMLImageElement | null>(null);
 
   // Canvas ref for generating sub-frame slices
   const sliceCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -306,7 +309,8 @@ export default function AnimationStudio({
 
   const applyEraseStrokesToFrameUrl = async (
     thumbnailUrl: string,
-    eraseStrokes: AnimationFrame['eraseStrokes']
+    eraseStrokes: AnimationFrame['eraseStrokes'],
+    currentSlice: { sliceX?: number; sliceY?: number } = {}
   ): Promise<string> => {
     if (!eraseStrokes?.length) {
       return thumbnailUrl;
@@ -333,14 +337,19 @@ export default function AnimationStudio({
         return;
       }
 
+      const adjustedPoints = getAdjustedEraseStrokePoints(stroke, currentSlice);
+      if (adjustedPoints.length === 0) {
+        return;
+      }
+
       ctx.lineWidth = stroke.radius * 2;
       ctx.beginPath();
-      ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
-      stroke.points.slice(1).forEach((point) => {
+      ctx.moveTo(adjustedPoints[0].x, adjustedPoints[0].y);
+      adjustedPoints.slice(1).forEach((point) => {
         ctx.lineTo(point.x, point.y);
       });
-      if (stroke.points.length === 1) {
-        ctx.lineTo(stroke.points[0].x + 0.01, stroke.points[0].y + 0.01);
+      if (adjustedPoints.length === 1) {
+        ctx.lineTo(adjustedPoints[0].x + 0.01, adjustedPoints[0].y + 0.01);
       }
       ctx.stroke();
     });
@@ -349,8 +358,13 @@ export default function AnimationStudio({
     return canvas.toDataURL('image/png');
   };
 
+  const getFrameSourceSlice = (frame: AnimationFrame) => ({
+    sliceX: frame.sliceX ?? frame.originalSliceX ?? 0,
+    sliceY: frame.sliceY ?? frame.originalSliceY ?? 0,
+  });
+
   const loadEffectiveFrameImage = async (frame: AnimationFrame): Promise<HTMLImageElement> => (
-    loadImageElement(await applyEraseStrokesToFrameUrl(frame.thumbnailUrl, frame.eraseStrokes))
+    loadImageElement(await applyEraseStrokesToFrameUrl(frame.thumbnailUrl, frame.eraseStrokes, getFrameSourceSlice(frame)))
   );
 
   const groupAxisValues = (values: number[], tolerance: number): number[][] => {
@@ -1200,7 +1214,7 @@ export default function AnimationStudio({
           height: frame.sliceH ?? project.height,
         };
         const url = createSegmentImage(workspaceImage, segment.path, frameBounds, segment.feather);
-        void applyEraseStrokesToFrameUrl(url, frame.eraseStrokes).then(resolve);
+        void applyEraseStrokesToFrameUrl(url, frame.eraseStrokes, { sliceX: sx, sliceY: sy }).then(resolve);
         return;
       }
 
@@ -1216,7 +1230,7 @@ export default function AnimationStudio({
             sx, sy, canvas.width, canvas.height,
             0, 0, canvas.width, canvas.height
           );
-          void applyEraseStrokesToFrameUrl(canvas.toDataURL('image/png'), frame.eraseStrokes).then(resolve);
+          void applyEraseStrokesToFrameUrl(canvas.toDataURL('image/png'), frame.eraseStrokes, { sliceX: sx, sliceY: sy }).then(resolve);
         } else {
           resolve(frame.thumbnailUrl);
         }
@@ -1346,9 +1360,10 @@ export default function AnimationStudio({
 
     const frameIndex = activeFrameIndex;
     const frame = project.frames[frameIndex];
-    const nextStroke = createAnimationEraseStroke(strokePoints, radius);
+    const currentSlice = getFrameSourceSlice(frame);
+    const nextStroke = createAnimationEraseStroke(strokePoints, radius, undefined, currentSlice);
     const nextEraseStrokes = [...(frame.eraseStrokes ?? []), nextStroke];
-    const nextThumbnailUrl = await applyEraseStrokesToFrameUrl(frame.thumbnailUrl, [nextStroke]);
+    const nextThumbnailUrl = await applyEraseStrokesToFrameUrl(frame.thumbnailUrl, [nextStroke], currentSlice);
 
     applyProjectEdit((prev) => {
       const frames = [...prev.frames];
@@ -1366,6 +1381,22 @@ export default function AnimationStudio({
     frame: AnimationFrame
   ): Point | null => {
     const stageRect = event.currentTarget.getBoundingClientRect();
+    const renderedFrameImage = activeFrameImageRef.current;
+    if (renderedFrameImage) {
+      const imageRect = renderedFrameImage.getBoundingClientRect();
+      const imageSize = {
+        width: renderedFrameImage.naturalWidth || renderedFrameImage.width,
+        height: renderedFrameImage.naturalHeight || renderedFrameImage.height,
+      };
+      if (imageRect.width > 0 && imageRect.height > 0 && imageSize.width > 0 && imageSize.height > 0) {
+        return getFrameImagePointFromRenderedRect(
+          { x: event.clientX, y: event.clientY },
+          imageRect,
+          imageSize
+        );
+      }
+    }
+
     const projectX = (event.clientX - stageRect.left) / previewZoom;
     const projectY = (event.clientY - stageRect.top) / previewZoom;
     const fallbackWidth = frame.sliceW ?? frame.originalSliceW ?? project.width;
@@ -2932,6 +2963,7 @@ export default function AnimationStudio({
                 {/* 3. CORE ACTIVE FRAME */}
                 <div className="absolute inset-0 flex items-center justify-center">
                   <img
+                    ref={activeFrameImageRef}
                     src={project.frames[activeFrameIndex].thumbnailUrl}
                     alt={`Frame ${activeFrameIndex}`}
                     className="object-contain"
