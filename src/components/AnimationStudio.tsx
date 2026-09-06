@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { SavedSegment, AnimationFrame, AnimationProject, AnimationStudioProjectFile } from '../types';
+import { SavedSegment, AnimationFrame, AnimationProject, AnimationStudioProjectFile, Point } from '../types';
 import {
   Play,
   Pause,
@@ -64,6 +64,11 @@ import {
   redoAnimationProjectHistory,
   undoAnimationProjectHistory,
 } from '../utils/animationHistory';
+import {
+  appendPointToEraseStroke,
+  clampFrameEraserRadius,
+  createAnimationEraseStroke,
+} from '../utils/animationFrameEraser';
 
 type DetectedSpriteComponent = {
   minX: number;
@@ -139,6 +144,11 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
   const [isExtractingVideoFrames, setIsExtractingVideoFrames] = useState<boolean>(false);
   const [videoImportMessage, setVideoImportMessage] = useState<string>('Videos up to 3 seconds become editable PNG frames.');
   const [videoSourceSeconds, setVideoSourceSeconds] = useState<number | null>(null);
+  const [isFrameEraserActive, setIsFrameEraserActive] = useState<boolean>(false);
+  const [frameEraserRadius, setFrameEraserRadius] = useState<number>(12);
+  const [activeEraseStrokePoints, setActiveEraseStrokePoints] = useState<Point[]>([]);
+  const isDrawingEraseStrokeRef = useRef<boolean>(false);
+  const activeEraseStrokePointsRef = useRef<Point[]>([]);
 
   // Canvas ref for generating sub-frame slices
   const sliceCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -262,6 +272,55 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
       img.src = src;
     });
   };
+
+  const applyEraseStrokesToFrameUrl = async (
+    thumbnailUrl: string,
+    eraseStrokes: AnimationFrame['eraseStrokes']
+  ): Promise<string> => {
+    if (!eraseStrokes?.length) {
+      return thumbnailUrl;
+    }
+
+    const img = await loadImageElement(thumbnailUrl);
+    const canvas = document.createElement('canvas');
+    canvas.width = img.width;
+    canvas.height = img.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      return thumbnailUrl;
+    }
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0);
+    ctx.save();
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    eraseStrokes.forEach((stroke) => {
+      if (stroke.points.length === 0) {
+        return;
+      }
+
+      ctx.lineWidth = stroke.radius * 2;
+      ctx.beginPath();
+      ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
+      stroke.points.slice(1).forEach((point) => {
+        ctx.lineTo(point.x, point.y);
+      });
+      if (stroke.points.length === 1) {
+        ctx.lineTo(stroke.points[0].x + 0.01, stroke.points[0].y + 0.01);
+      }
+      ctx.stroke();
+    });
+
+    ctx.restore();
+    return canvas.toDataURL('image/png');
+  };
+
+  const loadEffectiveFrameImage = async (frame: AnimationFrame): Promise<HTMLImageElement> => (
+    loadImageElement(await applyEraseStrokesToFrameUrl(frame.thumbnailUrl, frame.eraseStrokes))
+  );
 
   const groupAxisValues = (values: number[], tolerance: number): number[][] => {
     if (values.length === 0) return [];
@@ -602,6 +661,17 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
     return () => clearInterval(timer);
   }, [isPlaying, project.fps, project.frames.length, project.loop]);
 
+  useEffect(() => {
+    if (!isPlaying) {
+      return;
+    }
+
+    setIsFrameEraserActive(false);
+    setActiveEraseStrokePoints([]);
+    activeEraseStrokePointsRef.current = [];
+    isDrawingEraseStrokeRef.current = false;
+  }, [isPlaying]);
+
   // If frame index goes out of bounds when frames are deleted
   useEffect(() => {
     if (project.frames.length === 0) {
@@ -614,6 +684,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
 
   const activeSegment = savedSegments.find((s) => s.id === selectedSegmentId);
   const hasActiveFrame = project.frames.length > 0 && Boolean(project.frames[activeFrameIndex]);
+  const activeFrame = hasActiveFrame ? project.frames[activeFrameIndex] : null;
   const normalizedSourceSearch = sourceSearch.trim().toLowerCase();
   const filteredSegments = savedSegments.filter((segment) => {
     const matchesFilter = isVisibleForSegmentSourceFilter(segment, sourceFilter);
@@ -634,7 +705,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
     .filter(Boolean) as SavedSegment[];
   const canUndoProjectEdit = projectHistory.past.length > 0;
   const canRedoProjectEdit = projectHistory.future.length > 0;
-  const canRemoveActiveFrame = hasActiveFrame && !isPlaying;
+  const canUseFrameEraser = hasActiveFrame && !isPlaying;
   const stageToolButtonClass = 'h-10 w-10 rounded-lg border border-slate-800 bg-slate-950/90 text-slate-300 shadow-lg shadow-slate-950/30 backdrop-blur flex items-center justify-center transition-all hover:bg-slate-900 hover:text-white disabled:cursor-not-allowed disabled:opacity-35';
   const animationViewTools = (
     <div className="absolute right-3 top-3 z-10 flex gap-2 rounded-xl border border-slate-800/80 bg-slate-950/70 p-1.5 shadow-xl shadow-slate-950/30 backdrop-blur lg:right-4 lg:top-1/2 lg:-translate-y-1/2 lg:flex-col">
@@ -660,14 +731,34 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
       </button>
       <button
         type="button"
-        onClick={() => removeFrameAt(activeFrameIndex)}
-        disabled={!canRemoveActiveFrame}
-        className={`${stageToolButtonClass} hover:border-rose-500/40 hover:text-rose-300`}
-        title={isPlaying ? 'Pause before removing a frame' : 'Remove frame'}
-        aria-label="Remove active animation frame"
+        onClick={() => {
+          setIsFrameEraserActive((prev) => !prev);
+          setIsPlaying(false);
+          setActiveEraseStrokePoints([]);
+          activeEraseStrokePointsRef.current = [];
+          isDrawingEraseStrokeRef.current = false;
+        }}
+        disabled={!canUseFrameEraser}
+        className={`${stageToolButtonClass} ${isFrameEraserActive ? 'border-rose-400/70 bg-rose-500/15 text-rose-200' : 'hover:border-rose-500/40 hover:text-rose-300'}`}
+        title={isPlaying ? 'Pause before erasing frame pixels' : 'Erase pixels from frame'}
+        aria-label="Erase pixels from active animation frame"
+        aria-pressed={isFrameEraserActive}
       >
         <Eraser className="h-4 w-4" />
       </button>
+      {isFrameEraserActive && (
+        <input
+          type="range"
+          min="2"
+          max="40"
+          step="1"
+          value={frameEraserRadius}
+          onChange={(event) => setFrameEraserRadius(clampFrameEraserRadius(parseInt(event.target.value, 10)))}
+          className="h-10 w-16 accent-rose-400 lg:h-16 lg:w-10 lg:[writing-mode:vertical-lr]"
+          title="Eraser size"
+          aria-label="Frame eraser size"
+        />
+      )}
     </div>
   );
   const previewGuideControls = (
@@ -1074,7 +1165,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
           height: frame.sliceH ?? project.height,
         };
         const url = createSegmentImage(workspaceImage, segment.path, frameBounds, segment.feather);
-        resolve(url);
+        void applyEraseStrokesToFrameUrl(url, frame.eraseStrokes).then(resolve);
         return;
       }
 
@@ -1090,7 +1181,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
             sx, sy, canvas.width, canvas.height,
             0, 0, canvas.width, canvas.height
           );
-          resolve(canvas.toDataURL('image/png'));
+          void applyEraseStrokesToFrameUrl(canvas.toDataURL('image/png'), frame.eraseStrokes).then(resolve);
         } else {
           resolve(frame.thumbnailUrl);
         }
@@ -1213,6 +1304,97 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
     }, nextActiveFrameIndex);
   };
 
+  const getFramePixelPointFromPointer = (
+    event: React.PointerEvent<HTMLDivElement>,
+    frame: AnimationFrame
+  ): Point | null => {
+    const stageRect = event.currentTarget.getBoundingClientRect();
+    const projectX = (event.clientX - stageRect.left) / previewZoom;
+    const projectY = (event.clientY - stageRect.top) / previewZoom;
+    const fallbackWidth = frame.sliceW ?? frame.originalSliceW ?? project.width;
+    const fallbackHeight = frame.sliceH ?? frame.originalSliceH ?? project.height;
+    const pivot = {
+      x: frame.pivotX ?? frame.originalPivotX ?? Math.round(fallbackWidth / 2),
+      y: frame.pivotY ?? frame.originalPivotY ?? Math.round(fallbackHeight / 2),
+    };
+    const imageX = (projectX - project.width / 2 - frame.offsetX) / frame.scale + pivot.x;
+    const imageY = (projectY - project.height / 2 - frame.offsetY) / frame.scale + pivot.y;
+
+    if (imageX < 0 || imageY < 0 || imageX > fallbackWidth || imageY > fallbackHeight) {
+      return null;
+    }
+
+    return {
+      x: imageX,
+      y: imageY,
+    };
+  };
+
+  const startFrameEraseStroke = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!isFrameEraserActive || !hasActiveFrame || isPlaying) {
+      return;
+    }
+
+    const frame = project.frames[activeFrameIndex];
+    const point = getFramePixelPointFromPointer(event, frame);
+    if (!point) {
+      return;
+    }
+
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    isDrawingEraseStrokeRef.current = true;
+    activeEraseStrokePointsRef.current = [point];
+    setActiveEraseStrokePoints([point]);
+  };
+
+  const extendFrameEraseStroke = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!isDrawingEraseStrokeRef.current || !isFrameEraserActive || !hasActiveFrame || isPlaying) {
+      return;
+    }
+
+    const frame = project.frames[activeFrameIndex];
+    const point = getFramePixelPointFromPointer(event, frame);
+    if (!point) {
+      return;
+    }
+
+    event.preventDefault();
+    const nextPoints = appendPointToEraseStroke(activeEraseStrokePointsRef.current, point);
+    activeEraseStrokePointsRef.current = nextPoints;
+    setActiveEraseStrokePoints(nextPoints);
+  };
+
+  const finishFrameEraseStroke = async () => {
+    if (!isDrawingEraseStrokeRef.current) {
+      return;
+    }
+
+    isDrawingEraseStrokeRef.current = false;
+    const strokePoints = activeEraseStrokePointsRef.current;
+    activeEraseStrokePointsRef.current = [];
+    setActiveEraseStrokePoints([]);
+    if (!hasActiveFrame || strokePoints.length === 0) {
+      return;
+    }
+
+    const frameIndex = activeFrameIndex;
+    const frame = project.frames[frameIndex];
+    const nextStroke = createAnimationEraseStroke(strokePoints, frameEraserRadius);
+    const nextEraseStrokes = [...(frame.eraseStrokes ?? []), nextStroke];
+    const nextThumbnailUrl = await applyEraseStrokesToFrameUrl(frame.thumbnailUrl, [nextStroke]);
+
+    applyProjectEdit((prev) => {
+      const frames = [...prev.frames];
+      frames[frameIndex] = normalizeFrame({
+        ...frames[frameIndex],
+        thumbnailUrl: nextThumbnailUrl,
+        eraseStrokes: nextEraseStrokes,
+      }, prev.width, prev.height);
+      return { ...prev, frames, updatedAt: Date.now() };
+    });
+  };
+
   // Move frame in timeline (reordering)
   const shiftFrameOrder = (index: number, direction: 'left' | 'right') => {
     const targetIdx = direction === 'left' ? index - 1 : index + 1;
@@ -1255,6 +1437,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
         sliceX: newSliceX,
         sliceY: newSliceY,
         thumbnailUrl: newUrl,
+        eraseStrokes: [],
       };
       return { ...prev, frames: newFrames.map((item) => normalizeFrame(item, prev.width, prev.height)), updatedAt: Date.now() };
     });
@@ -1285,6 +1468,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
         sliceX: newSliceX,
         sliceY: newSliceY,
         thumbnailUrl: newUrl,
+        eraseStrokes: [],
       };
     });
 
@@ -1306,7 +1490,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
     try {
       const alignedFrames = await Promise.all(
         project.frames.map(async (frame) => {
-          const img = await loadImageElement(frame.thumbnailUrl);
+          const img = await loadEffectiveFrameImage(frame);
           const opaqueBounds = getOpaqueBoundsFromImage(img);
 
           if (!opaqueBounds) {
@@ -1370,9 +1554,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
 
       const loadAndRenderFrame = (frame: AnimationFrame, index: number): Promise<void> => {
         return new Promise((resolve) => {
-          const img = new Image();
-          img.crossOrigin = 'anonymous';
-          img.onload = () => {
+          loadEffectiveFrameImage(frame).then((img) => {
             outCtx.clearRect(0, 0, project.width, project.height);
             
             // Draw with alignment transforms applied
@@ -1390,8 +1572,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
             const base64Data = frameDataUrl.split(',')[1];
             folder?.file(`${project.name}_centered_${String(index + 1).padStart(3, '0')}.png`, base64Data, { base64: true });
             resolve();
-          };
-          img.src = frame.thumbnailUrl;
+          });
         });
       };
 
@@ -1431,9 +1612,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
 
       const renderFrameToStrip = (frame: AnimationFrame, index: number): Promise<void> => {
         return new Promise((resolve) => {
-          const img = new Image();
-          img.crossOrigin = 'anonymous';
-          img.onload = () => {
+          loadEffectiveFrameImage(frame).then((img) => {
             const startX = index * project.width;
             
             sheetCtx.save();
@@ -1445,8 +1624,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
             sheetCtx.drawImage(img, -pivot.x, -pivot.y);
             sheetCtx.restore();
             resolve();
-          };
-          img.src = frame.thumbnailUrl;
+          });
         });
       };
 
@@ -1630,7 +1808,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
       return null;
     }
 
-    const img = await loadImageElement(frame.thumbnailUrl);
+    const img = await loadEffectiveFrameImage(frame);
     const opaqueBounds = getOpaqueBoundsFromImage(img);
     if (!opaqueBounds) {
       return frame;
@@ -1676,6 +1854,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
       sliceY: frame.sliceY !== undefined ? frame.sliceY + opaqueBounds.minY : frame.sliceY,
       sliceW: trimWidth,
       sliceH: trimHeight,
+      eraseStrokes: [],
       trimmedBounds: {
         x: opaqueBounds.minX,
         y: opaqueBounds.minY,
@@ -1717,7 +1896,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
       return frame.thumbnailUrl;
     }
 
-    const img = await loadImageElement(frame.thumbnailUrl);
+    const img = await loadEffectiveFrameImage(frame);
     const pivot = getFramePivot(frame, img.width, img.height);
 
     ctx.clearRect(0, 0, project.width, project.height);
@@ -1822,7 +2001,7 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
 
       for (let i = 0; i < project.frames.length; i += 1) {
         const frame = project.frames[i];
-        const img = await loadImageElement(frame.thumbnailUrl);
+        const img = await loadEffectiveFrameImage(frame);
         const pivot = getFramePivot(frame, img.width, img.height);
 
         sheetCtx.save();
@@ -1913,6 +2092,13 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
       if (hasActiveFrame && (event.key === 'Delete' || event.key === 'Backspace')) {
         event.preventDefault();
         removeFrameAt(activeFrameIndex);
+        return;
+      }
+
+      if (hasActiveFrame && event.key.toLowerCase() === 'e') {
+        event.preventDefault();
+        setIsFrameEraserActive((prev) => !prev);
+        setIsPlaying(false);
         return;
       }
 
@@ -2577,7 +2763,12 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
               </div>
             ) : (
               <div
-                className="relative bg-checkerboard border border-slate-800 rounded-xl shadow-2xl flex items-center justify-center transition-all"
+                className={`relative bg-checkerboard border border-slate-800 rounded-xl shadow-2xl flex items-center justify-center transition-all ${isFrameEraserActive && !isPlaying ? 'cursor-crosshair touch-none' : ''}`}
+                onPointerDown={startFrameEraseStroke}
+                onPointerMove={extendFrameEraseStroke}
+                onPointerUp={() => void finishFrameEraseStroke()}
+                onPointerCancel={() => void finishFrameEraseStroke()}
+                onPointerLeave={() => void finishFrameEraseStroke()}
                 style={{
                   width: `${project.width * previewZoom}px`,
                   height: `${project.height * previewZoom}px`,
@@ -2648,6 +2839,26 @@ export default function AnimationStudio({ savedSegments, workspaceImage, onCreat
                     {/* Center Ring target */}
                     <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-6 h-6 border border-dashed border-red-500/35 rounded-full" />
                   </div>
+                )}
+                {activeFrame && activeEraseStrokePoints.length > 0 && (
+                  <svg
+                    className="absolute inset-0 pointer-events-none"
+                    viewBox={`0 0 ${project.width} ${project.height}`}
+                    aria-hidden="true"
+                  >
+                    <polyline
+                      points={activeEraseStrokePoints.map((point) => {
+                        const pivotX = activeFrame.pivotX ?? activeFrame.originalPivotX ?? Math.round((activeFrame.sliceW ?? activeFrame.originalSliceW ?? project.width) / 2);
+                        const pivotY = activeFrame.pivotY ?? activeFrame.originalPivotY ?? Math.round((activeFrame.sliceH ?? activeFrame.originalSliceH ?? project.height) / 2);
+                        return `${(point.x - pivotX) * activeFrame.scale + project.width / 2 + activeFrame.offsetX},${(point.y - pivotY) * activeFrame.scale + project.height / 2 + activeFrame.offsetY}`;
+                      }).join(' ')}
+                      fill="none"
+                      stroke="rgba(251,113,133,0.7)"
+                      strokeWidth={frameEraserRadius * 2 * activeFrame.scale}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
                 )}
               </div>
             )}

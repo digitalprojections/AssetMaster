@@ -17,6 +17,7 @@ import './emptyWorkspace.test';
 import './agentControl.test';
 import './agentDiscoverability.test';
 import './animationHistory.test';
+import './animationFrameEraser.test';
 import './videoFrames.test';
 import './backgroundKeying.test';
 import './segmentFilters.test';

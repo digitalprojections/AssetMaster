@@ -31,6 +31,12 @@ export interface SavedSegment {
 
 export type SelectionTool = 'select' | 'rectangle' | 'lasso' | 'magnetic';
 
+export interface AnimationEraseStroke {
+  id: string;
+  points: Point[];
+  radius: number;
+}
+
 export interface AnimationFrame {
   id: string;
   thumbnailUrl: string; // Transparent PNG of this specific frame
@@ -52,6 +58,7 @@ export interface AnimationFrame {
   originalPivotX?: number; // original pivot X before user adjustments
   originalPivotY?: number; // original pivot Y before user adjustments
   trimmedBounds?: RectBounds; // Last transparent trim rect applied to this frame
+  eraseStrokes?: AnimationEraseStroke[]; // Per-frame transparent mask edits
 }
 
 export interface AnimationProject {
