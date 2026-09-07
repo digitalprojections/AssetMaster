@@ -1392,6 +1392,7 @@ export default function App() {
   // Saved Segments handlers
   const handleDeleteSegment = (id: string) => {
     updateSavedSegments(savedSegments.filter((s) => s.id !== id));
+    setPreviewSegment((current) => (current?.id === id ? null : current));
   };
 
   const handleRenameSegment = (id: string, newName: string) => {
@@ -2527,6 +2528,7 @@ export default function App() {
         {showCollageStudio && (
           <CollageStudio
             savedSegments={savedSegments}
+            onDeleteSavedSegment={handleDeleteSegment}
             onClose={closeCollageStudio}
           />
         )}
@@ -2540,6 +2542,7 @@ export default function App() {
             workspaceImage={image}
             onCreateSegment={createCleanedSegment}
             onCreateSegments={addGeneratedSegments}
+            onDeleteSavedSegment={handleDeleteSegment}
             onRegisterAgentControls={registerAnimationAgentControls}
             onClose={closeAnimationStudio}
           />

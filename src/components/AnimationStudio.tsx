@@ -128,6 +128,7 @@ interface AnimationStudioProps {
   workspaceImage?: HTMLImageElement | null;
   onCreateSegment?: (sourceSegment: SavedSegment, updatedUrl: string) => SavedSegment | undefined;
   onCreateSegments?: (segments: SavedSegment[]) => void;
+  onDeleteSavedSegment?: (id: string) => void;
   onRegisterAgentControls?: (controls: AnimationStudioAgentControls | null) => void;
   onClose: () => void;
 }
@@ -137,6 +138,7 @@ export default function AnimationStudio({
   workspaceImage,
   onCreateSegment,
   onCreateSegments,
+  onDeleteSavedSegment,
   onRegisterAgentControls,
   onClose,
 }: AnimationStudioProps) {
@@ -1301,6 +1303,20 @@ export default function AnimationStudio({
 
   const removeQueuedSegment = (segmentId: string) => {
     setCleanupQueue((prev) => prev.filter((queuedId) => queuedId !== segmentId));
+  };
+
+  const deleteSourceSegment = (segment: SavedSegment) => {
+    if (!onDeleteSavedSegment) return;
+
+    onDeleteSavedSegment(segment.id);
+    delete segmentImageCacheRef.current[segment.id];
+    setCleanupQueue((prev) => prev.filter((queuedId) => queuedId !== segment.id));
+
+    if (selectedSegmentId === segment.id) {
+      const nextSegment = filteredSegments.find((candidate) => candidate.id !== segment.id)
+        ?? savedSegments.find((candidate) => candidate.id !== segment.id);
+      setSelectedSegmentId(nextSegment?.id ?? '');
+    }
   };
 
   // Nudge selected frame position offsets or source slicing rectangle
@@ -2675,56 +2691,71 @@ export default function AnimationStudio({
                       ) : filteredSegments.map((seg) => {
                         const isSelected = seg.id === selectedSegmentId;
                         return (
-                          <button
+                          <div
                             key={seg.id}
-                            type="button"
-                            onClick={() => {
-                              setSelectedSegmentId(seg.id);
-                              setIsDropdownOpen(false);
-                            }}
                             className={`w-full px-3 py-2 flex items-center space-x-2.5 hover:bg-indigo-600/10 text-left transition-all cursor-pointer ${
                               isSelected ? 'bg-indigo-950/40 text-indigo-400' : 'text-slate-300'
                             }`}
                           >
-                            <div className="w-10 h-10 bg-checkerboard rounded border border-slate-800 flex items-center justify-center overflow-hidden shrink-0">
-                              <img
-                                src={seg.thumbnailUrl}
-                                alt=""
-                                className="max-w-[90%] max-h-[90%] object-contain"
-                                referrerPolicy="no-referrer"
-                              />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-xs font-semibold truncate text-slate-200">{seg.name}</p>
-                              <div className="flex items-center gap-2 mt-0.5">
-                                <p className="text-[10px] text-slate-500 font-mono">{seg.bounds.width} × {seg.bounds.height} px</p>
-                                <span
-                                  className={`text-[9px] px-1.5 py-0.5 rounded-full border ${
-                                    seg.backgroundRemovedAt
-                                      ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
-                                      : 'border-amber-500/30 bg-amber-500/10 text-amber-300'
-                                  }`}
-                                >
-                                  {getSegmentCleanupStatusLabel(seg)}
-                                </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedSegmentId(seg.id);
+                                setIsDropdownOpen(false);
+                              }}
+                              className="flex min-w-0 flex-1 items-center space-x-2.5 text-left"
+                            >
+                              <div className="w-10 h-10 bg-checkerboard rounded border border-slate-800 flex items-center justify-center overflow-hidden shrink-0">
+                                <img
+                                  src={seg.thumbnailUrl}
+                                  alt=""
+                                  className="max-w-[90%] max-h-[90%] object-contain"
+                                  referrerPolicy="no-referrer"
+                                />
                               </div>
-                              {seg.tags && seg.tags.length > 0 && (
-                                <div className="mt-1 flex flex-wrap gap-1">
-                                  {seg.tags.slice(0, 3).map((tag) => (
-                                    <span
-                                      key={`${seg.id}-${tag}`}
-                                      className="rounded-full border border-indigo-500/20 bg-indigo-500/10 px-1.5 py-0.5 text-[9px] text-indigo-200"
-                                    >
-                                      {tag}
-                                    </span>
-                                  ))}
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs font-semibold truncate text-slate-200">{seg.name}</p>
+                                <div className="flex items-center gap-2 mt-0.5">
+                                  <p className="text-[10px] text-slate-500 font-mono">{seg.bounds.width} × {seg.bounds.height} px</p>
+                                  <span
+                                    className={`text-[9px] px-1.5 py-0.5 rounded-full border ${
+                                      seg.backgroundRemovedAt
+                                        ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                                        : 'border-amber-500/30 bg-amber-500/10 text-amber-300'
+                                    }`}
+                                  >
+                                    {getSegmentCleanupStatusLabel(seg)}
+                                  </span>
                                 </div>
-                              )}
-                            </div>
+                                {seg.tags && seg.tags.length > 0 && (
+                                  <div className="mt-1 flex flex-wrap gap-1">
+                                    {seg.tags.slice(0, 3).map((tag) => (
+                                      <span
+                                        key={`${seg.id}-${tag}`}
+                                        className="rounded-full border border-indigo-500/20 bg-indigo-500/10 px-1.5 py-0.5 text-[9px] text-indigo-200"
+                                      >
+                                        {tag}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            </button>
                             {isSelected && (
                               <Check className="h-4 w-4 text-indigo-400 shrink-0" />
                             )}
-                          </button>
+                            {onDeleteSavedSegment && (
+                              <button
+                                type="button"
+                                onClick={() => deleteSourceSegment(seg)}
+                                className="h-8 w-8 shrink-0 rounded-lg border border-slate-800 bg-slate-950 text-slate-500 transition-all hover:border-rose-900/60 hover:bg-rose-950/40 hover:text-rose-300"
+                                title="Delete Cutout"
+                                aria-label={`Delete ${seg.name}`}
+                              >
+                                <Trash2 className="mx-auto h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </div>
                         );
                       })}
                     </div>
@@ -2764,14 +2795,26 @@ export default function AnimationStudio({
                       <Sparkles className="h-3.5 w-3.5" />
                       <span>{activeSegment.backgroundRemovedAt ? 'Refine Cleaned Frame' : 'Clean / Polish Background'}</span>
                     </button>
-                    <button
-                      onClick={reassessSelectedSegment}
-                      disabled={isAutoDetectingGrid}
-                      className="w-full py-2 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-800 disabled:text-slate-500 border border-slate-800 text-slate-300 rounded-xl text-xs font-semibold flex items-center justify-center space-x-1.5 transition-all cursor-pointer"
-                    >
-                      <RefreshCw className={`h-3.5 w-3.5 text-slate-500 ${isAutoDetectingGrid ? 'animate-spin' : ''}`} />
-                      <span>{isAutoDetectingGrid ? 'Reassessing...' : 'Reassess Selected Cutout'}</span>
-                    </button>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={reassessSelectedSegment}
+                        disabled={isAutoDetectingGrid}
+                        className="w-full py-2 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-800 disabled:text-slate-500 border border-slate-800 text-slate-300 rounded-xl text-xs font-semibold flex items-center justify-center space-x-1.5 transition-all cursor-pointer"
+                      >
+                        <RefreshCw className={`h-3.5 w-3.5 text-slate-500 ${isAutoDetectingGrid ? 'animate-spin' : ''}`} />
+                        <span>{isAutoDetectingGrid ? 'Reassessing...' : 'Reassess'}</span>
+                      </button>
+                      {onDeleteSavedSegment && (
+                        <button
+                          type="button"
+                          onClick={() => deleteSourceSegment(activeSegment)}
+                          className="w-full py-2 bg-rose-950/30 hover:bg-rose-950/50 border border-rose-900/50 text-rose-300 rounded-xl text-xs font-semibold flex items-center justify-center space-x-1.5 transition-all cursor-pointer"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          <span>Delete</span>
+                        </button>
+                      )}
+                    </div>
                     <div className="rounded-xl border border-slate-800 bg-slate-900/30 p-3 space-y-2">
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center space-x-2">

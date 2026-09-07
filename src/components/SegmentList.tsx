@@ -382,6 +382,7 @@ export default function SegmentList({
                       onClick={() => onDelete(segment.id)}
                       className="p-1.5 bg-slate-900 hover:bg-rose-950/40 border border-slate-800 hover:border-rose-900/60 text-slate-400 hover:text-rose-400 rounded-lg transition-all cursor-pointer"
                       title="Delete saved cutout"
+                      aria-label={`Delete ${segment.name}`}
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>

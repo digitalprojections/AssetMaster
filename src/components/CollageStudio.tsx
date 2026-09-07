@@ -95,6 +95,7 @@ const TRANSFORM_HANDLE_POSITIONS = [
 
 type CollageStudioProps = {
   savedSegments: SavedSegment[];
+  onDeleteSavedSegment?: (id: string) => void;
   onClose: () => void;
 };
 
@@ -339,7 +340,7 @@ const serializeSaveSignature = (payload: {
   },
 });
 
-export default function CollageStudio({ savedSegments, onClose }: CollageStudioProps) {
+export default function CollageStudio({ savedSegments, onDeleteSavedSegment, onClose }: CollageStudioProps) {
   const [project, setProject] = useState<CollageProject>(createDefaultProject);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [stageZoom, setStageZoom] = useState<number>(0.7);
@@ -576,10 +577,6 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
   }, []);
 
   useEffect(() => {
-    if (!customFonts.length) {
-      return;
-    }
-
     void setIndexedDbRecord(COLLAGE_FONT_LIBRARY_STORAGE_KEY, customFonts).catch((error) => {
       console.error('Failed to persist collage font library', error);
     });
@@ -1126,6 +1123,19 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
       items: prev.items.filter((item) => item.id !== selectedItem.id),
     }));
     setSelectedItemId(null);
+  };
+
+  const removeItemById = (itemId: string) => {
+    setProject((prev) => ({
+      ...prev,
+      updatedAt: Date.now(),
+      items: prev.items.filter((item) => item.id !== itemId),
+    }));
+    setSelectedItemId((current) => (current === itemId ? null : current));
+  };
+
+  const deleteSavedCutoutFromSourceList = (segment: SavedSegment) => {
+    onDeleteSavedSegment?.(segment.id);
   };
 
   const reorderSelectedItem = (mode: 'forward' | 'backward' | 'front' | 'back') => {
@@ -1689,6 +1699,25 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
     } finally {
       event.target.value = '';
     }
+  };
+
+  const removeCustomFont = (fontId: string) => {
+    const fontToRemove = customFonts.find((font) => font.id === fontId);
+    if (!fontToRemove) {
+      return;
+    }
+
+    setCustomFonts((prev) => prev.filter((font) => font.id !== fontId));
+    registeredFontFamiliesRef.current.delete(fontToRemove.family);
+    setProject((prev) => ({
+      ...prev,
+      updatedAt: Date.now(),
+      items: prev.items.map((item) => (
+        item.kind === 'text' && item.fontFamily === fontToRemove.family
+          ? normalizeItem({ ...item, fontFamily: 'Arial' })
+          : item
+      )),
+    }));
   };
 
   const renderLayerPreview = (item: CollageItem, sizeClassName: string) => {
@@ -2291,28 +2320,44 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
                     </div>
                   ) : (
                     filteredSegments.map((segment) => (
-                      <button
+                      <div
                         key={segment.id}
-                        onClick={() => addSegmentToProject(segment)}
                         className="w-full rounded-lg border border-slate-800 bg-slate-900/70 p-1.5 flex items-center gap-2 text-left hover:border-orange-500/40 hover:bg-slate-900 transition-all cursor-pointer"
                       >
-                        <div className="h-11 w-11 shrink-0 rounded-md border border-slate-800 bg-checkerboard flex items-center justify-center overflow-hidden">
-                          <img src={segment.thumbnailUrl} alt={segment.name} className="max-h-full max-w-full object-contain" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="text-[11px] font-semibold text-slate-200 truncate">{segment.name}</p>
-                          <p className="text-[10px] text-slate-500 font-mono">
-                            {segment.bounds.width} x {segment.bounds.height}
-                          </p>
-                          <div className="mt-1 flex flex-wrap gap-1">
-                            {(segment.tags ?? []).slice(0, 3).map((tag) => (
-                              <span key={tag} className="rounded bg-slate-950 px-1.5 py-0.5 text-[8px] text-slate-400 border border-slate-800">
-                                {tag}
-                              </span>
-                            ))}
+                        <button
+                          type="button"
+                          onClick={() => addSegmentToProject(segment)}
+                          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                        >
+                          <div className="h-11 w-11 shrink-0 rounded-md border border-slate-800 bg-checkerboard flex items-center justify-center overflow-hidden">
+                            <img src={segment.thumbnailUrl} alt={segment.name} className="max-h-full max-w-full object-contain" />
                           </div>
-                        </div>
-                      </button>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[11px] font-semibold text-slate-200 truncate">{segment.name}</p>
+                            <p className="text-[10px] text-slate-500 font-mono">
+                              {segment.bounds.width} x {segment.bounds.height}
+                            </p>
+                            <div className="mt-1 flex flex-wrap gap-1">
+                              {(segment.tags ?? []).slice(0, 3).map((tag) => (
+                                <span key={tag} className="rounded bg-slate-950 px-1.5 py-0.5 text-[8px] text-slate-400 border border-slate-800">
+                                  {tag}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        </button>
+                        {onDeleteSavedSegment && (
+                          <button
+                            type="button"
+                            onClick={() => deleteSavedCutoutFromSourceList(segment)}
+                            className="h-9 w-9 shrink-0 rounded-md border border-slate-800 bg-slate-950 text-slate-500 transition-all hover:border-rose-900/60 hover:bg-rose-950/40 hover:text-rose-300"
+                            title="Delete Cutout"
+                            aria-label={`Delete ${segment.name}`}
+                          >
+                            <Trash2 className="mx-auto h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
                     ))
                   )}
                 </div>
@@ -2339,25 +2384,39 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
                     [...project.items].map((item, index) => {
                       const isSelected = item.id === selectedItemId;
                       return (
-                        <button
+                        <div
                           key={item.id}
-                          onClick={() => setSelectedItemId(item.id)}
                           className={`w-full rounded-lg border p-1.5 flex items-center gap-2 text-left transition-all cursor-pointer ${
                             isSelected
                               ? 'border-orange-500 bg-orange-500/10'
                               : 'border-slate-800 bg-slate-900/70 hover:border-slate-700'
                           }`}
                         >
-                          {renderLayerPreview(item, 'h-9 w-9 shrink-0')}
-                          <div className="min-w-0 flex-1">
-                            <p className="text-[11px] font-semibold text-slate-200 truncate">{item.name}</p>
-                            <p className="text-[10px] text-slate-500">{getLayerKindLabel(item)} • Layer {index + 1}</p>
-                          </div>
-                          <div className="flex items-center gap-1">
-                            {item.locked ? <Lock className="h-3 w-3 text-amber-400" /> : null}
-                            {item.visible ? <Eye className="h-3 w-3 text-slate-500" /> : <EyeOff className="h-3 w-3 text-slate-600" />}
-                          </div>
-                        </button>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedItemId(item.id)}
+                            className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                          >
+                            {renderLayerPreview(item, 'h-9 w-9 shrink-0')}
+                            <div className="min-w-0 flex-1">
+                              <p className="text-[11px] font-semibold text-slate-200 truncate">{item.name}</p>
+                              <p className="text-[10px] text-slate-500">{getLayerKindLabel(item)} • Layer {index + 1}</p>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              {item.locked ? <Lock className="h-3 w-3 text-amber-400" /> : null}
+                              {item.visible ? <Eye className="h-3 w-3 text-slate-500" /> : <EyeOff className="h-3 w-3 text-slate-600" />}
+                            </div>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => removeItemById(item.id)}
+                            className="h-8 w-8 shrink-0 rounded-md border border-slate-800 bg-slate-950 text-slate-500 transition-all hover:border-rose-900/60 hover:bg-rose-950/40 hover:text-rose-300"
+                            title="Delete Layer"
+                            aria-label={`Delete ${item.name}`}
+                          >
+                            <Trash2 className="mx-auto h-3.5 w-3.5" />
+                          </button>
+                        </div>
                       );
                     })
                   )}
@@ -2806,6 +2865,28 @@ export default function CollageStudio({ savedSegments, onClose }: CollageStudioP
                         <span>Import Fonts</span>
                         {customFonts.length > 0 ? <span className="text-slate-500">({customFonts.length})</span> : null}
                       </button>
+                      {customFonts.length > 0 && (
+                        <div className="space-y-1 rounded-md border border-slate-800 bg-slate-950 p-2">
+                          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Imported Fonts</div>
+                          {customFonts.map((font) => (
+                            <div key={font.id} className="flex items-center gap-2 rounded border border-slate-800 bg-slate-900 px-2 py-1.5">
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-[11px] font-semibold text-slate-200">{font.family}</p>
+                                <p className="truncate text-[9px] text-slate-500">{font.fileName}</p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => removeCustomFont(font.id)}
+                                className="h-7 w-7 shrink-0 rounded border border-slate-800 bg-slate-950 text-slate-500 transition-all hover:border-rose-900/60 hover:bg-rose-950/40 hover:text-rose-300"
+                                title="Delete Font"
+                                aria-label={`Delete ${font.family}`}
+                              >
+                                <Trash2 className="mx-auto h-3 w-3" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                       <div className="grid grid-cols-2 gap-2">
                         <label className="space-y-1">
                           <span className="text-[10px] text-slate-500">Text Color</span>
