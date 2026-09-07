@@ -45,6 +45,8 @@ export interface AnimationFrame {
   offsetX: number; // visual nudge X
   offsetY: number; // visual nudge Y
   scale: number; // visual zoom (defaults to 1.0)
+  flipX?: boolean; // Mirror horizontally around the frame pivot
+  flipY?: boolean; // Mirror vertically around the frame pivot
   duration: number; // frame duration multiplier or ms
   pivotX?: number; // Pixel pivot from the frame's top-left corner
   pivotY?: number; // Pixel pivot from the frame's top-left corner

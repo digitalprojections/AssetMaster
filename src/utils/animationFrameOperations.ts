@@ -14,6 +14,8 @@ export type AnimationFrameTransformPatch = {
   offsetX?: number;
   offsetY?: number;
   scale?: number;
+  flipX?: boolean;
+  flipY?: boolean;
   pivotX?: number;
   pivotY?: number;
 };
@@ -235,6 +237,8 @@ export const applyAnimationFrameTransformPatch = (
     offsetX: patch.offsetX ?? frame.offsetX,
     offsetY: patch.offsetY ?? frame.offsetY,
     scale: patch.scale === undefined ? frame.scale : clampAnimationFrameScale(patch.scale),
+    flipX: patch.flipX ?? frame.flipX,
+    flipY: patch.flipY ?? frame.flipY,
     pivotX: patch.pivotX ?? frame.pivotX,
     pivotY: patch.pivotY ?? frame.pivotY,
   }))

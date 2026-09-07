@@ -95,12 +95,16 @@ const transformed = applyAnimationFrameTransformPatch(frames, [0, 2], {
   offsetX: 8,
   offsetY: -4,
   scale: 4,
+  flipX: true,
+  flipY: true,
   pivotX: 11,
   pivotY: 12,
 });
 assert.equal(transformed[0].offsetX, 8);
 assert.equal(transformed[0].offsetY, -4);
 assert.equal(transformed[0].scale, 3);
+assert.equal(transformed[0].flipX, true);
+assert.equal(transformed[0].flipY, true);
 assert.equal(transformed[0].pivotX, 11);
 assert.equal(transformed[0].pivotY, 12);
 assert.equal(transformed[1], frames[1]);

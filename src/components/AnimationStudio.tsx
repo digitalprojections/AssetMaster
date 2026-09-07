@@ -32,6 +32,8 @@ import {
   RotateCcw,
   ArrowRight,
   Columns,
+  FlipHorizontal,
+  FlipVertical,
   Square,
   Upload,
   Tags,
@@ -209,6 +211,8 @@ export default function AnimationStudio({
 
     return {
       ...frame,
+      flipX: Boolean(frame.flipX),
+      flipY: Boolean(frame.flipY),
       pivotX,
       pivotY,
       originalPivotX: frame.originalPivotX ?? pivotX,
@@ -1367,6 +1371,59 @@ export default function AnimationStudio({
     });
   };
 
+  const toggleActiveFrameFlip = (axis: 'x' | 'y') => {
+    if (project.frames.length === 0) return;
+
+    applyProjectEdit((prev) => {
+      const newFrames = [...prev.frames];
+      const target = { ...newFrames[activeFrameIndex] };
+      if (axis === 'x') {
+        target.flipX = !target.flipX;
+      } else {
+        target.flipY = !target.flipY;
+      }
+      newFrames[activeFrameIndex] = target;
+      return { ...prev, frames: newFrames };
+    });
+  };
+
+  const getFrameTransform = (frame: AnimationFrame, offsetMultiplier = previewZoom) => (
+    `translate(${frame.offsetX * offsetMultiplier}px, ${frame.offsetY * offsetMultiplier}px) scale(${frame.scale}) scaleX(${frame.flipX ? -1 : 1}) scaleY(${frame.flipY ? -1 : 1})`
+  );
+
+  const activeFrameFlipControls = hasActiveFrame ? (
+    <div className="grid grid-cols-2 gap-2">
+      <button
+        type="button"
+        onClick={() => toggleActiveFrameFlip('x')}
+        title="Flip Horizontally"
+        aria-pressed={Boolean(project.frames[activeFrameIndex].flipX)}
+        className={`py-2 border rounded-xl text-[10px] font-semibold cursor-pointer flex items-center justify-center space-x-1.5 ${
+          project.frames[activeFrameIndex].flipX
+            ? 'border-sky-500/50 bg-sky-500/15 text-sky-200'
+            : 'border-slate-800 bg-slate-900 text-slate-300 hover:bg-slate-800'
+        }`}
+      >
+        <FlipHorizontal className="h-3.5 w-3.5" />
+        <span>Horizontal</span>
+      </button>
+      <button
+        type="button"
+        onClick={() => toggleActiveFrameFlip('y')}
+        title="Flip Vertically"
+        aria-pressed={Boolean(project.frames[activeFrameIndex].flipY)}
+        className={`py-2 border rounded-xl text-[10px] font-semibold cursor-pointer flex items-center justify-center space-x-1.5 ${
+          project.frames[activeFrameIndex].flipY
+            ? 'border-sky-500/50 bg-sky-500/15 text-sky-200'
+            : 'border-slate-800 bg-slate-900 text-slate-300 hover:bg-slate-800'
+        }`}
+      >
+        <FlipVertical className="h-3.5 w-3.5" />
+        <span>Vertical</span>
+      </button>
+    </div>
+  ) : null;
+
   // Delete a frame from timeline
   const removeFrameAt = (index: number) => {
     const nextActiveFrameIndex = getActiveFrameIndexAfterAnimationFrameRemoval(project.frames.length, activeFrameIndex, index);
@@ -1614,6 +1671,8 @@ export default function AnimationStudio({
         offsetX: 0,
         offsetY: 0,
         scale: 1.0,
+        flipX: false,
+        flipY: false,
         pivotX: newFrames[frameIndex].originalPivotX,
         pivotY: newFrames[frameIndex].originalPivotY,
         sliceX: newSliceX,
@@ -1645,6 +1704,8 @@ export default function AnimationStudio({
         offsetX: 0,
         offsetY: 0,
         scale: 1.0,
+        flipX: false,
+        flipY: false,
         pivotX: frame.originalPivotX,
         pivotY: frame.originalPivotY,
         sliceX: newSliceX,
@@ -1743,7 +1804,7 @@ export default function AnimationStudio({
             outCtx.save();
             // Translate to center point
             outCtx.translate(project.width / 2 + frame.offsetX, project.height / 2 + frame.offsetY);
-            outCtx.scale(frame.scale, frame.scale);
+            outCtx.scale(frame.flipX ? -frame.scale : frame.scale, frame.flipY ? -frame.scale : frame.scale);
             const pivot = getFramePivot(frame, img.width, img.height);
             
             // Draw image centered at 0,0 relative
@@ -1800,7 +1861,7 @@ export default function AnimationStudio({
             sheetCtx.save();
             // Offset drawing matrix to frame slot center
             sheetCtx.translate(startX + project.width / 2 + frame.offsetX, project.height / 2 + frame.offsetY);
-            sheetCtx.scale(frame.scale, frame.scale);
+            sheetCtx.scale(frame.flipX ? -frame.scale : frame.scale, frame.flipY ? -frame.scale : frame.scale);
             const pivot = getFramePivot(frame, img.width, img.height);
             
             sheetCtx.drawImage(img, -pivot.x, -pivot.y);
@@ -2084,7 +2145,7 @@ export default function AnimationStudio({
     ctx.clearRect(0, 0, project.width, project.height);
     ctx.save();
     ctx.translate(project.width / 2 + frame.offsetX, project.height / 2 + frame.offsetY);
-    ctx.scale(frame.scale, frame.scale);
+    ctx.scale(frame.flipX ? -frame.scale : frame.scale, frame.flipY ? -frame.scale : frame.scale);
     ctx.drawImage(img, -pivot.x, -pivot.y);
     ctx.restore();
 
@@ -2158,6 +2219,8 @@ export default function AnimationStudio({
           offsetX: frame.offsetX,
           offsetY: frame.offsetY,
           scale: frame.scale,
+          flipX: Boolean(frame.flipX),
+          flipY: Boolean(frame.flipY),
         },
         pivot: {
           x: frame.pivotX ?? frame.originalPivotX ?? Math.round(fallbackWidth / 2),
@@ -2188,7 +2251,7 @@ export default function AnimationStudio({
 
         sheetCtx.save();
         sheetCtx.translate(i * project.width + project.width / 2 + frame.offsetX, project.height / 2 + frame.offsetY);
-        sheetCtx.scale(frame.scale, frame.scale);
+        sheetCtx.scale(frame.flipX ? -frame.scale : frame.scale, frame.flipY ? -frame.scale : frame.scale);
         sheetCtx.drawImage(img, -pivot.x, -pivot.y);
         sheetCtx.restore();
       }
@@ -2996,7 +3059,7 @@ export default function AnimationStudio({
                       className="object-contain"
                       style={{
                         transformOrigin: `${project.frames[activeFrameIndex - 1].pivotX ?? 0}px ${project.frames[activeFrameIndex - 1].pivotY ?? 0}px`,
-                        transform: `translate(${project.frames[activeFrameIndex - 1].offsetX * previewZoom}px, ${project.frames[activeFrameIndex - 1].offsetY * previewZoom}px) scale(${project.frames[activeFrameIndex - 1].scale})`,
+                        transform: getFrameTransform(project.frames[activeFrameIndex - 1]),
                         maxWidth: '100%',
                         maxHeight: '100%',
                       }}
@@ -3016,7 +3079,7 @@ export default function AnimationStudio({
                       className="object-contain"
                       style={{
                         transformOrigin: `${project.frames[activeFrameIndex + 1].pivotX ?? 0}px ${project.frames[activeFrameIndex + 1].pivotY ?? 0}px`,
-                        transform: `translate(${project.frames[activeFrameIndex + 1].offsetX * previewZoom}px, ${project.frames[activeFrameIndex + 1].offsetY * previewZoom}px) scale(${project.frames[activeFrameIndex + 1].scale})`,
+                        transform: getFrameTransform(project.frames[activeFrameIndex + 1]),
                         maxWidth: '100%',
                         maxHeight: '100%',
                       }}
@@ -3033,7 +3096,7 @@ export default function AnimationStudio({
                     className="object-contain"
                     style={{
                       transformOrigin: `${project.frames[activeFrameIndex].pivotX ?? 0}px ${project.frames[activeFrameIndex].pivotY ?? 0}px`,
-                      transform: `translate(${project.frames[activeFrameIndex].offsetX * previewZoom}px, ${project.frames[activeFrameIndex].offsetY * previewZoom}px) scale(${project.frames[activeFrameIndex].scale})`,
+                      transform: getFrameTransform(project.frames[activeFrameIndex]),
                       maxWidth: '100%',
                       maxHeight: '100%',
                     }}
@@ -3254,6 +3317,8 @@ export default function AnimationStudio({
                       <div>Visual X: <span className="font-bold text-emerald-400">{project.frames[activeFrameIndex].offsetX}px</span></div>
                       <div>Visual Y: <span className="font-bold text-emerald-400">{project.frames[activeFrameIndex].offsetY}px</span></div>
                       <div className="col-span-2">Zoom / Scale: <span className="font-bold text-indigo-400">{Math.round(project.frames[activeFrameIndex].scale * 100)}%</span></div>
+                      <div>Horizontal Flip: <span className="font-bold text-sky-300">{project.frames[activeFrameIndex].flipX ? 'On' : 'Off'}</span></div>
+                      <div>Vertical Flip: <span className="font-bold text-sky-300">{project.frames[activeFrameIndex].flipY ? 'On' : 'Off'}</span></div>
                       <div>Pivot X: <span className="font-bold text-amber-300">{project.frames[activeFrameIndex].pivotX}px</span></div>
                       <div>Pivot Y: <span className="font-bold text-amber-300">{project.frames[activeFrameIndex].pivotY}px</span></div>
                     </div>
@@ -3367,6 +3432,8 @@ export default function AnimationStudio({
                     className="w-full accent-indigo-500 h-1 cursor-pointer"
                   />
                 </div>
+
+                {activeFrameFlipControls}
               </>
             )}
           </div>
@@ -3402,7 +3469,7 @@ export default function AnimationStudio({
                           alt={`Frame ${idx + 1}`}
                           className="max-w-[85%] max-h-[85%] object-contain"
                           style={{
-                            transform: `translate(${frame.offsetX * 0.4}px, ${frame.offsetY * 0.4}px) scale(${frame.scale})`,
+                            transform: getFrameTransform(frame, 0.4),
                           }}
                         />
                         
@@ -3659,6 +3726,8 @@ export default function AnimationStudio({
                     <div>Visual X: <span className="font-bold text-emerald-400">{project.frames[activeFrameIndex].offsetX}px</span></div>
                     <div>Visual Y: <span className="font-bold text-emerald-400">{project.frames[activeFrameIndex].offsetY}px</span></div>
                     <div className="col-span-2">Zoom / Scale: <span className="font-bold text-indigo-400">{Math.round(project.frames[activeFrameIndex].scale * 100)}%</span></div>
+                    <div>Horizontal Flip: <span className="font-bold text-sky-300">{project.frames[activeFrameIndex].flipX ? 'On' : 'Off'}</span></div>
+                    <div>Vertical Flip: <span className="font-bold text-sky-300">{project.frames[activeFrameIndex].flipY ? 'On' : 'Off'}</span></div>
                     <div>Pivot X: <span className="font-bold text-amber-300">{project.frames[activeFrameIndex].pivotX}px</span></div>
                     <div>Pivot Y: <span className="font-bold text-amber-300">{project.frames[activeFrameIndex].pivotY}px</span></div>
                   </div>
@@ -3786,6 +3855,8 @@ export default function AnimationStudio({
                   className="w-full accent-indigo-500 h-1 cursor-pointer"
                 />
               </div>
+
+              {activeFrameFlipControls}
             </div>
           )}
           {project.frames.length > 0 && (
