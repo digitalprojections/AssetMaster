@@ -59,11 +59,16 @@ import {
 } from '../utils/videoFrames';
 import {
   createAnimationProjectHistory,
-  getActiveFrameIndexAfterFrameRemoval,
   pushAnimationProjectHistory,
   redoAnimationProjectHistory,
   undoAnimationProjectHistory,
 } from '../utils/animationHistory';
+import {
+  clampAnimationFrameScale,
+  getActiveFrameIndexAfterAnimationFrameRemoval,
+  removeAnimationFrameAt,
+  shiftAnimationFrame,
+} from '../utils/animationFrameOperations';
 import {
   appendPointToEraseStroke,
   clampFrameEraserRadius,
@@ -1338,7 +1343,7 @@ export default function AnimationStudio({
     applyProjectEdit((prev) => {
       const newFrames = [...prev.frames];
       const target = { ...newFrames[activeFrameIndex] };
-      target.scale = Math.max(0.1, Math.min(3.0, scaleValue));
+      target.scale = clampAnimationFrameScale(scaleValue);
       newFrames[activeFrameIndex] = target;
       return { ...prev, frames: newFrames };
     });
@@ -1346,10 +1351,9 @@ export default function AnimationStudio({
 
   // Delete a frame from timeline
   const removeFrameAt = (index: number) => {
-    const nextActiveFrameIndex = getActiveFrameIndexAfterFrameRemoval(project.frames.length, activeFrameIndex, index);
+    const nextActiveFrameIndex = getActiveFrameIndexAfterAnimationFrameRemoval(project.frames.length, activeFrameIndex, index);
     applyProjectEdit((prev) => {
-      const newFrames = prev.frames.filter((_, idx) => idx !== index);
-      return { ...prev, frames: newFrames };
+      return { ...prev, frames: removeAnimationFrameAt(prev.frames, index) };
     }, nextActiveFrameIndex);
   };
 
@@ -1542,16 +1546,12 @@ export default function AnimationStudio({
 
   // Move frame in timeline (reordering)
   const shiftFrameOrder = (index: number, direction: 'left' | 'right') => {
-    const targetIdx = direction === 'left' ? index - 1 : index + 1;
-    if (targetIdx < 0 || targetIdx >= project.frames.length) return;
+    const result = shiftAnimationFrame(project.frames, index, direction);
+    if (result.frames[index]?.id === project.frames[index]?.id && result.activeFrameIndex === index) return;
 
     applyProjectEdit((prev) => {
-      const newFrames = [...prev.frames];
-      const temp = newFrames[index];
-      newFrames[index] = newFrames[targetIdx];
-      newFrames[targetIdx] = temp;
-      return { ...prev, frames: newFrames };
-    }, targetIdx);
+      return { ...prev, frames: shiftAnimationFrame(prev.frames, index, direction).frames };
+    }, result.activeFrameIndex);
   };
 
   // Reset all adjustments for active frame
