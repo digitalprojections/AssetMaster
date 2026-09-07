@@ -2376,7 +2376,7 @@ export default function AnimationStudio({
   }, [activeFrameIndex, activeSegment, hasActiveFrame, project.frames.length, showBgRemover]);
 
   return (
-    <div id="animation-studio-container" className="fixed inset-0 h-[100dvh] overflow-hidden bg-slate-950 text-slate-100 font-sans z-40 flex flex-col">
+    <div id="animation-studio-container" className="professional-tools-ui fixed inset-0 h-[100dvh] overflow-hidden bg-slate-950 text-slate-100 font-sans z-40 flex flex-col">
       {/* Invisible canvas for slices */}
       <canvas ref={sliceCanvasRef} className="hidden" />
       <input
