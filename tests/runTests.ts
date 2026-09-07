@@ -19,6 +19,7 @@ import './agentDiscoverability.test';
 import './animationHistory.test';
 import './animationFrameEraser.test';
 import './animationFrameOperations.test';
+import './animationStudioTimeline.test';
 import './videoFrames.test';
 import './backgroundKeying.test';
 import './segmentFilters.test';

@@ -8,6 +8,7 @@ import {
   ChevronDown,
   Plus,
   Trash2,
+  Copy,
   Download,
   Archive,
   Grid,
@@ -65,6 +66,7 @@ import {
 } from '../utils/animationHistory';
 import {
   clampAnimationFrameScale,
+  duplicateAnimationFrameAt,
   getActiveFrameIndexAfterAnimationFrameRemoval,
   removeAnimationFrameAt,
   shiftAnimationFrame,
@@ -1355,6 +1357,25 @@ export default function AnimationStudio({
     applyProjectEdit((prev) => {
       return { ...prev, frames: removeAnimationFrameAt(prev.frames, index) };
     }, nextActiveFrameIndex);
+  };
+
+  const duplicateFrameAt = (index: number) => {
+    const result = duplicateAnimationFrameAt(
+      project.frames,
+      index,
+      (sourceFrame) => `${sourceFrame.id}_copy_${Date.now()}`
+    );
+    if (result.frames.length === project.frames.length) return;
+
+    applyProjectEdit((prev) => ({
+      ...prev,
+      frames: duplicateAnimationFrameAt(
+        prev.frames,
+        index,
+        (sourceFrame) => `${sourceFrame.id}_copy_${Date.now()}`
+      ).frames,
+    }), result.activeFrameIndex);
+    setIsPlaying(false);
   };
 
   const applyEraseStrokeToActiveFrame = async (strokePoints: Point[], radius = frameEraserRadius) => {
@@ -3376,16 +3397,32 @@ export default function AnimationStudio({
                             </button>
                           )}
                         </div>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            removeFrameAt(idx);
-                          }}
-                          className="hover:text-rose-400 transition-colors"
-                          title="Delete Frame"
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </button>
+                        <div className="flex items-center space-x-1">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              duplicateFrameAt(idx);
+                            }}
+                            className="hover:text-emerald-400 transition-colors"
+                            title="Duplicate Frame"
+                            aria-label={`Duplicate frame ${idx + 1}`}
+                          >
+                            <Copy className="h-3 w-3" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              removeFrameAt(idx);
+                            }}
+                            className="hover:text-rose-400 transition-colors"
+                            title="Delete Frame"
+                            aria-label={`Delete frame ${idx + 1}`}
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        </div>
                       </div>
                     </div>
                   );
