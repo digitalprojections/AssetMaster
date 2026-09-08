@@ -3,8 +3,10 @@ import {
   appendPointToEraseStroke,
   clampFrameEraserRadius,
   createAnimationEraseStroke,
+  createSquareEraseSelectionPoints,
   getAdjustedEraseStrokePoints,
   getFrameImagePointFromRenderedRect,
+  getSquareEraseBounds,
 } from '../src/utils/animationFrameEraser';
 
 assert.equal(clampFrameEraserRadius(Number.NaN), 12);
@@ -22,6 +24,7 @@ const stroke = createAnimationEraseStroke([{ x: 1.2, y: 2.7 }], 5.4, 'erase_test
 assert.equal(stroke.id, 'erase_test');
 assert.deepEqual(stroke.points, [{ x: 1, y: 3 }]);
 assert.equal(stroke.radius, 5);
+assert.equal(stroke.shape, 'brush');
 
 const sourceAnchoredStroke = createAnimationEraseStroke(
   [{ x: 10, y: 15 }],
@@ -38,6 +41,28 @@ assert.deepEqual(
 assert.deepEqual(
   getAdjustedEraseStrokePoints(stroke, { sliceX: 24, sliceY: 2 }),
   stroke.points
+);
+
+assert.deepEqual(
+  createSquareEraseSelectionPoints({ x: 10, y: 10 }, { x: 18, y: 14 }),
+  [{ x: 10, y: 10 }, { x: 18, y: 18 }]
+);
+assert.deepEqual(
+  createSquareEraseSelectionPoints({ x: 10, y: 10 }, { x: 6, y: 15 }),
+  [{ x: 10, y: 10 }, { x: 5, y: 15 }]
+);
+
+const squareStroke = createAnimationEraseStroke(
+  createSquareEraseSelectionPoints({ x: 10, y: 10 }, { x: 18, y: 14 }),
+  8,
+  'square_erase_test',
+  { sliceX: 4, sliceY: 6 },
+  'square'
+);
+assert.equal(squareStroke.shape, 'square');
+assert.deepEqual(
+  getSquareEraseBounds(squareStroke, { sliceX: 6, sliceY: 3 }),
+  { x: 8, y: 13, width: 8, height: 8 }
 );
 
 assert.deepEqual(

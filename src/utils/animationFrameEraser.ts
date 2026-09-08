@@ -32,7 +32,8 @@ export const createAnimationEraseStroke = (
   points: Point[],
   radius: number,
   id = `erase_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-  sourceSlice: EraseStrokeSourceSlice = {}
+  sourceSlice: EraseStrokeSourceSlice = {},
+  shape: AnimationEraseStroke['shape'] = 'brush'
 ): AnimationEraseStroke => {
   const stroke: AnimationEraseStroke = {
     id,
@@ -41,6 +42,7 @@ export const createAnimationEraseStroke = (
       y: Math.round(point.y),
     })),
     radius: clampFrameEraserRadius(radius),
+    shape,
   };
 
   if (typeof sourceSlice.sliceX === 'number' && Number.isFinite(sourceSlice.sliceX)) {
@@ -51,6 +53,49 @@ export const createAnimationEraseStroke = (
   }
 
   return stroke;
+};
+
+export const createSquareEraseSelectionPoints = (
+  startPoint: Point,
+  currentPoint: Point,
+  minimumSize = 1
+): Point[] => {
+  const deltaX = currentPoint.x - startPoint.x;
+  const deltaY = currentPoint.y - startPoint.y;
+  const size = Math.max(Math.abs(deltaX), Math.abs(deltaY), minimumSize);
+  const directionX = deltaX < 0 ? -1 : 1;
+  const directionY = deltaY < 0 ? -1 : 1;
+
+  return [
+    startPoint,
+    {
+      x: startPoint.x + directionX * size,
+      y: startPoint.y + directionY * size,
+    },
+  ];
+};
+
+export const getSquareEraseBounds = (
+  stroke: AnimationEraseStroke,
+  currentSlice: EraseStrokeSourceSlice = {}
+) => {
+  const adjustedPoints = getAdjustedEraseStrokePoints(stroke, currentSlice);
+  if (adjustedPoints.length === 0) {
+    return null;
+  }
+
+  const startPoint = adjustedPoints[0];
+  const endPoint = adjustedPoints[1] ?? {
+    x: startPoint.x + stroke.radius,
+    y: startPoint.y + stroke.radius,
+  };
+
+  return {
+    x: Math.min(startPoint.x, endPoint.x),
+    y: Math.min(startPoint.y, endPoint.y),
+    width: Math.abs(endPoint.x - startPoint.x),
+    height: Math.abs(endPoint.y - startPoint.y),
+  };
 };
 
 export const getAdjustedEraseStrokePoints = (

@@ -77,9 +77,13 @@ import {
   appendPointToEraseStroke,
   clampFrameEraserRadius,
   createAnimationEraseStroke,
+  createSquareEraseSelectionPoints,
   getAdjustedEraseStrokePoints,
   getFrameImagePointFromRenderedRect,
+  getSquareEraseBounds,
 } from '../utils/animationFrameEraser';
+
+type FrameEraserMode = 'brush' | 'square';
 
 type DetectedSpriteComponent = {
   minX: number;
@@ -191,6 +195,7 @@ export default function AnimationStudio({
   const [videoImportMessage, setVideoImportMessage] = useState<string>('Videos up to 3 seconds become editable PNG frames.');
   const [videoSourceSeconds, setVideoSourceSeconds] = useState<number | null>(null);
   const [isFrameEraserActive, setIsFrameEraserActive] = useState<boolean>(false);
+  const [frameEraserMode, setFrameEraserMode] = useState<FrameEraserMode>('brush');
   const [frameEraserRadius, setFrameEraserRadius] = useState<number>(12);
   const [activeEraseStrokePoints, setActiveEraseStrokePoints] = useState<Point[]>([]);
   const isDrawingEraseStrokeRef = useRef<boolean>(false);
@@ -349,6 +354,16 @@ export default function AnimationStudio({
 
     eraseStrokes.forEach((stroke) => {
       if (stroke.points.length === 0) {
+        return;
+      }
+
+      if (stroke.shape === 'square') {
+        const bounds = getSquareEraseBounds(stroke, currentSlice);
+        if (!bounds || bounds.width <= 0 || bounds.height <= 0) {
+          return;
+        }
+
+        ctx.fillRect(bounds.x, bounds.y, bounds.width, bounds.height);
         return;
       }
 
@@ -810,18 +825,50 @@ export default function AnimationStudio({
         <Eraser className="h-4 w-4" />
       </button>
       {isFrameEraserActive && (
-        <input
-          data-agent-action="animationSetEraserRadius"
-          type="range"
-          min="2"
-          max="40"
-          step="1"
-          value={frameEraserRadius}
-          onChange={(event) => setFrameEraserRadius(clampFrameEraserRadius(parseInt(event.target.value, 10)))}
-          className="h-10 w-16 accent-rose-400 lg:h-16 lg:w-10 lg:[writing-mode:vertical-lr]"
-          title="Eraser size"
-          aria-label="Frame eraser size"
-        />
+        <>
+          <div className="flex rounded-lg border border-slate-800 bg-slate-950 p-0.5 lg:flex-col">
+            <button
+              type="button"
+              onClick={() => setFrameEraserMode('brush')}
+              className={`h-8 w-8 rounded-md flex items-center justify-center transition-all ${
+                frameEraserMode === 'brush'
+                  ? 'bg-rose-500/20 text-rose-200'
+                  : 'text-slate-400 hover:bg-slate-900 hover:text-white'
+              }`}
+              title="Freehand eraser"
+              aria-label="Use freehand frame eraser"
+              aria-pressed={frameEraserMode === 'brush'}
+            >
+              <Eraser className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setFrameEraserMode('square')}
+              className={`h-8 w-8 rounded-md flex items-center justify-center transition-all ${
+                frameEraserMode === 'square'
+                  ? 'bg-rose-500/20 text-rose-200'
+                  : 'text-slate-400 hover:bg-slate-900 hover:text-white'
+              }`}
+              title="Square selection eraser"
+              aria-label="Use square selection frame eraser"
+              aria-pressed={frameEraserMode === 'square'}
+            >
+              <Square className="h-3.5 w-3.5" />
+            </button>
+          </div>
+          <input
+            data-agent-action="animationSetEraserRadius"
+            type="range"
+            min="2"
+            max="40"
+            step="1"
+            value={frameEraserRadius}
+            onChange={(event) => setFrameEraserRadius(clampFrameEraserRadius(parseInt(event.target.value, 10)))}
+            className="h-10 w-16 accent-rose-400 lg:h-16 lg:w-10 lg:[writing-mode:vertical-lr]"
+            title={frameEraserMode === 'square' ? 'Minimum square size' : 'Eraser size'}
+            aria-label={frameEraserMode === 'square' ? 'Minimum square eraser size' : 'Frame eraser size'}
+          />
+        </>
       )}
     </div>
   );
@@ -1393,6 +1440,34 @@ export default function AnimationStudio({
     `translate(${frame.offsetX * offsetMultiplier}px, ${frame.offsetY * offsetMultiplier}px) scale(${frame.scale}) scaleX(${frame.flipX ? -1 : 1}) scaleY(${frame.flipY ? -1 : 1})`
   );
 
+  const getFramePreviewPoint = (frame: AnimationFrame, point: Point) => {
+    const pivotX = frame.pivotX ?? frame.originalPivotX ?? Math.round((frame.sliceW ?? frame.originalSliceW ?? project.width) / 2);
+    const pivotY = frame.pivotY ?? frame.originalPivotY ?? Math.round((frame.sliceH ?? frame.originalSliceH ?? project.height) / 2);
+    return {
+      x: (point.x - pivotX) * frame.scale + project.width / 2 + frame.offsetX,
+      y: (point.y - pivotY) * frame.scale + project.height / 2 + frame.offsetY,
+    };
+  };
+
+  const getFramePreviewSquareBounds = (frame: AnimationFrame, points: Point[]) => {
+    if (points.length === 0) {
+      return null;
+    }
+
+    const squarePoints = points.length === 1
+      ? createSquareEraseSelectionPoints(points[0], points[0], frameEraserRadius)
+      : points;
+    const startPoint = getFramePreviewPoint(frame, squarePoints[0]);
+    const endPoint = getFramePreviewPoint(frame, squarePoints[1]);
+
+    return {
+      x: Math.min(startPoint.x, endPoint.x),
+      y: Math.min(startPoint.y, endPoint.y),
+      width: Math.abs(endPoint.x - startPoint.x),
+      height: Math.abs(endPoint.y - startPoint.y),
+    };
+  };
+
   const activeFrameFlipControls = hasActiveFrame ? (
     <div className="grid grid-cols-2 gap-2">
       <button
@@ -1453,7 +1528,11 @@ export default function AnimationStudio({
     setIsPlaying(false);
   };
 
-  const applyEraseStrokeToActiveFrame = async (strokePoints: Point[], radius = frameEraserRadius) => {
+  const applyEraseStrokeToActiveFrame = async (
+    strokePoints: Point[],
+    radius = frameEraserRadius,
+    shape: FrameEraserMode = 'brush'
+  ) => {
     if (!hasActiveFrame || isPlaying || strokePoints.length === 0) {
       return;
     }
@@ -1461,7 +1540,7 @@ export default function AnimationStudio({
     const frameIndex = activeFrameIndex;
     const frame = project.frames[frameIndex];
     const currentSlice = getFrameSourceSlice(frame);
-    const nextStroke = createAnimationEraseStroke(strokePoints, radius, undefined, currentSlice);
+    const nextStroke = createAnimationEraseStroke(strokePoints, radius, undefined, currentSlice, shape);
     const nextEraseStrokes = [...(frame.eraseStrokes ?? []), nextStroke];
     const nextThumbnailUrl = await applyEraseStrokesToFrameUrl(frame.thumbnailUrl, [nextStroke], currentSlice);
 
@@ -1548,7 +1627,9 @@ export default function AnimationStudio({
     }
 
     event.preventDefault();
-    const nextPoints = appendPointToEraseStroke(activeEraseStrokePointsRef.current, point);
+    const nextPoints = frameEraserMode === 'square'
+      ? createSquareEraseSelectionPoints(activeEraseStrokePointsRef.current[0] ?? point, point, frameEraserRadius)
+      : appendPointToEraseStroke(activeEraseStrokePointsRef.current, point);
     activeEraseStrokePointsRef.current = nextPoints;
     setActiveEraseStrokePoints(nextPoints);
   };
@@ -1566,7 +1647,11 @@ export default function AnimationStudio({
       return;
     }
 
-    await applyEraseStrokeToActiveFrame(strokePoints);
+    const normalizedStrokePoints = frameEraserMode === 'square' && strokePoints.length === 1
+      ? createSquareEraseSelectionPoints(strokePoints[0], strokePoints[0], frameEraserRadius)
+      : strokePoints;
+
+    await applyEraseStrokeToActiveFrame(normalizedStrokePoints, frameEraserRadius, frameEraserMode);
   };
 
   useEffect(() => {
@@ -3125,18 +3210,36 @@ export default function AnimationStudio({
                     viewBox={`0 0 ${project.width} ${project.height}`}
                     aria-hidden="true"
                   >
-                    <polyline
-                      points={activeEraseStrokePoints.map((point) => {
-                        const pivotX = activeFrame.pivotX ?? activeFrame.originalPivotX ?? Math.round((activeFrame.sliceW ?? activeFrame.originalSliceW ?? project.width) / 2);
-                        const pivotY = activeFrame.pivotY ?? activeFrame.originalPivotY ?? Math.round((activeFrame.sliceH ?? activeFrame.originalSliceH ?? project.height) / 2);
-                        return `${(point.x - pivotX) * activeFrame.scale + project.width / 2 + activeFrame.offsetX},${(point.y - pivotY) * activeFrame.scale + project.height / 2 + activeFrame.offsetY}`;
-                      }).join(' ')}
-                      fill="none"
-                      stroke="rgba(251,113,133,0.7)"
-                      strokeWidth={frameEraserRadius * 2 * activeFrame.scale}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
+                    {frameEraserMode === 'square' ? (() => {
+                      const bounds = getFramePreviewSquareBounds(activeFrame, activeEraseStrokePoints);
+                      if (!bounds) {
+                        return null;
+                      }
+
+                      return (
+                        <rect
+                          x={bounds.x}
+                          y={bounds.y}
+                          width={bounds.width}
+                          height={bounds.height}
+                          fill="rgba(251,113,133,0.28)"
+                          stroke="rgba(251,113,133,0.85)"
+                          strokeWidth={1.5}
+                        />
+                      );
+                    })() : (
+                      <polyline
+                        points={activeEraseStrokePoints.map((point) => {
+                          const previewPoint = getFramePreviewPoint(activeFrame, point);
+                          return `${previewPoint.x},${previewPoint.y}`;
+                        }).join(' ')}
+                        fill="none"
+                        stroke="rgba(251,113,133,0.7)"
+                        strokeWidth={frameEraserRadius * 2 * activeFrame.scale}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    )}
                   </svg>
                 )}
               </div>
