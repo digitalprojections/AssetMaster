@@ -41,7 +41,8 @@ import {
   ChevronDown,
   ChevronUp,
   Crown,
-  Bot
+  Bot,
+  Settings
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -73,6 +74,7 @@ const LEGACY_SEGMENTS_KEY = 'lasso_saved_segments';
 const LEGACY_INDEX_KEY = 'lasso_cutout_index';
 const LIBRARY_STATE_KEY = 'assetmaster.library.state.v1';
 const LIBRARY_BACKUPS_KEY = 'assetmaster.library.backups.v1';
+const COMPACT_CONTROLS_KEY = 'assetmaster.compactControls.v1';
 const MAX_LIBRARY_BACKUPS = 5;
 const ASSETMASTER_LOGO_SRC = `${import.meta.env.BASE_URL}logos/512x512_play_store_icon.png`;
 
@@ -134,6 +136,10 @@ export default function App() {
   const [mobileSidebarTab, setMobileSidebarTab] = useState<'settings' | 'cuts'>('cuts');
   const [isLeftToolbarCollapsed, setIsLeftToolbarCollapsed] = useState<boolean>(false);
   const [isLibraryHydrated, setIsLibraryHydrated] = useState<boolean>(false);
+  const [useCompactControls, setUseCompactControls] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return true;
+    return window.localStorage.getItem(COMPACT_CONTROLS_KEY) !== 'false';
+  });
   const hasLoadedImage = Boolean(image) && !isLoading;
   const [isMobileViewport, setIsMobileViewport] = useState<boolean>(false);
   const [isAdFree, setIsAdFree] = useState<boolean>(false);
@@ -194,6 +200,10 @@ export default function App() {
   useEffect(() => {
     void pageChangeAdGateRef.current?.warmUp();
   }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem(COMPACT_CONTROLS_KEY, useCompactControls ? 'true' : 'false');
+  }, [useCompactControls]);
 
   useEffect(() => {
     if (Capacitor.getPlatform() !== 'android') {
@@ -1796,7 +1806,10 @@ export default function App() {
   ]);
 
   return (
-    <div id="app-root" className="h-[100dvh] w-full flex flex-col bg-slate-950 text-slate-100 overflow-hidden font-sans select-none antialiased">
+    <div
+      id="app-root"
+      className={`${useCompactControls ? 'professional-tools-ui' : ''} h-[100dvh] w-full flex flex-col bg-slate-950 text-slate-100 overflow-hidden font-sans select-none antialiased`}
+    >
       {/* 1. Header Navigation Bar */}
       <header id="main-header" className="safe-area-top-bar min-h-16 border-b border-slate-800 bg-slate-950 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-2 md:gap-3 px-3 py-2 md:px-6 z-10 shrink-0">
         <div className="flex w-full items-center justify-between gap-3 md:w-auto md:min-w-0">
@@ -1870,6 +1883,22 @@ export default function App() {
             <Bot className="h-3.5 w-3.5" />
             <span>Agent ready</span>
           </span>
+
+          <button
+            type="button"
+            onClick={() => setUseCompactControls((current) => !current)}
+            aria-pressed={useCompactControls}
+            title="Toggle compact interface"
+            className={`flex items-center space-x-1 md:space-x-1.5 rounded-lg border px-3 py-2 text-xs font-semibold transition-all cursor-pointer ${
+              useCompactControls
+                ? 'border-sky-500/40 bg-sky-500/15 text-sky-200'
+                : 'border-slate-800 bg-slate-900 text-slate-300 hover:bg-slate-800'
+            }`}
+          >
+            <Settings className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Compact UI</span>
+            <span className="sm:hidden">Compact</span>
+          </button>
 
           {/* Open Collage Studio button */}
           <button
@@ -2529,6 +2558,7 @@ export default function App() {
           <CollageStudio
             savedSegments={savedSegments}
             onDeleteSavedSegment={handleDeleteSegment}
+            useCompactControls={useCompactControls}
             onClose={closeCollageStudio}
           />
         )}
@@ -2544,6 +2574,7 @@ export default function App() {
             onCreateSegments={addGeneratedSegments}
             onDeleteSavedSegment={handleDeleteSegment}
             onRegisterAgentControls={registerAnimationAgentControls}
+            useCompactControls={useCompactControls}
             onClose={closeAnimationStudio}
           />
         )}

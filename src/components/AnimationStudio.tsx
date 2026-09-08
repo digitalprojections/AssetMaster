@@ -101,7 +101,6 @@ type SegmentImageCacheEntry = {
 type SourceFilter = SegmentSourceFilter;
 
 const STUDIO_PROJECT_STORAGE_KEY = 'assetmaster.animationStudio.project.v1';
-const STUDIO_COMPACT_UI_STORAGE_KEY = 'assetmaster.animationStudio.compactControls.v1';
 
 export type AnimationStudioAgentSnapshot = {
   available: boolean;
@@ -133,6 +132,7 @@ interface AnimationStudioProps {
   onCreateSegments?: (segments: SavedSegment[]) => void;
   onDeleteSavedSegment?: (id: string) => void;
   onRegisterAgentControls?: (controls: AnimationStudioAgentControls | null) => void;
+  useCompactControls?: boolean;
   onClose: () => void;
 }
 
@@ -143,6 +143,7 @@ export default function AnimationStudio({
   onCreateSegments,
   onDeleteSavedSegment,
   onRegisterAgentControls,
+  useCompactControls = true,
   onClose,
 }: AnimationStudioProps) {
   // Current animation project
@@ -159,10 +160,6 @@ export default function AnimationStudio({
   const [activeFrameIndex, setActiveFrameIndex] = useState<number>(0);
   const [projectHistory, setProjectHistory] = useState(createAnimationProjectHistory);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
-  const [useCompactControls, setUseCompactControls] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return true;
-    return window.localStorage.getItem(STUDIO_COMPACT_UI_STORAGE_KEY) !== 'false';
-  });
   const [selectedSegmentId, setSelectedSegmentId] = useState<string>('');
   const [showBgRemover, setShowBgRemover] = useState<boolean>(false);
   const [activeStudioTab, setActiveStudioTab] = useState<'player' | 'source' | 'nudge'>('player');
@@ -693,10 +690,6 @@ export default function AnimationStudio({
       console.error('Failed to persist animation studio project into IndexedDB', error);
     });
   }, [cols, isProjectHydrated, project, rows, selectedSegmentId, showSubdivisionGrid]);
-
-  useEffect(() => {
-    window.localStorage.setItem(STUDIO_COMPACT_UI_STORAGE_KEY, useCompactControls ? 'true' : 'false');
-  }, [useCompactControls]);
 
   // Close custom dropdown when clicking outside
   useEffect(() => {
@@ -2457,20 +2450,6 @@ export default function AnimationStudio({
 
         <div className="hidden md:flex items-center space-x-2 shrink-0">
           <button
-            type="button"
-            onClick={() => setUseCompactControls((current) => !current)}
-            aria-pressed={useCompactControls}
-            title="Toggle Compact Controls"
-            className={`flex items-center space-x-1.5 border rounded-lg px-3 py-2 text-xs font-semibold transition-all cursor-pointer ${
-              useCompactControls
-                ? 'border-sky-500/40 bg-sky-500/15 text-sky-200'
-                : 'border-slate-800 bg-slate-900 text-slate-300 hover:bg-slate-800'
-            }`}
-          >
-            <Settings className="h-3.5 w-3.5" />
-            <span>Compact UI</span>
-          </button>
-          <button
             onClick={handleExportProject}
             className="flex items-center space-x-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg px-3 py-2 text-xs font-semibold text-slate-200 transition-all cursor-pointer"
           >
@@ -2487,20 +2466,6 @@ export default function AnimationStudio({
         </div>
 
         <div className="flex md:hidden items-center gap-1 shrink-0">
-          <button
-            type="button"
-            onClick={() => setUseCompactControls((current) => !current)}
-            aria-pressed={useCompactControls}
-            className={`h-9 w-9 rounded-lg border flex items-center justify-center ${
-              useCompactControls
-                ? 'border-sky-500/40 bg-sky-500/15 text-sky-200'
-                : 'border-slate-800 bg-slate-900 text-slate-300'
-            }`}
-            aria-label="Toggle compact controls"
-            title="Toggle Compact Controls"
-          >
-            <Settings className="h-4 w-4" />
-          </button>
           <button
             onClick={handleExportProject}
             className="h-9 w-9 rounded-lg border border-slate-800 bg-slate-900 text-emerald-400 flex items-center justify-center"

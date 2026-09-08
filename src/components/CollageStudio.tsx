@@ -96,6 +96,7 @@ const TRANSFORM_HANDLE_POSITIONS = [
 type CollageStudioProps = {
   savedSegments: SavedSegment[];
   onDeleteSavedSegment?: (id: string) => void;
+  useCompactControls?: boolean;
   onClose: () => void;
 };
 
@@ -340,7 +341,12 @@ const serializeSaveSignature = (payload: {
   },
 });
 
-export default function CollageStudio({ savedSegments, onDeleteSavedSegment, onClose }: CollageStudioProps) {
+export default function CollageStudio({
+  savedSegments,
+  onDeleteSavedSegment,
+  useCompactControls = true,
+  onClose,
+}: CollageStudioProps) {
   const [project, setProject] = useState<CollageProject>(createDefaultProject);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [stageZoom, setStageZoom] = useState<number>(0.7);
@@ -1768,7 +1774,7 @@ export default function CollageStudio({ savedSegments, onDeleteSavedSegment, onC
       : item.kind === 'shape' ? 'Shape Layer' : 'Image Layer';
 
   return (
-    <div className="fixed inset-0 h-[100dvh] z-50 overflow-hidden bg-slate-950/95 backdrop-blur-md text-slate-100 flex items-start md:items-center justify-center p-0 md:p-6">
+    <div className={`${useCompactControls ? 'professional-tools-ui' : ''} fixed inset-0 h-[100dvh] z-50 overflow-hidden bg-slate-950/95 backdrop-blur-md text-slate-100 flex items-start md:items-center justify-center p-0 md:p-6`}>
       <div className="w-full h-full md:h-[90vh] max-w-[1700px] bg-slate-900 border-0 md:border border-slate-800 rounded-none md:rounded-3xl overflow-hidden shadow-2xl flex flex-col">
         <header className="safe-area-top-bar z-10 min-h-16 border-b border-slate-800 bg-slate-950/90 flex items-center justify-between gap-3 px-4 py-2 md:px-6 shrink-0">
           <div className="flex items-center space-x-3 min-w-0">
