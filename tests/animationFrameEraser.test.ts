@@ -3,9 +3,11 @@ import {
   appendPointToEraseStroke,
   clampFrameEraserRadius,
   createAnimationEraseStroke,
+  createRectangleEraseSelectionPoints,
   createSquareEraseSelectionPoints,
   getAdjustedEraseStrokePoints,
   getFrameImagePointFromRenderedRect,
+  getRectangleEraseBounds,
   getSquareEraseBounds,
 } from '../src/utils/animationFrameEraser';
 
@@ -45,11 +47,11 @@ assert.deepEqual(
 
 assert.deepEqual(
   createSquareEraseSelectionPoints({ x: 10, y: 10 }, { x: 18, y: 14 }),
-  [{ x: 10, y: 10 }, { x: 18, y: 18 }]
+  [{ x: 10, y: 10 }, { x: 18, y: 14 }]
 );
 assert.deepEqual(
-  createSquareEraseSelectionPoints({ x: 10, y: 10 }, { x: 6, y: 15 }),
-  [{ x: 10, y: 10 }, { x: 5, y: 15 }]
+  createRectangleEraseSelectionPoints({ x: 10, y: 10 }, { x: 6, y: 15 }),
+  [{ x: 10, y: 10 }, { x: 6, y: 15 }]
 );
 
 const squareStroke = createAnimationEraseStroke(
@@ -57,12 +59,16 @@ const squareStroke = createAnimationEraseStroke(
   8,
   'square_erase_test',
   { sliceX: 4, sliceY: 6 },
-  'square'
+  'selection'
 );
-assert.equal(squareStroke.shape, 'square');
+assert.equal(squareStroke.shape, 'selection');
 assert.deepEqual(
   getSquareEraseBounds(squareStroke, { sliceX: 6, sliceY: 3 }),
-  { x: 8, y: 13, width: 8, height: 8 }
+  { x: 8, y: 13, width: 8, height: 4 }
+);
+assert.deepEqual(
+  getRectangleEraseBounds(squareStroke, { sliceX: 6, sliceY: 3 }),
+  { x: 8, y: 13, width: 8, height: 4 }
 );
 
 assert.deepEqual(

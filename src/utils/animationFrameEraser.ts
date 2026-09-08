@@ -55,27 +55,30 @@ export const createAnimationEraseStroke = (
   return stroke;
 };
 
-export const createSquareEraseSelectionPoints = (
+export const createRectangleEraseSelectionPoints = (
   startPoint: Point,
   currentPoint: Point,
   minimumSize = 1
 ): Point[] => {
   const deltaX = currentPoint.x - startPoint.x;
   const deltaY = currentPoint.y - startPoint.y;
-  const size = Math.max(Math.abs(deltaX), Math.abs(deltaY), minimumSize);
+  const width = Math.max(Math.abs(deltaX), minimumSize);
+  const height = Math.max(Math.abs(deltaY), minimumSize);
   const directionX = deltaX < 0 ? -1 : 1;
   const directionY = deltaY < 0 ? -1 : 1;
 
   return [
     startPoint,
     {
-      x: startPoint.x + directionX * size,
-      y: startPoint.y + directionY * size,
+      x: startPoint.x + directionX * width,
+      y: startPoint.y + directionY * height,
     },
   ];
 };
 
-export const getSquareEraseBounds = (
+export const createSquareEraseSelectionPoints = createRectangleEraseSelectionPoints;
+
+export const getRectangleEraseBounds = (
   stroke: AnimationEraseStroke,
   currentSlice: EraseStrokeSourceSlice = {}
 ) => {
@@ -97,6 +100,8 @@ export const getSquareEraseBounds = (
     height: Math.abs(endPoint.y - startPoint.y),
   };
 };
+
+export const getSquareEraseBounds = getRectangleEraseBounds;
 
 export const getAdjustedEraseStrokePoints = (
   stroke: AnimationEraseStroke,

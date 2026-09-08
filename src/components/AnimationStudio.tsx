@@ -77,13 +77,13 @@ import {
   appendPointToEraseStroke,
   clampFrameEraserRadius,
   createAnimationEraseStroke,
-  createSquareEraseSelectionPoints,
+  createRectangleEraseSelectionPoints,
   getAdjustedEraseStrokePoints,
   getFrameImagePointFromRenderedRect,
-  getSquareEraseBounds,
+  getRectangleEraseBounds,
 } from '../utils/animationFrameEraser';
 
-type FrameEraserMode = 'brush' | 'square';
+type FrameEraserMode = 'brush' | 'selection';
 
 type DetectedSpriteComponent = {
   minX: number;
@@ -357,8 +357,8 @@ export default function AnimationStudio({
         return;
       }
 
-      if (stroke.shape === 'square') {
-        const bounds = getSquareEraseBounds(stroke, currentSlice);
+      if (stroke.shape === 'selection' || stroke.shape === 'square') {
+        const bounds = getRectangleEraseBounds(stroke, currentSlice);
         if (!bounds || bounds.width <= 0 || bounds.height <= 0) {
           return;
         }
@@ -843,15 +843,15 @@ export default function AnimationStudio({
             </button>
             <button
               type="button"
-              onClick={() => setFrameEraserMode('square')}
+              onClick={() => setFrameEraserMode('selection')}
               className={`h-8 w-8 rounded-md flex items-center justify-center transition-all ${
-                frameEraserMode === 'square'
+                frameEraserMode === 'selection'
                   ? 'bg-rose-500/20 text-rose-200'
                   : 'text-slate-400 hover:bg-slate-900 hover:text-white'
               }`}
-              title="Square selection eraser"
-              aria-label="Use square selection frame eraser"
-              aria-pressed={frameEraserMode === 'square'}
+              title="Selection eraser"
+              aria-label="Use selection frame eraser"
+              aria-pressed={frameEraserMode === 'selection'}
             >
               <Square className="h-3.5 w-3.5" />
             </button>
@@ -865,8 +865,8 @@ export default function AnimationStudio({
             value={frameEraserRadius}
             onChange={(event) => setFrameEraserRadius(clampFrameEraserRadius(parseInt(event.target.value, 10)))}
             className="h-10 w-16 accent-rose-400 lg:h-16 lg:w-10 lg:[writing-mode:vertical-lr]"
-            title={frameEraserMode === 'square' ? 'Minimum square size' : 'Eraser size'}
-            aria-label={frameEraserMode === 'square' ? 'Minimum square eraser size' : 'Frame eraser size'}
+            title={frameEraserMode === 'selection' ? 'Minimum selection size' : 'Eraser size'}
+            aria-label={frameEraserMode === 'selection' ? 'Minimum selection eraser size' : 'Frame eraser size'}
           />
         </>
       )}
@@ -1449,16 +1449,16 @@ export default function AnimationStudio({
     };
   };
 
-  const getFramePreviewSquareBounds = (frame: AnimationFrame, points: Point[]) => {
+  const getFramePreviewSelectionBounds = (frame: AnimationFrame, points: Point[]) => {
     if (points.length === 0) {
       return null;
     }
 
-    const squarePoints = points.length === 1
-      ? createSquareEraseSelectionPoints(points[0], points[0], frameEraserRadius)
+    const selectionPoints = points.length === 1
+      ? createRectangleEraseSelectionPoints(points[0], points[0], frameEraserRadius)
       : points;
-    const startPoint = getFramePreviewPoint(frame, squarePoints[0]);
-    const endPoint = getFramePreviewPoint(frame, squarePoints[1]);
+    const startPoint = getFramePreviewPoint(frame, selectionPoints[0]);
+    const endPoint = getFramePreviewPoint(frame, selectionPoints[1]);
 
     return {
       x: Math.min(startPoint.x, endPoint.x),
@@ -1561,18 +1561,21 @@ export default function AnimationStudio({
   ): Point | null => {
     const stageRect = event.currentTarget.getBoundingClientRect();
     const renderedFrameImage = activeFrameImageRef.current;
-    if (renderedFrameImage) {
+    if (renderedFrameImage && frameEraserMode === 'brush') {
       const imageRect = renderedFrameImage.getBoundingClientRect();
       const imageSize = {
         width: renderedFrameImage.naturalWidth || renderedFrameImage.width,
         height: renderedFrameImage.naturalHeight || renderedFrameImage.height,
       };
       if (imageRect.width > 0 && imageRect.height > 0 && imageSize.width > 0 && imageSize.height > 0) {
-        return getFrameImagePointFromRenderedRect(
+        const imagePoint = getFrameImagePointFromRenderedRect(
           { x: event.clientX, y: event.clientY },
           imageRect,
           imageSize
         );
+        if (imagePoint) {
+          return imagePoint;
+        }
       }
     }
 
@@ -1587,7 +1590,7 @@ export default function AnimationStudio({
     const imageX = (projectX - project.width / 2 - frame.offsetX) / frame.scale + pivot.x;
     const imageY = (projectY - project.height / 2 - frame.offsetY) / frame.scale + pivot.y;
 
-    if (imageX < 0 || imageY < 0 || imageX > fallbackWidth || imageY > fallbackHeight) {
+    if (frameEraserMode === 'brush' && (imageX < 0 || imageY < 0 || imageX > fallbackWidth || imageY > fallbackHeight)) {
       return null;
     }
 
@@ -1627,8 +1630,8 @@ export default function AnimationStudio({
     }
 
     event.preventDefault();
-    const nextPoints = frameEraserMode === 'square'
-      ? createSquareEraseSelectionPoints(activeEraseStrokePointsRef.current[0] ?? point, point, frameEraserRadius)
+    const nextPoints = frameEraserMode === 'selection'
+      ? createRectangleEraseSelectionPoints(activeEraseStrokePointsRef.current[0] ?? point, point, frameEraserRadius)
       : appendPointToEraseStroke(activeEraseStrokePointsRef.current, point);
     activeEraseStrokePointsRef.current = nextPoints;
     setActiveEraseStrokePoints(nextPoints);
@@ -1647,8 +1650,8 @@ export default function AnimationStudio({
       return;
     }
 
-    const normalizedStrokePoints = frameEraserMode === 'square' && strokePoints.length === 1
-      ? createSquareEraseSelectionPoints(strokePoints[0], strokePoints[0], frameEraserRadius)
+    const normalizedStrokePoints = frameEraserMode === 'selection' && strokePoints.length === 1
+      ? createRectangleEraseSelectionPoints(strokePoints[0], strokePoints[0], frameEraserRadius)
       : strokePoints;
 
     await applyEraseStrokeToActiveFrame(normalizedStrokePoints, frameEraserRadius, frameEraserMode);
@@ -3131,7 +3134,6 @@ export default function AnimationStudio({
                 onPointerMove={extendFrameEraseStroke}
                 onPointerUp={() => void finishFrameEraseStroke()}
                 onPointerCancel={() => void finishFrameEraseStroke()}
-                onPointerLeave={() => void finishFrameEraseStroke()}
                 style={{
                   width: `${project.width * previewZoom}px`,
                   height: `${project.height * previewZoom}px`,
@@ -3210,8 +3212,8 @@ export default function AnimationStudio({
                     viewBox={`0 0 ${project.width} ${project.height}`}
                     aria-hidden="true"
                   >
-                    {frameEraserMode === 'square' ? (() => {
-                      const bounds = getFramePreviewSquareBounds(activeFrame, activeEraseStrokePoints);
+                    {frameEraserMode === 'selection' ? (() => {
+                      const bounds = getFramePreviewSelectionBounds(activeFrame, activeEraseStrokePoints);
                       if (!bounds) {
                         return null;
                       }
