@@ -228,6 +228,8 @@ canvas {
 
 .professional-tools-ui #main-header {
   column-gap: 0.5rem;
+  padding-top: max(0.625rem, env(safe-area-inset-top));
+  padding-bottom: 0.625rem;
 }
 
 .professional-tools-ui #main-header > div:last-child {
@@ -246,9 +248,7 @@ canvas {
 }
 
 .professional-tools-ui button.bg-slate-900,
-.professional-tools-ui button.bg-slate-950,
-.professional-tools-ui .bg-slate-900 button,
-.professional-tools-ui .bg-slate-950 button {
+.professional-tools-ui button.bg-slate-950 {
   background-color: var(--inspector-panel-soft);
 }
 

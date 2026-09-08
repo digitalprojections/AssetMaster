@@ -42,7 +42,8 @@ import {
   ChevronUp,
   Crown,
   Bot,
-  Settings
+  Settings,
+  Check
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -2320,8 +2321,9 @@ export default function App() {
                 </p>
               </div>
               {activePath.length > 1 && (
-                <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-1 rounded-full">
-                  Crop Ready
+                <span className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded border border-emerald-500/25 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-300">
+                  <Check className="h-3 w-3" />
+                  Ready
                 </span>
               )}
             </div>

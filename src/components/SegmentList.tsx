@@ -112,7 +112,7 @@ export default function SegmentList({
   };
 
   return (
-    <div id="segment-list-container" className="flex flex-col h-full bg-slate-900 border-l border-slate-800 text-slate-100 font-sans">
+    <div id="segment-list-container" className="flex h-full w-full flex-col bg-slate-900 border-l border-slate-800 text-slate-100 font-sans">
       {/* Header section */}
       <div id="segment-list-header" className="p-4 border-b border-slate-800 bg-slate-900/50 space-y-3">
         <div className="flex items-center justify-between gap-3">

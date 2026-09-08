@@ -2679,7 +2679,7 @@ export default function AnimationStudio({
               </div>
             ) : (
               <div className="space-y-3">
-                <div className="space-y-2 rounded-xl border border-slate-800 bg-slate-900/40 p-3">
+                <div className="space-y-1.5 rounded-xl border border-slate-800 bg-slate-900/40 p-2">
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Filter Source Cutouts</span>
                     <span className="text-[10px] text-slate-500 font-mono">{filteredSegments.length} shown</span>
@@ -2689,26 +2689,26 @@ export default function AnimationStudio({
                     value={sourceSearch}
                     onChange={(e) => setSourceSearch(e.target.value)}
                     placeholder="Search by cutout name or tag..."
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-indigo-500"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1.5 text-[11px] text-white outline-none focus:border-indigo-500"
                   />
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-3 gap-1">
                     {[
                       { id: 'all' as SourceFilter, label: 'All', count: filterCounts.all },
-                      { id: 'needs-cleanup' as SourceFilter, label: 'Needs Cleanup', count: filterCounts['needs-cleanup'] },
+                      { id: 'needs-cleanup' as SourceFilter, label: 'Cleanup', count: filterCounts['needs-cleanup'] },
                       { id: 'cleaned' as SourceFilter, label: 'Cleaned', count: filterCounts.cleaned },
                     ].map((filterOption) => (
                       <button
                         key={filterOption.id}
                         type="button"
                         onClick={() => setSourceFilter(filterOption.id)}
-                        className={`rounded-xl border px-2 py-2 text-[10px] font-semibold transition-all cursor-pointer ${
+                        className={`flex min-h-6 items-center justify-center gap-1 rounded-lg border px-1.5 py-1 text-[10px] font-semibold transition-all cursor-pointer ${
                           sourceFilter === filterOption.id
                             ? 'border-indigo-500 bg-indigo-500/15 text-indigo-200'
                             : 'border-slate-800 bg-slate-950 text-slate-400 hover:border-slate-700 hover:text-slate-200'
                         }`}
                       >
-                        <div>{filterOption.label}</div>
-                        <div className="mt-1 font-mono text-[9px] opacity-80">{filterOption.count}</div>
+                        <span className="truncate">{filterOption.label}</span>
+                        <span className="font-mono text-[9px] opacity-80">{filterOption.count}</span>
                       </button>
                     ))}
                   </div>

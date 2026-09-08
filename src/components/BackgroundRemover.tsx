@@ -992,18 +992,18 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
                     </span>
                   </div>
                   <div className="rounded-xl border border-slate-800 bg-slate-900/90 px-2.5 py-2">
-                    <div className="flex items-center gap-2">
+                    <div className="grid grid-cols-[2rem_minmax(3.5rem,1fr)_2rem_2.5rem] items-center gap-2">
                       <button
                         onClick={() => setViewZoom((prev) => clampZoom(prev - ZOOM_STEP))}
                         disabled={viewZoom <= ZOOM_MIN}
-                        className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-800 bg-slate-950 text-slate-300 transition-all hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+                        className="flex h-8 w-full items-center justify-center rounded-lg border border-slate-800 bg-slate-950 text-slate-300 transition-all hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
                         aria-label="Zoom out"
                       >
                         <Minus className="h-3.5 w-3.5" />
                       </button>
                       <button
                         onClick={() => setViewZoom(1)}
-                        className="min-w-18 rounded-lg border border-slate-800 bg-slate-950 px-2.5 py-2 text-[10px] font-semibold text-slate-200 transition-all hover:bg-slate-800 cursor-pointer"
+                        className="w-full rounded-lg border border-slate-800 bg-slate-950 px-2.5 py-2 text-center text-[10px] font-semibold text-slate-200 transition-all hover:bg-slate-800 cursor-pointer"
                         title="Reset to fit"
                       >
                         {zoomPercent}%
@@ -1011,14 +1011,14 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
                       <button
                         onClick={() => setViewZoom((prev) => clampZoom(prev + ZOOM_STEP))}
                         disabled={viewZoom >= ZOOM_MAX}
-                        className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-800 bg-slate-950 text-slate-300 transition-all hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+                        className="flex h-8 w-full items-center justify-center rounded-lg border border-slate-800 bg-slate-950 text-slate-300 transition-all hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
                         aria-label="Zoom in"
                       >
                         <Plus className="h-3.5 w-3.5" />
                       </button>
                       <button
                         onClick={() => setViewZoom(1)}
-                        className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-[10px] font-semibold text-emerald-300 transition-all hover:bg-emerald-500/20 cursor-pointer"
+                        className="w-full rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2 py-2 text-[10px] font-semibold text-emerald-300 transition-all hover:bg-emerald-500/20 cursor-pointer"
                       >
                         Fit
                       </button>
@@ -1063,18 +1063,18 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
                 </p>
               </div>
               <div className="rounded-xl border border-slate-800 bg-slate-900/90 p-3 space-y-2">
-                <div className="flex items-center gap-2">
+                <div className="grid grid-cols-[2rem_minmax(3.5rem,1fr)_2rem_2.5rem] items-center gap-2">
                   <button
                     onClick={() => setViewZoom((prev) => clampZoom(prev - ZOOM_STEP))}
                     disabled={viewZoom <= ZOOM_MIN}
-                    className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-800 bg-slate-950 text-slate-300 transition-all hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+                    className="flex h-8 w-full items-center justify-center rounded-lg border border-slate-800 bg-slate-950 text-slate-300 transition-all hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
                     aria-label="Zoom out"
                   >
                     <Minus className="h-3.5 w-3.5" />
                   </button>
                   <button
                     onClick={() => setViewZoom(1)}
-                    className="min-w-18 rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-[10px] font-semibold text-slate-200 transition-all hover:bg-slate-800 cursor-pointer"
+                    className="w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-center text-[10px] font-semibold text-slate-200 transition-all hover:bg-slate-800 cursor-pointer"
                     title="Reset to fit"
                   >
                     {zoomPercent}%
@@ -1082,14 +1082,14 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
                   <button
                     onClick={() => setViewZoom((prev) => clampZoom(prev + ZOOM_STEP))}
                     disabled={viewZoom >= ZOOM_MAX}
-                    className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-800 bg-slate-950 text-slate-300 transition-all hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+                    className="flex h-8 w-full items-center justify-center rounded-lg border border-slate-800 bg-slate-950 text-slate-300 transition-all hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
                     aria-label="Zoom in"
                   >
                     <Plus className="h-3.5 w-3.5" />
                   </button>
                   <button
                     onClick={() => setViewZoom(1)}
-                    className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-[10px] font-semibold text-emerald-300 transition-all hover:bg-emerald-500/20 cursor-pointer"
+                    className="w-full rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2 py-2 text-[10px] font-semibold text-emerald-300 transition-all hover:bg-emerald-500/20 cursor-pointer"
                   >
                     Fit
                   </button>
