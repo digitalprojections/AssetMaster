@@ -1904,34 +1904,38 @@ export default function App() {
           <button
             data-agent-action="openCollageStudio"
             onClick={openCollageStudio}
-            className="flex items-center space-x-1 md:space-x-1.5 bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white rounded-lg px-3 py-2 text-xs font-semibold cursor-pointer shadow-md shadow-orange-500/10 active:scale-[0.98] transition-all"
+            className="flex items-center justify-center space-x-1 md:space-x-1.5 bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white rounded-lg px-3 py-2 text-xs font-semibold cursor-pointer shadow-md shadow-orange-500/10 active:scale-[0.98] transition-all"
             title="Arrange saved cutouts into exportable collage layouts"
+            aria-label="Open Collage Studio"
           >
             <ImageIcon className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Collage Studio</span>
-            <span className="sm:hidden">Collage</span>
+            <span className="hidden lg:inline">Collage Studio</span>
+            <span className="hidden sm:inline lg:hidden">Collage</span>
           </button>
 
           {/* Create Animation button */}
           <button
             data-agent-action="openAnimationStudio"
             onClick={openAnimationStudio}
-            className="flex items-center space-x-1 md:space-x-1.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white rounded-lg px-3 py-2 text-xs font-semibold cursor-pointer shadow-md shadow-indigo-500/10 active:scale-[0.98] transition-all"
+            className="flex items-center justify-center space-x-1 md:space-x-1.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white rounded-lg px-3 py-2 text-xs font-semibold cursor-pointer shadow-md shadow-indigo-500/10 active:scale-[0.98] transition-all"
             title="Create animations from saved cutout frames"
+            aria-label="Open Animation Studio"
           >
             <Layers className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Animation Studio</span>
-            <span className="sm:hidden">Studio</span>
+            <span className="hidden lg:inline">Animation Studio</span>
+            <span className="hidden sm:inline lg:hidden">Studio</span>
           </button>
 
           {/* Local Upload */}
           <label
             data-agent-action="requestUpload"
-            className="flex items-center space-x-1 md:space-x-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg px-3 py-2 text-xs font-semibold cursor-pointer shadow-md shadow-blue-500/10 active:scale-[0.98] transition-all"
+            className="flex items-center justify-center space-x-1 md:space-x-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg px-3 py-2 text-xs font-semibold cursor-pointer shadow-md shadow-blue-500/10 active:scale-[0.98] transition-all"
+            title="Upload image"
+            aria-label="Upload image"
           >
             <Upload className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Upload Image</span>
-            <span className="sm:hidden">Upload</span>
+            <span className="hidden lg:inline">Upload Image</span>
+            <span className="hidden sm:inline lg:hidden">Upload</span>
             <input
               ref={uploadInputRef}
               type="file"

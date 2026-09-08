@@ -122,6 +122,10 @@ canvas {
   color: var(--inspector-dim);
 }
 
+.professional-tools-ui .text-slate-700 {
+  color: #707070;
+}
+
 .professional-tools-ui .rounded-xl {
   border-radius: var(--tool-radius-soft);
 }
@@ -193,11 +197,52 @@ canvas {
   box-shadow: none;
 }
 
+.professional-tools-ui button:disabled,
+.professional-tools-ui button[disabled] {
+  opacity: 0.72;
+}
+
+.professional-tools-ui button:disabled svg,
+.professional-tools-ui button[disabled] svg {
+  color: #858585;
+  opacity: 1;
+}
+
+.professional-tools-ui #left-tools button:disabled,
+.professional-tools-ui #left-tools button[disabled] {
+  background-color: #343434;
+  border: 1px solid #242424;
+}
+
+.professional-tools-ui #left-tools button:disabled svg,
+.professional-tools-ui #left-tools button[disabled] svg {
+  color: #777;
+}
+
 .professional-tools-ui button,
 .professional-tools-ui input,
 .professional-tools-ui select,
 .professional-tools-ui textarea {
   border-color: var(--inspector-border);
+}
+
+.professional-tools-ui #main-header {
+  column-gap: 0.5rem;
+}
+
+.professional-tools-ui #main-header > div:last-child {
+  gap: 0.375rem;
+  min-width: 0;
+}
+
+.professional-tools-ui #main-header button,
+.professional-tools-ui #main-header label {
+  min-height: 1.875rem;
+  white-space: nowrap;
+}
+
+.professional-tools-ui #main-header img[alt='Buy Me a Coffee'] {
+  height: 1.75rem;
 }
 
 .professional-tools-ui button.bg-slate-900,
