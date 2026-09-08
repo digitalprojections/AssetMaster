@@ -40,7 +40,7 @@ import {
   CollageTextBubbleStyle,
   SavedSegment,
 } from '../types';
-import { getClipboardImageFiles } from '../utils/collageClipboard';
+import { getClipboardImageFiles, isImageFile } from '../utils/collageClipboard';
 import {
   DEFAULT_TEXT_BUBBLE_FILL_COLOR,
   DEFAULT_TEXT_BUBBLE_PADDING,
@@ -1597,7 +1597,7 @@ export default function CollageStudio({
   };
 
   const importImageFilesToProject = async (files: File[]) => {
-    const imageFiles = files.filter((file) => file.type.startsWith('image/'));
+    const imageFiles = files.filter(isImageFile);
     if (imageFiles.length === 0) {
       return [];
     }
@@ -1627,7 +1627,7 @@ export default function CollageStudio({
 
   const handleImportImagesFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files: File[] = event.target.files
-      ? (Array.from(event.target.files) as File[]).filter((file) => file.type.startsWith('image/'))
+      ? (Array.from(event.target.files) as File[]).filter(isImageFile)
       : [];
     if (files.length === 0) {
       event.target.value = '';

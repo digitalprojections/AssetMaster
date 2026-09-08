@@ -9,11 +9,14 @@ type ClipboardDataWithFiles = {
   items?: ArrayLike<ClipboardFileItem> | null;
 };
 
+const IMAGE_FILE_EXTENSION_PATTERN = /\.(avif|bmp|gif|jpe?g|png|svg|webp)$/i;
+
 const isImageMimeType = (type: string | undefined) => type?.toLowerCase().startsWith('image/') ?? false;
 
 const getFileKey = (file: File) => `${file.name}:${file.type}:${file.size}:${file.lastModified}`;
 
-export const isImageFile = (file: File | null | undefined) => Boolean(file && isImageMimeType(file.type));
+export const isImageFile = (file: File | null | undefined) =>
+  Boolean(file && (isImageMimeType(file.type) || IMAGE_FILE_EXTENSION_PATTERN.test(file.name)));
 
 export const getClipboardImageFiles = (clipboardData: ClipboardDataWithFiles | null | undefined): File[] => {
   if (!clipboardData) {

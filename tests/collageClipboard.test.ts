@@ -6,8 +6,10 @@ const createFile = (name: string, type: string) => new File(['assetmaster-test']
 const pastedPng = createFile('clipboard.png', 'image/png');
 const pastedJpeg = createFile('photo.jpg', 'image/jpeg');
 const pastedText = createFile('notes.txt', 'text/plain');
+const copiedExplorerPng = createFile('copied-from-explorer.png', '');
 
 assert.equal(isImageFile(pastedPng), true);
+assert.equal(isImageFile(copiedExplorerPng), true);
 assert.equal(isImageFile(pastedText), false);
 assert.deepEqual(getClipboardImageFiles(null), []);
 
@@ -26,6 +28,13 @@ assert.deepEqual(
     files: [pastedText, pastedJpeg],
   }),
   [pastedJpeg]
+);
+
+assert.deepEqual(
+  getClipboardImageFiles({
+    files: [pastedText, copiedExplorerPng],
+  }),
+  [copiedExplorerPng]
 );
 
 assert.deepEqual(
