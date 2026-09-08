@@ -1440,12 +1440,39 @@ export default function AnimationStudio({
     `translate(${frame.offsetX * offsetMultiplier}px, ${frame.offsetY * offsetMultiplier}px) scale(${frame.scale}) scaleX(${frame.flipX ? -1 : 1}) scaleY(${frame.flipY ? -1 : 1})`
   );
 
-  const getFramePreviewPoint = (frame: AnimationFrame, point: Point) => {
-    const pivotX = frame.pivotX ?? frame.originalPivotX ?? Math.round((frame.sliceW ?? frame.originalSliceW ?? project.width) / 2);
-    const pivotY = frame.pivotY ?? frame.originalPivotY ?? Math.round((frame.sliceH ?? frame.originalSliceH ?? project.height) / 2);
+  const getFrameDisplaySize = (frame: AnimationFrame) => ({
+    width: frame.sliceW ?? frame.originalSliceW ?? project.width,
+    height: frame.sliceH ?? frame.originalSliceH ?? project.height,
+  });
+
+  const getFrameStageAnchor = (frame: AnimationFrame) => {
+    const displaySize = getFrameDisplaySize(frame);
+    const pivot = getFramePivot(frame, displaySize.width, displaySize.height);
     return {
-      x: (point.x - pivotX) * frame.scale + project.width / 2 + frame.offsetX,
-      y: (point.y - pivotY) * frame.scale + project.height / 2 + frame.offsetY,
+      x: (project.width - displaySize.width) / 2 + pivot.x,
+      y: (project.height - displaySize.height) / 2 + pivot.y,
+      pivot,
+      displaySize,
+    };
+  };
+
+  const getFrameImageStyle = (frame: AnimationFrame): React.CSSProperties => {
+    const { displaySize, pivot } = getFrameStageAnchor(frame);
+    return {
+      width: `${displaySize.width * previewZoom}px`,
+      height: `${displaySize.height * previewZoom}px`,
+      transformOrigin: `${pivot.x * previewZoom}px ${pivot.y * previewZoom}px`,
+      transform: getFrameTransform(frame),
+      maxWidth: '100%',
+      maxHeight: '100%',
+    };
+  };
+
+  const getFramePreviewPoint = (frame: AnimationFrame, point: Point) => {
+    const anchor = getFrameStageAnchor(frame);
+    return {
+      x: (point.x - anchor.pivot.x) * frame.scale + anchor.x + frame.offsetX,
+      y: (point.y - anchor.pivot.y) * frame.scale + anchor.y + frame.offsetY,
     };
   };
 
@@ -1581,16 +1608,16 @@ export default function AnimationStudio({
 
     const projectX = (event.clientX - stageRect.left) / previewZoom;
     const projectY = (event.clientY - stageRect.top) / previewZoom;
-    const fallbackWidth = frame.sliceW ?? frame.originalSliceW ?? project.width;
-    const fallbackHeight = frame.sliceH ?? frame.originalSliceH ?? project.height;
-    const pivot = {
-      x: frame.pivotX ?? frame.originalPivotX ?? Math.round(fallbackWidth / 2),
-      y: frame.pivotY ?? frame.originalPivotY ?? Math.round(fallbackHeight / 2),
-    };
-    const imageX = (projectX - project.width / 2 - frame.offsetX) / frame.scale + pivot.x;
-    const imageY = (projectY - project.height / 2 - frame.offsetY) / frame.scale + pivot.y;
+    const anchor = getFrameStageAnchor(frame);
+    const imageX = (projectX - anchor.x - frame.offsetX) / frame.scale + anchor.pivot.x;
+    const imageY = (projectY - anchor.y - frame.offsetY) / frame.scale + anchor.pivot.y;
 
-    if (frameEraserMode === 'brush' && (imageX < 0 || imageY < 0 || imageX > fallbackWidth || imageY > fallbackHeight)) {
+    if (frameEraserMode === 'brush' && (
+      imageX < 0 ||
+      imageY < 0 ||
+      imageX > anchor.displaySize.width ||
+      imageY > anchor.displaySize.height
+    )) {
       return null;
     }
 
@@ -3149,12 +3176,7 @@ export default function AnimationStudio({
                       src={project.frames[activeFrameIndex - 1].thumbnailUrl}
                       alt="Onion Skin Prev"
                       className="object-contain"
-                      style={{
-                        transformOrigin: `${project.frames[activeFrameIndex - 1].pivotX ?? 0}px ${project.frames[activeFrameIndex - 1].pivotY ?? 0}px`,
-                        transform: getFrameTransform(project.frames[activeFrameIndex - 1]),
-                        maxWidth: '100%',
-                        maxHeight: '100%',
-                      }}
+                      style={getFrameImageStyle(project.frames[activeFrameIndex - 1])}
                     />
                   </div>
                 )}
@@ -3169,12 +3191,7 @@ export default function AnimationStudio({
                       src={project.frames[activeFrameIndex + 1].thumbnailUrl}
                       alt="Onion Skin Next"
                       className="object-contain"
-                      style={{
-                        transformOrigin: `${project.frames[activeFrameIndex + 1].pivotX ?? 0}px ${project.frames[activeFrameIndex + 1].pivotY ?? 0}px`,
-                        transform: getFrameTransform(project.frames[activeFrameIndex + 1]),
-                        maxWidth: '100%',
-                        maxHeight: '100%',
-                      }}
+                      style={getFrameImageStyle(project.frames[activeFrameIndex + 1])}
                     />
                   </div>
                 )}
@@ -3186,12 +3203,7 @@ export default function AnimationStudio({
                     src={project.frames[activeFrameIndex].thumbnailUrl}
                     alt={`Frame ${activeFrameIndex}`}
                     className="object-contain"
-                    style={{
-                      transformOrigin: `${project.frames[activeFrameIndex].pivotX ?? 0}px ${project.frames[activeFrameIndex].pivotY ?? 0}px`,
-                      transform: getFrameTransform(project.frames[activeFrameIndex]),
-                      maxWidth: '100%',
-                      maxHeight: '100%',
-                    }}
+                    style={getFrameImageStyle(project.frames[activeFrameIndex])}
                   />
                 </div>
 
