@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import {
+  detectAutoSelectionGrid,
   detectAutoSelectionRows,
+  getAutoSelectionCellAtPoint,
   getAutoSelectionRowAtPoint,
   getAutoSelectionRowNearContour,
 } from '../src/utils/imageAutoSelection';
@@ -58,6 +60,44 @@ const opaqueDetection = detectAutoSelectionRows(opaqueSheet);
 assert.equal(opaqueDetection.rows.length, 2);
 assert.equal(opaqueDetection.contourLines.length, 1);
 assert.ok(opaqueDetection.contourLines[0] > 22 && opaqueDetection.contourLines[0] < 40);
+
+const gridSheet = makeImageData(100, 65, [247, 247, 244, 255]);
+const gridCells: Array<[number, number, number, number, [number, number, number, number]]> = [
+  [0, 0, 30, 30, [40, 130, 210, 255]],
+  [35, 0, 30, 30, [50, 160, 80, 255]],
+  [70, 0, 30, 30, [190, 90, 45, 255]],
+  [0, 35, 30, 30, [70, 80, 180, 255]],
+  [35, 35, 30, 30, [180, 60, 150, 255]],
+  [70, 35, 30, 30, [90, 145, 60, 255]],
+];
+gridCells.forEach(([x, y, width, height, fill]) => {
+  paintRect(gridSheet, { x, y, width, height }, fill);
+});
+
+const gridDetection = detectAutoSelectionGrid(gridSheet);
+assert.equal(gridDetection.rows.length, 2);
+assert.equal(gridDetection.columns.length, 3);
+assert.equal(gridDetection.cells.length, 6);
+assert.deepEqual(gridDetection.verticalContourLines, [32, 67]);
+assert.deepEqual(gridDetection.horizontalContourLines, [32]);
+const centerCell = getAutoSelectionCellAtPoint(gridDetection, { x: 48, y: 48 });
+assert.equal(centerCell?.rowIndex, 1);
+assert.equal(centerCell?.columnIndex, 1);
+assert.deepEqual(centerCell?.bounds, { x: 35, y: 35, width: 30, height: 30 });
+assert.equal(getAutoSelectionCellAtPoint(gridDetection, { x: 32, y: 48 }), null);
+
+const compressedLikeGrid = makeImageData(100, 99, [45, 80, 120, 255]);
+paintRect(compressedLikeGrid, { x: 0, y: 0, width: 100, height: 2 }, [250, 250, 248, 255]);
+paintRect(compressedLikeGrid, { x: 30, y: 0, width: 5, height: 99 }, [250, 250, 248, 255]);
+paintRect(compressedLikeGrid, { x: 65, y: 0, width: 5, height: 99 }, [250, 250, 248, 255]);
+paintRect(compressedLikeGrid, { x: 0, y: 31, width: 58, height: 4 }, [242, 247, 250, 255]);
+paintRect(compressedLikeGrid, { x: 0, y: 64, width: 58, height: 4 }, [242, 247, 250, 255]);
+paintRect(compressedLikeGrid, { x: 0, y: 97, width: 100, height: 2 }, [250, 250, 248, 255]);
+
+const compressedLikeDetection = detectAutoSelectionGrid(compressedLikeGrid);
+assert.equal(compressedLikeDetection.rows.length, 3);
+assert.equal(compressedLikeDetection.columns.length, 3);
+assert.equal(compressedLikeDetection.cells.length, 9);
 
 const adjacentRowsSheet = makeImageData(80, 80, [230, 40, 40, 255]);
 paintRect(adjacentRowsSheet, { x: 0, y: 40, width: 80, height: 40 }, [40, 80, 220, 255]);
