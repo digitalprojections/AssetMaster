@@ -13,6 +13,11 @@ import {
   restoreAdFreePurchase,
 } from './utils/playBilling';
 import { getEmptyWorkspaceCopy } from './utils/emptyWorkspace';
+import {
+  detectAutoSelectionRows,
+  getAutoSelectionRowAtPoint,
+  type AutoSelectionRowDetection,
+} from './utils/imageAutoSelection';
 import bmcButton from './assets/bmc-button.svg';
 import SegmentList from './components/SegmentList';
 import AnimationStudio, { type AnimationStudioAgentControls } from './components/AnimationStudio';
@@ -115,6 +120,10 @@ export default function App() {
   const [rectEnd, setRectEnd] = useState<Point | null>(null);
   const [rectSnapPreview, setRectSnapPreview] = useState<RectSnapPreview | null>(null);
   const [hoverPoint, setHoverPoint] = useState<Point | null>(null);
+  const [autoSelectionRows, setAutoSelectionRows] = useState<AutoSelectionRowDetection | null>(null);
+  const [showAutoSelectionRows, setShowAutoSelectionRows] = useState<boolean>(true);
+  const [hoveredAutoSelectionRowIndex, setHoveredAutoSelectionRowIndex] = useState<number | null>(null);
+  const [autoSelectionMessage, setAutoSelectionMessage] = useState<string>('');
 
   // Pan and zoom states
   const [zoom, setZoom] = useState<number>(1);
@@ -574,6 +583,21 @@ export default function App() {
     hiddenCtx.drawImage(image, 0, 0);
     hiddenImageCanvasRef.current = hiddenCanvas;
     hiddenImageCtxRef.current = hiddenCtx;
+
+    try {
+      const detection = detectAutoSelectionRows(hiddenCtx.getImageData(0, 0, image.width, image.height));
+      setAutoSelectionRows(detection.rows.length > 1 ? detection : null);
+      setAutoSelectionMessage(
+        detection.rows.length > 1
+          ? `${detection.rows.length} row guides detected. Click a highlighted row to select it.`
+          : 'No separate row guides detected.'
+      );
+      setShowAutoSelectionRows(detection.rows.length > 1);
+    } catch (error) {
+      console.error('Failed to detect row guides', error);
+      setAutoSelectionRows(null);
+      setAutoSelectionMessage('Row guide detection is unavailable for this image.');
+    }
   }, [image]);
 
   const getRectGuideCandidates = useCallback((): { x: GuideCandidate[]; y: GuideCandidate[] } => {
@@ -718,6 +742,10 @@ export default function App() {
     setRectEnd(null);
     setRectSnapPreview(null);
     setHoverPoint(null);
+    setAutoSelectionRows(null);
+    setHoveredAutoSelectionRowIndex(null);
+    setAutoSelectionMessage('Detecting row guides...');
+    setShowAutoSelectionRows(true);
 
     const img = new Image();
     img.crossOrigin = 'anonymous'; // CRITICAL: prevents canvas tainting
@@ -753,6 +781,10 @@ export default function App() {
   // Set default draft name whenever a new selection is made
   useEffect(() => {
     if (activePath.length > 0) {
+      if (cutoutDraftName.startsWith('row_')) {
+        return;
+      }
+
       const toolLabel = activeTool === 'rectangle' ? 'rect' : activeTool;
       setCutoutDraftName(`cutout_${toolLabel}_${lastCutoutIndex}`);
     } else {
@@ -844,6 +876,30 @@ export default function App() {
 
     // Render image
     ctx.drawImage(image, 0, 0);
+
+    if (showAutoSelectionRows && autoSelectionRows && autoSelectionRows.rows.length > 1) {
+      ctx.save();
+      autoSelectionRows.rows.forEach((row) => {
+        const isHovered = row.index === hoveredAutoSelectionRowIndex;
+        ctx.fillStyle = isHovered ? 'rgba(14, 165, 233, 0.16)' : 'rgba(14, 165, 233, 0.045)';
+        ctx.fillRect(row.bounds.x, row.bounds.y, row.bounds.width, row.bounds.height);
+      });
+
+      ctx.lineWidth = 1.5 / zoom;
+      ctx.setLineDash([8 / zoom, 5 / zoom]);
+      autoSelectionRows.contourLines.forEach((lineY) => {
+        ctx.strokeStyle = 'rgba(34, 211, 238, 0.95)';
+        ctx.beginPath();
+        ctx.moveTo(0, lineY);
+        ctx.lineTo(image.width, lineY);
+        ctx.stroke();
+      });
+      ctx.setLineDash([]);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.72)';
+      ctx.lineWidth = 1 / zoom;
+      ctx.strokeRect(0, 0, image.width, image.height);
+      ctx.restore();
+    }
 
     // Define temporary mask canvas if selection active
     if (activePath.length > 1) {
@@ -1047,7 +1103,23 @@ export default function App() {
       ctx.fillText(label, screenX, screenY - 14);
       ctx.restore();
     }
-  }, [image, offset, zoom, activePath, activeTool, rectStart, rectEnd, rectSnapPreview, hoverPoint, antsOffset, snapRadius]);
+
+    if (showAutoSelectionRows && autoSelectionRows && hoveredAutoSelectionRowIndex !== null) {
+      const hoveredRow = autoSelectionRows.rows.find((row) => row.index === hoveredAutoSelectionRowIndex);
+      if (hoveredRow) {
+        const screenX = offset.x + image.width * zoom - 12;
+        const screenY = offset.y + hoveredRow.centerY * zoom;
+        ctx.save();
+        ctx.font = 'bold 11px sans-serif';
+        ctx.textAlign = 'right';
+        ctx.fillStyle = '#e0f2fe';
+        ctx.shadowColor = 'rgba(2, 6, 23, 0.95)';
+        ctx.shadowBlur = 5;
+        ctx.fillText(`Select row ${hoveredRow.index + 1}`, screenX, screenY - 8);
+        ctx.restore();
+      }
+    }
+  }, [image, offset, zoom, activePath, activeTool, rectStart, rectEnd, rectSnapPreview, hoverPoint, antsOffset, snapRadius, autoSelectionRows, showAutoSelectionRows, hoveredAutoSelectionRowIndex]);
 
   // Redraw when elements update
   useEffect(() => {
@@ -1100,6 +1172,26 @@ export default function App() {
     setRectSnapPreview(null);
   };
 
+  const selectDetectedImageRow = useCallback((bounds: RectBounds, rowIndex: number) => {
+    setActiveTool('rectangle');
+    setActivePath([
+      { x: bounds.x, y: bounds.y },
+      { x: bounds.x + bounds.width, y: bounds.y },
+      { x: bounds.x + bounds.width, y: bounds.y + bounds.height },
+      { x: bounds.x, y: bounds.y + bounds.height },
+    ]);
+    setIsClosed(true);
+    setIsDrawing(false);
+    setIsPanning(false);
+    setRectStart(null);
+    setRectEnd(null);
+    setRectSnapPreview(null);
+    setHoverPoint(null);
+    setHoveredAutoSelectionRowIndex(rowIndex);
+    setCutoutDraftName(`row_${rowIndex + 1}_${lastCutoutIndex}`);
+    setMobileSidebarTab('settings');
+  }, [lastCutoutIndex]);
+
   // Canvas interaction mouse handlers
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
@@ -1108,6 +1200,23 @@ export default function App() {
     const clientX = e.clientX;
     const clientY = e.clientY;
     const imgPt = getImgCoords(clientX, clientY, canvas);
+
+    if (
+      showAutoSelectionRows &&
+      autoSelectionRows &&
+      autoSelectionRows.rows.length > 1 &&
+      e.button === 0 &&
+      imgPt.x >= 0 &&
+      imgPt.x <= image.width &&
+      imgPt.y >= 0 &&
+      imgPt.y <= image.height
+    ) {
+      const detectedRow = getAutoSelectionRowAtPoint(autoSelectionRows, imgPt);
+      if (detectedRow) {
+        selectDetectedImageRow(detectedRow.bounds, detectedRow.index);
+        return;
+      }
+    }
 
     // Pan with space or middle mouse or Select Tool
     if (activeTool === 'select' || e.button === 1) {
@@ -1186,6 +1295,13 @@ export default function App() {
         }
       : imgPt;
 
+    if (showAutoSelectionRows && autoSelectionRows && autoSelectionRows.rows.length > 1) {
+      const detectedRow = getAutoSelectionRowAtPoint(autoSelectionRows, clampedImgPt);
+      setHoveredAutoSelectionRowIndex(detectedRow?.index ?? null);
+    } else if (hoveredAutoSelectionRowIndex !== null) {
+      setHoveredAutoSelectionRowIndex(null);
+    }
+
     if (activeTool === 'rectangle') {
       const snappedPreview = getRectSnapPreview(clampedImgPt);
       setRectSnapPreview(snappedPreview);
@@ -1263,6 +1379,7 @@ export default function App() {
     if (activeTool === 'magnetic') {
       setHoverPoint(null);
     }
+    setHoveredAutoSelectionRowIndex(null);
   };
 
   const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
@@ -2213,7 +2330,9 @@ export default function App() {
             onTouchMove={handleTouchMove}
             onTouchEnd={handleTouchEnd}
             className={`w-full h-full block ${
-              activeTool === 'select' || isPanning
+              showAutoSelectionRows && autoSelectionRows
+                ? 'cursor-cell'
+                : activeTool === 'select' || isPanning
                 ? 'cursor-grab active:cursor-grabbing'
                 : activeTool === 'magnetic'
                 ? 'cursor-crosshair'
@@ -2358,6 +2477,43 @@ export default function App() {
           {/* Active selection settings panel */}
           <div id="selection-settings-card" className="p-4 border-b border-slate-800 space-y-4 shrink-0">
             <h2 className="font-semibold text-xs tracking-wide uppercase text-slate-400">Selection Controls</h2>
+
+            {image && (
+              <div className="space-y-2 rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-slate-200">Auto Row Select</p>
+                    <p className="text-[10px] text-cyan-200/80">{autoSelectionMessage || 'Analyzing row guides...'}</p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={Boolean(showAutoSelectionRows && autoSelectionRows)}
+                    onChange={(event) => setShowAutoSelectionRows(event.target.checked)}
+                    disabled={!autoSelectionRows}
+                    className="h-4 w-4 shrink-0 cursor-pointer rounded border-slate-700 bg-slate-950 text-cyan-400 focus:ring-cyan-500 disabled:cursor-not-allowed disabled:opacity-40"
+                    aria-label="Toggle auto row selection guides"
+                  />
+                </div>
+                {autoSelectionRows && (
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {autoSelectionRows.rows.slice(0, 6).map((row) => (
+                      <button
+                        key={`auto-row-${row.index}`}
+                        type="button"
+                        onClick={() => selectDetectedImageRow(row.bounds, row.index)}
+                        className={`min-h-7 rounded-lg border px-2 text-[10px] font-semibold transition-all cursor-pointer ${
+                          hoveredAutoSelectionRowIndex === row.index
+                            ? 'border-cyan-300 bg-cyan-400/20 text-cyan-100'
+                            : 'border-cyan-500/20 bg-slate-950/70 text-cyan-200 hover:border-cyan-400/50 hover:bg-cyan-500/10'
+                        }`}
+                      >
+                        Row {row.index + 1}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Slider: Feather selection (Smoothing) */}
             <div className="space-y-1.5">
