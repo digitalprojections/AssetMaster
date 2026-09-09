@@ -6,33 +6,12 @@ export type AutoSelectionRow = {
   centerY: number;
 };
 
-export type AutoSelectionColumn = {
-  index: number;
-  bounds: RectBounds;
-  centerX: number;
-};
-
-export type AutoSelectionCell = {
-  index: number;
-  rowIndex: number;
-  columnIndex: number;
-  bounds: RectBounds;
-  centerX: number;
-  centerY: number;
-};
-
-export type AutoSelectionGridDetection = {
+export type AutoSelectionRowDetection = {
   width: number;
   height: number;
   rows: AutoSelectionRow[];
-  columns: AutoSelectionColumn[];
-  cells: AutoSelectionCell[];
   contourLines: number[];
-  horizontalContourLines: number[];
-  verticalContourLines: number[];
 };
-
-export type AutoSelectionRowDetection = AutoSelectionGridDetection;
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
@@ -179,66 +158,19 @@ const buildRowsFromIntervals = (
   };
 });
 
-const buildColumnsFromIntervals = (
-  height: number,
-  intervals: Array<{ start: number; end: number }>
-): AutoSelectionColumn[] => intervals.map((interval, index) => {
-  const width = Math.max(1, interval.end - interval.start + 1);
-  return {
-    index,
-    bounds: {
-      x: interval.start,
-      y: 0,
-      width,
-      height,
-    },
-    centerX: interval.start + width / 2,
-  };
-});
-
-const buildCells = (rows: AutoSelectionRow[], columns: AutoSelectionColumn[]): AutoSelectionCell[] => {
-  const cells: AutoSelectionCell[] = [];
-
-  rows.forEach((row) => {
-    columns.forEach((column) => {
-      cells.push({
-        index: cells.length,
-        rowIndex: row.index,
-        columnIndex: column.index,
-        bounds: {
-          x: column.bounds.x,
-          y: row.bounds.y,
-          width: column.bounds.width,
-          height: row.bounds.height,
-        },
-        centerX: column.centerX,
-        centerY: row.centerY,
-      });
-    });
-  });
-
-  return cells;
-};
-
 const makeDetection = (
   width: number,
   height: number,
   rows: AutoSelectionRow[],
-  horizontalContourLines: number[],
-  columns: AutoSelectionColumn[] = [],
-  verticalContourLines: number[] = []
-): AutoSelectionGridDetection => ({
+  contourLines: number[]
+): AutoSelectionRowDetection => ({
   width,
   height,
   rows,
-  columns,
-  cells: columns.length > 0 ? buildCells(rows, columns) : [],
-  contourLines: horizontalContourLines,
-  horizontalContourLines,
-  verticalContourLines,
+  contourLines,
 });
 
-const buildRowsFromContourLines = (width: number, height: number, contourLines: number[]): AutoSelectionGridDetection => {
+const buildRowsFromContourLines = (width: number, height: number, contourLines: number[]): AutoSelectionRowDetection => {
   const rowEdges = [0, ...contourLines, height];
 
   const intervals = rowEdges.slice(0, -1).map((start, index) => {
@@ -268,25 +200,21 @@ const isLightGutterPixel = (data: Uint8ClampedArray, index: number) => {
   return (min >= 218 && max - min <= 46) || (luminance >= 238 && max - min <= 70);
 };
 
-const getAxisGutterScores = (imageData: ImageData, axis: 'x' | 'y'): number[] => {
+const getHorizontalGutterScores = (imageData: ImageData): number[] => {
   const { data, width, height } = imageData;
-  const primarySize = axis === 'x' ? width : height;
-  const secondarySize = axis === 'x' ? height : width;
   const scores: number[] = [];
 
-  for (let primary = 0; primary < primarySize; primary += 1) {
+  for (let y = 0; y < height; y += 1) {
     let lightPixels = 0;
 
-    for (let secondary = 0; secondary < secondarySize; secondary += 1) {
-      const x = axis === 'x' ? primary : secondary;
-      const y = axis === 'x' ? secondary : primary;
+    for (let x = 0; x < width; x += 1) {
       const idx = (y * width + x) * 4;
       if (isLightGutterPixel(data, idx)) {
         lightPixels += 1;
       }
     }
 
-    scores.push(lightPixels / secondarySize);
+    scores.push(lightPixels / width);
   }
 
   return scores;
@@ -356,32 +284,26 @@ const buildIntervalsFromGutters = (
   return intervals;
 };
 
-const detectRowsAndColumnsFromLightGutters = (imageData: ImageData): AutoSelectionGridDetection | null => {
+const detectRowsFromLightGutters = (imageData: ImageData): AutoSelectionRowDetection | null => {
   const { width, height } = imageData;
   if (width < 48 || height < 48) {
     return null;
   }
 
-  const verticalGutters = detectGutterBands(getAxisGutterScores(imageData, 'x'), width);
-  const horizontalGutters = detectGutterBands(getAxisGutterScores(imageData, 'y'), height);
-  const columnIntervals = buildIntervalsFromGutters(width, verticalGutters);
+  const horizontalGutters = detectGutterBands(getHorizontalGutterScores(imageData), height);
   const rowIntervals = buildIntervalsFromGutters(height, horizontalGutters);
 
-  if (columnIntervals.length < 2 || rowIntervals.length < 2) {
+  if (rowIntervals.length < 2) {
     return null;
   }
 
   const rows = buildRowsFromIntervals(width, rowIntervals);
-  const columns = buildColumnsFromIntervals(height, columnIntervals);
+  const edgeTolerance = Math.max(2, Math.round(height * 0.01));
+  const internalContourLines = horizontalGutters
+    .map((band) => band.center)
+    .filter((lineY) => lineY > edgeTolerance && lineY < height - edgeTolerance);
 
-  return makeDetection(
-    width,
-    height,
-    rows,
-    horizontalGutters.map((band) => band.center),
-    columns,
-    verticalGutters.map((band) => band.center)
-  );
+  return makeDetection(width, height, rows, internalContourLines);
 };
 
 const detectRowsFromActivityGaps = (imageData: ImageData): number[] => {
@@ -488,9 +410,9 @@ export const detectAutoSelectionRows = (imageData: ImageData): AutoSelectionRowD
     return emptyResult;
   }
 
-  const gridDetection = detectRowsAndColumnsFromLightGutters(imageData);
-  if (gridDetection) {
-    return gridDetection;
+  const lightGutterDetection = detectRowsFromLightGutters(imageData);
+  if (lightGutterDetection) {
+    return lightGutterDetection;
   }
 
   const contourLines = detectRowsFromActivityGaps(imageData);
@@ -505,8 +427,6 @@ export const detectAutoSelectionRows = (imageData: ImageData): AutoSelectionRowD
 
   return emptyResult;
 };
-
-export const detectAutoSelectionGrid = detectAutoSelectionRows;
 
 export const getAutoSelectionRowAtPoint = (
   detection: AutoSelectionRowDetection,
@@ -542,26 +462,4 @@ export const getAutoSelectionRowNearContour = (
   });
 
   return bestIndex >= 0 ? detection.rows[bestIndex] ?? null : null;
-};
-
-export const getAutoSelectionCellAtPoint = (
-  detection: AutoSelectionGridDetection,
-  point: { x: number; y: number }
-): AutoSelectionCell | null => {
-  if (
-    point.x < 0 ||
-    point.x > detection.width ||
-    point.y < 0 ||
-    point.y > detection.height ||
-    detection.cells.length === 0
-  ) {
-    return null;
-  }
-
-  return detection.cells.find((cell) => (
-    point.x >= cell.bounds.x &&
-    point.x <= cell.bounds.x + cell.bounds.width &&
-    point.y >= cell.bounds.y &&
-    point.y <= cell.bounds.y + cell.bounds.height
-  )) ?? null;
 };

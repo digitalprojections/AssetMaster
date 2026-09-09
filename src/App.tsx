@@ -15,7 +15,6 @@ import {
 import { getEmptyWorkspaceCopy } from './utils/emptyWorkspace';
 import {
   detectAutoSelectionRows,
-  getAutoSelectionCellAtPoint,
   getAutoSelectionRowNearContour,
   type AutoSelectionRowDetection,
 } from './utils/imageAutoSelection';
@@ -124,7 +123,6 @@ export default function App() {
   const [autoSelectionRows, setAutoSelectionRows] = useState<AutoSelectionRowDetection | null>(null);
   const [showAutoSelectionRows, setShowAutoSelectionRows] = useState<boolean>(true);
   const [hoveredAutoSelectionRowIndex, setHoveredAutoSelectionRowIndex] = useState<number | null>(null);
-  const [hoveredAutoSelectionCellIndex, setHoveredAutoSelectionCellIndex] = useState<number | null>(null);
   const [autoSelectionMessage, setAutoSelectionMessage] = useState<string>('');
 
   // Pan and zoom states
@@ -589,21 +587,16 @@ export default function App() {
     try {
       const detection = detectAutoSelectionRows(hiddenCtx.getImageData(0, 0, image.width, image.height));
       setAutoSelectionRows(detection.rows.length > 1 ? detection : null);
-      const hasGrid = detection.columns.length > 1 && detection.rows.length > 1 && detection.cells.length > 0;
       setAutoSelectionMessage(
-        hasGrid
-          ? `${detection.columns.length} x ${detection.rows.length} grid detected. Click a tile to select it.`
-          : detection.rows.length > 1
+        detection.rows.length > 1
           ? `${detection.rows.length} rows detected. Click a contour to select a row.`
           : 'No separate row guides detected.'
       );
       setShowAutoSelectionRows(detection.rows.length > 1);
-      setHoveredAutoSelectionCellIndex(null);
     } catch (error) {
-      console.error('Failed to detect grid guides', error);
+      console.error('Failed to detect row guides', error);
       setAutoSelectionRows(null);
-      setHoveredAutoSelectionCellIndex(null);
-      setAutoSelectionMessage('Grid guide detection is unavailable for this image.');
+      setAutoSelectionMessage('Row guide detection is unavailable for this image.');
     }
   }, [image]);
 
@@ -751,8 +744,7 @@ export default function App() {
     setHoverPoint(null);
     setAutoSelectionRows(null);
     setHoveredAutoSelectionRowIndex(null);
-    setHoveredAutoSelectionCellIndex(null);
-    setAutoSelectionMessage('Detecting grid guides...');
+    setAutoSelectionMessage('Detecting row guides...');
     setShowAutoSelectionRows(true);
 
     const img = new Image();
@@ -789,7 +781,7 @@ export default function App() {
   // Set default draft name whenever a new selection is made
   useEffect(() => {
     if (activePath.length > 0) {
-      if (cutoutDraftName.startsWith('row_') || cutoutDraftName.startsWith('tile_')) {
+      if (cutoutDraftName.startsWith('row_')) {
         return;
       }
 
@@ -886,38 +878,20 @@ export default function App() {
     ctx.drawImage(image, 0, 0);
 
     if (showAutoSelectionRows && autoSelectionRows && autoSelectionRows.rows.length > 1) {
-      const hoveredCell = hoveredAutoSelectionCellIndex !== null
-        ? autoSelectionRows.cells.find((cell) => cell.index === hoveredAutoSelectionCellIndex)
-        : null;
       ctx.save();
-
-      if (autoSelectionRows.cells.length > 0) {
-        if (hoveredCell) {
-          ctx.fillStyle = 'rgba(14, 165, 233, 0.18)';
-          ctx.fillRect(hoveredCell.bounds.x, hoveredCell.bounds.y, hoveredCell.bounds.width, hoveredCell.bounds.height);
-        }
-      } else {
-        autoSelectionRows.rows.forEach((row) => {
-          const isHovered = row.index === hoveredAutoSelectionRowIndex;
-          ctx.fillStyle = isHovered ? 'rgba(14, 165, 233, 0.16)' : 'rgba(14, 165, 233, 0.045)';
-          ctx.fillRect(row.bounds.x, row.bounds.y, row.bounds.width, row.bounds.height);
-        });
-      }
+      autoSelectionRows.rows.forEach((row) => {
+        const isHovered = row.index === hoveredAutoSelectionRowIndex;
+        ctx.fillStyle = isHovered ? 'rgba(14, 165, 233, 0.16)' : 'rgba(14, 165, 233, 0.045)';
+        ctx.fillRect(row.bounds.x, row.bounds.y, row.bounds.width, row.bounds.height);
+      });
 
       ctx.lineWidth = 1.5 / zoom;
       ctx.setLineDash([8 / zoom, 5 / zoom]);
-      autoSelectionRows.horizontalContourLines.forEach((lineY) => {
+      autoSelectionRows.contourLines.forEach((lineY) => {
         ctx.strokeStyle = 'rgba(34, 211, 238, 0.95)';
         ctx.beginPath();
         ctx.moveTo(0, lineY);
         ctx.lineTo(image.width, lineY);
-        ctx.stroke();
-      });
-      autoSelectionRows.verticalContourLines.forEach((lineX) => {
-        ctx.strokeStyle = 'rgba(34, 211, 238, 0.9)';
-        ctx.beginPath();
-        ctx.moveTo(lineX, 0);
-        ctx.lineTo(lineX, image.height);
         ctx.stroke();
       });
       ctx.setLineDash([]);
@@ -1130,21 +1104,7 @@ export default function App() {
       ctx.restore();
     }
 
-    if (showAutoSelectionRows && autoSelectionRows && hoveredAutoSelectionCellIndex !== null) {
-      const hoveredCell = autoSelectionRows.cells.find((cell) => cell.index === hoveredAutoSelectionCellIndex);
-      if (hoveredCell) {
-        const screenX = offset.x + hoveredCell.centerX * zoom;
-        const screenY = offset.y + hoveredCell.bounds.y * zoom;
-        ctx.save();
-        ctx.font = 'bold 11px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillStyle = '#e0f2fe';
-        ctx.shadowColor = 'rgba(2, 6, 23, 0.95)';
-        ctx.shadowBlur = 5;
-        ctx.fillText(`Select tile ${hoveredCell.rowIndex + 1}, ${hoveredCell.columnIndex + 1}`, screenX, screenY - 8);
-        ctx.restore();
-      }
-    } else if (showAutoSelectionRows && autoSelectionRows && hoveredAutoSelectionRowIndex !== null) {
+    if (showAutoSelectionRows && autoSelectionRows && hoveredAutoSelectionRowIndex !== null) {
       const hoveredRow = autoSelectionRows.rows.find((row) => row.index === hoveredAutoSelectionRowIndex);
       if (hoveredRow) {
         const screenX = offset.x + image.width * zoom - 12;
@@ -1159,7 +1119,7 @@ export default function App() {
         ctx.restore();
       }
     }
-  }, [image, offset, zoom, activePath, activeTool, rectStart, rectEnd, rectSnapPreview, hoverPoint, antsOffset, snapRadius, autoSelectionRows, showAutoSelectionRows, hoveredAutoSelectionRowIndex, hoveredAutoSelectionCellIndex]);
+  }, [image, offset, zoom, activePath, activeTool, rectStart, rectEnd, rectSnapPreview, hoverPoint, antsOffset, snapRadius, autoSelectionRows, showAutoSelectionRows, hoveredAutoSelectionRowIndex]);
 
   // Redraw when elements update
   useEffect(() => {
@@ -1232,15 +1192,8 @@ export default function App() {
   }, []);
 
   const selectDetectedImageRow = useCallback((bounds: RectBounds, rowIndex: number) => {
-    setHoveredAutoSelectionCellIndex(null);
     setHoveredAutoSelectionRowIndex(rowIndex);
     selectDetectedImageBounds(bounds, `row_${rowIndex + 1}_${lastCutoutIndex}`);
-  }, [lastCutoutIndex, selectDetectedImageBounds]);
-
-  const selectDetectedImageCell = useCallback((bounds: RectBounds, rowIndex: number, columnIndex: number, cellIndex: number) => {
-    setHoveredAutoSelectionRowIndex(null);
-    setHoveredAutoSelectionCellIndex(cellIndex);
-    selectDetectedImageBounds(bounds, `tile_r${rowIndex + 1}_c${columnIndex + 1}_${lastCutoutIndex}`);
   }, [lastCutoutIndex, selectDetectedImageBounds]);
 
   // Canvas interaction mouse handlers
@@ -1262,23 +1215,10 @@ export default function App() {
       imgPt.y >= 0 &&
       imgPt.y <= image.height
     ) {
-      const detectedCell = getAutoSelectionCellAtPoint(autoSelectionRows, imgPt);
-      if (detectedCell) {
-        selectDetectedImageCell(
-          detectedCell.bounds,
-          detectedCell.rowIndex,
-          detectedCell.columnIndex,
-          detectedCell.index
-        );
+      const detectedRow = getAutoSelectionRowNearContour(autoSelectionRows, imgPt, Math.max(2, 14 / zoom));
+      if (detectedRow) {
+        selectDetectedImageRow(detectedRow.bounds, detectedRow.index);
         return;
-      }
-
-      if (autoSelectionRows.cells.length === 0) {
-        const detectedRow = getAutoSelectionRowNearContour(autoSelectionRows, imgPt, Math.max(2, 14 / zoom));
-        if (detectedRow) {
-          selectDetectedImageRow(detectedRow.bounds, detectedRow.index);
-          return;
-        }
       }
     }
 
@@ -1360,16 +1300,10 @@ export default function App() {
       : imgPt;
 
     if (showAutoSelectionRows && autoSelectionRows && autoSelectionRows.rows.length > 1) {
-      const detectedCell = getAutoSelectionCellAtPoint(autoSelectionRows, clampedImgPt);
-      setHoveredAutoSelectionCellIndex(detectedCell?.index ?? null);
-
-      const detectedRow = detectedCell || autoSelectionRows.cells.length > 0
-        ? null
-        : getAutoSelectionRowNearContour(autoSelectionRows, clampedImgPt, Math.max(2, 14 / zoom));
+      const detectedRow = getAutoSelectionRowNearContour(autoSelectionRows, clampedImgPt, Math.max(2, 14 / zoom));
       setHoveredAutoSelectionRowIndex(detectedRow?.index ?? null);
-    } else if (hoveredAutoSelectionRowIndex !== null || hoveredAutoSelectionCellIndex !== null) {
+    } else if (hoveredAutoSelectionRowIndex !== null) {
       setHoveredAutoSelectionRowIndex(null);
-      setHoveredAutoSelectionCellIndex(null);
     }
 
     if (activeTool === 'rectangle') {
@@ -1450,7 +1384,6 @@ export default function App() {
       setHoverPoint(null);
     }
     setHoveredAutoSelectionRowIndex(null);
-    setHoveredAutoSelectionCellIndex(null);
   };
 
   const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
@@ -2401,7 +2334,7 @@ export default function App() {
             onTouchMove={handleTouchMove}
             onTouchEnd={handleTouchEnd}
             className={`w-full h-full block ${
-              showAutoSelectionRows && autoSelectionRows && (hoveredAutoSelectionRowIndex !== null || hoveredAutoSelectionCellIndex !== null)
+              showAutoSelectionRows && autoSelectionRows && hoveredAutoSelectionRowIndex !== null
                 ? 'cursor-cell'
                 : activeTool === 'select' || isPanning
                 ? 'cursor-grab active:cursor-grabbing'
@@ -2553,8 +2486,8 @@ export default function App() {
               <div className="space-y-2 rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-3">
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="text-xs font-semibold text-slate-200">Grid Auto Select</p>
-                    <p className="text-[10px] text-cyan-200/80">{autoSelectionMessage || 'Analyzing grid guides...'}</p>
+                    <p className="text-xs font-semibold text-slate-200">Auto Row Select</p>
+                    <p className="text-[10px] text-cyan-200/80">{autoSelectionMessage || 'Analyzing row guides...'}</p>
                   </div>
                   <input
                     type="checkbox"
@@ -2562,10 +2495,10 @@ export default function App() {
                     onChange={(event) => setShowAutoSelectionRows(event.target.checked)}
                     disabled={!autoSelectionRows}
                     className="h-4 w-4 shrink-0 cursor-pointer rounded border-slate-700 bg-slate-950 text-cyan-400 focus:ring-cyan-500 disabled:cursor-not-allowed disabled:opacity-40"
-                    aria-label="Toggle grid auto selection guides"
+                    aria-label="Toggle auto row selection guides"
                   />
                 </div>
-                {autoSelectionRows && autoSelectionRows.cells.length === 0 && (
+                {autoSelectionRows && (
                   <div className="grid grid-cols-3 gap-1.5">
                     {autoSelectionRows.rows.slice(0, 6).map((row) => (
                       <button
