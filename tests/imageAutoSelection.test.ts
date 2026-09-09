@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict';
-import { detectAutoSelectionRows, getAutoSelectionRowAtPoint } from '../src/utils/imageAutoSelection';
+import {
+  detectAutoSelectionRows,
+  getAutoSelectionRowAtPoint,
+  getAutoSelectionRowNearContour,
+} from '../src/utils/imageAutoSelection';
 
 const makeImageData = (width: number, height: number, fill: [number, number, number, number]) => {
   const data = new Uint8ClampedArray(width * height * 4);
@@ -42,6 +46,9 @@ assert.ok(transparentDetection.contourLines[1] > 54 && transparentDetection.cont
 assert.equal(getAutoSelectionRowAtPoint(transparentDetection, { x: 20, y: 40 })?.index, 1);
 assert.equal(getAutoSelectionRowAtPoint(transparentDetection, { x: 20, y: 86 })?.index, 2);
 assert.equal(getAutoSelectionRowAtPoint(transparentDetection, { x: -1, y: 40 }), null);
+assert.equal(getAutoSelectionRowNearContour(transparentDetection, { x: 20, y: transparentDetection.contourLines[0] + 1 }, 3)?.index, 1);
+assert.equal(getAutoSelectionRowNearContour(transparentDetection, { x: 20, y: transparentDetection.contourLines[0] - 1 }, 3)?.index, 0);
+assert.equal(getAutoSelectionRowNearContour(transparentDetection, { x: 20, y: 8 }, 3), null);
 
 const opaqueSheet = makeImageData(60, 64, [245, 245, 245, 255]);
 paintRect(opaqueSheet, { x: 6, y: 6, width: 48, height: 16 }, [30, 80, 190, 255]);
@@ -51,6 +58,14 @@ const opaqueDetection = detectAutoSelectionRows(opaqueSheet);
 assert.equal(opaqueDetection.rows.length, 2);
 assert.equal(opaqueDetection.contourLines.length, 1);
 assert.ok(opaqueDetection.contourLines[0] > 22 && opaqueDetection.contourLines[0] < 40);
+
+const adjacentRowsSheet = makeImageData(80, 80, [230, 40, 40, 255]);
+paintRect(adjacentRowsSheet, { x: 0, y: 40, width: 80, height: 40 }, [40, 80, 220, 255]);
+
+const adjacentRowsDetection = detectAutoSelectionRows(adjacentRowsSheet);
+assert.equal(adjacentRowsDetection.rows.length, 2);
+assert.equal(adjacentRowsDetection.contourLines.length, 1);
+assert.equal(adjacentRowsDetection.contourLines[0], 40);
 
 const singlePhotoLikeBlock = makeImageData(80, 60, [90, 120, 140, 255]);
 const singleDetection = detectAutoSelectionRows(singlePhotoLikeBlock);

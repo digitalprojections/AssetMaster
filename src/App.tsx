@@ -15,7 +15,7 @@ import {
 import { getEmptyWorkspaceCopy } from './utils/emptyWorkspace';
 import {
   detectAutoSelectionRows,
-  getAutoSelectionRowAtPoint,
+  getAutoSelectionRowNearContour,
   type AutoSelectionRowDetection,
 } from './utils/imageAutoSelection';
 import bmcButton from './assets/bmc-button.svg';
@@ -589,7 +589,7 @@ export default function App() {
       setAutoSelectionRows(detection.rows.length > 1 ? detection : null);
       setAutoSelectionMessage(
         detection.rows.length > 1
-          ? `${detection.rows.length} row guides detected. Click a highlighted row to select it.`
+          ? `${detection.rows.length} rows detected. Click a contour to select a row.`
           : 'No separate row guides detected.'
       );
       setShowAutoSelectionRows(detection.rows.length > 1);
@@ -1211,7 +1211,7 @@ export default function App() {
       imgPt.y >= 0 &&
       imgPt.y <= image.height
     ) {
-      const detectedRow = getAutoSelectionRowAtPoint(autoSelectionRows, imgPt);
+      const detectedRow = getAutoSelectionRowNearContour(autoSelectionRows, imgPt, Math.max(2, 14 / zoom));
       if (detectedRow) {
         selectDetectedImageRow(detectedRow.bounds, detectedRow.index);
         return;
@@ -1296,7 +1296,7 @@ export default function App() {
       : imgPt;
 
     if (showAutoSelectionRows && autoSelectionRows && autoSelectionRows.rows.length > 1) {
-      const detectedRow = getAutoSelectionRowAtPoint(autoSelectionRows, clampedImgPt);
+      const detectedRow = getAutoSelectionRowNearContour(autoSelectionRows, clampedImgPt, Math.max(2, 14 / zoom));
       setHoveredAutoSelectionRowIndex(detectedRow?.index ?? null);
     } else if (hoveredAutoSelectionRowIndex !== null) {
       setHoveredAutoSelectionRowIndex(null);
@@ -2330,7 +2330,7 @@ export default function App() {
             onTouchMove={handleTouchMove}
             onTouchEnd={handleTouchEnd}
             className={`w-full h-full block ${
-              showAutoSelectionRows && autoSelectionRows
+              showAutoSelectionRows && autoSelectionRows && hoveredAutoSelectionRowIndex !== null
                 ? 'cursor-cell'
                 : activeTool === 'select' || isPanning
                 ? 'cursor-grab active:cursor-grabbing'

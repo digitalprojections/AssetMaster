@@ -141,46 +141,7 @@ const mergeCloseBands = (
   return merged;
 };
 
-export const detectAutoSelectionRows = (imageData: ImageData): AutoSelectionRowDetection => {
-  const { width, height } = imageData;
-  const emptyResult = { width, height, rows: [], contourLines: [] };
-  if (width <= 0 || height <= 0) {
-    return emptyResult;
-  }
-
-  const activity = smoothActivity(buildRowActivity(imageData), Math.max(1, Math.round(height / 160)));
-  const strongestRow = Math.max(...activity);
-  if (strongestRow < 0.015) {
-    return emptyResult;
-  }
-
-  const threshold = clamp(strongestRow * 0.2, 0.012, 0.18);
-  const rawBands: Array<{ start: number; end: number }> = [];
-  let bandStart: number | null = null;
-
-  activity.forEach((value, y) => {
-    if (value >= threshold && bandStart === null) {
-      bandStart = y;
-    }
-
-    if ((value < threshold || y === activity.length - 1) && bandStart !== null) {
-      const end = value < threshold ? y - 1 : y;
-      rawBands.push({ start: bandStart, end });
-      bandStart = null;
-    }
-  });
-
-  const minBandHeight = Math.max(3, Math.round(height * 0.025));
-  const mergedBands = mergeCloseBands(rawBands, Math.max(2, Math.round(height * 0.01)))
-    .filter((band) => band.end - band.start + 1 >= minBandHeight);
-
-  if (mergedBands.length <= 1) {
-    return emptyResult;
-  }
-
-  const contourLines = mergedBands.slice(0, -1).map((band, index) => (
-    Math.round((band.end + mergedBands[index + 1].start) / 2)
-  ));
+const buildRowsFromContourLines = (width: number, height: number, contourLines: number[]): AutoSelectionRowDetection => {
   const rowEdges = [0, ...contourLines, height];
 
   const rows = rowEdges.slice(0, -1).map((start, index) => {
@@ -205,6 +166,123 @@ export const detectAutoSelectionRows = (imageData: ImageData): AutoSelectionRowD
   };
 };
 
+const detectRowsFromActivityGaps = (imageData: ImageData): number[] => {
+  const { height } = imageData;
+  const activity = smoothActivity(buildRowActivity(imageData), Math.max(1, Math.round(height / 160)));
+  const strongestRow = Math.max(...activity);
+  if (strongestRow < 0.015) {
+    return [];
+  }
+
+  const threshold = clamp(strongestRow * 0.2, 0.012, 0.18);
+  const rawBands: Array<{ start: number; end: number }> = [];
+  let bandStart: number | null = null;
+
+  activity.forEach((value, y) => {
+    if (value >= threshold && bandStart === null) {
+      bandStart = y;
+    }
+
+    if ((value < threshold || y === activity.length - 1) && bandStart !== null) {
+      const end = value < threshold ? y - 1 : y;
+      rawBands.push({ start: bandStart, end });
+      bandStart = null;
+    }
+  });
+
+  const minBandHeight = Math.max(3, Math.round(height * 0.025));
+  const mergedBands = mergeCloseBands(rawBands, Math.max(2, Math.round(height * 0.01)))
+    .filter((band) => band.end - band.start + 1 >= minBandHeight);
+
+  if (mergedBands.length <= 1) {
+    return [];
+  }
+
+  return mergedBands.slice(0, -1).map((band, index) => (
+    Math.round((band.end + mergedBands[index + 1].start) / 2)
+  ));
+};
+
+const detectRowsFromHorizontalSeams = (imageData: ImageData): number[] => {
+  const { data, width, height } = imageData;
+  if (height < 24 || width < 8) {
+    return [];
+  }
+
+  const scores: number[] = [];
+  for (let y = 1; y < height; y += 1) {
+    let sum = 0;
+    for (let x = 0; x < width; x += 1) {
+      const prev = ((y - 1) * width + x) * 4;
+      const current = (y * width + x) * 4;
+      sum += Math.abs(data[current] - data[prev]);
+      sum += Math.abs(data[current + 1] - data[prev + 1]);
+      sum += Math.abs(data[current + 2] - data[prev + 2]);
+      sum += Math.abs(data[current + 3] - data[prev + 3]) * 0.5;
+    }
+    scores.push(sum / width);
+  }
+
+  const strongestScore = Math.max(...scores);
+  if (strongestScore < 42) {
+    return [];
+  }
+
+  const threshold = Math.max(36, strongestScore * 0.72);
+  const minRowHeight = Math.max(10, Math.round(height * 0.08));
+  const candidates: Array<{ y: number; score: number }> = [];
+  let groupStart: number | null = null;
+  let bestY = 0;
+  let bestScore = 0;
+
+  scores.forEach((score, index) => {
+    const y = index + 1;
+    const isCandidate = score >= threshold && y >= minRowHeight && y <= height - minRowHeight;
+
+    if (isCandidate && groupStart === null) {
+      groupStart = y;
+      bestY = y;
+      bestScore = score;
+    }
+
+    if (isCandidate && score > bestScore) {
+      bestY = y;
+      bestScore = score;
+    }
+
+    if ((!isCandidate || index === scores.length - 1) && groupStart !== null) {
+      candidates.push({ y: bestY, score: bestScore });
+      groupStart = null;
+      bestY = 0;
+      bestScore = 0;
+    }
+  });
+
+  return candidates
+    .map((candidate) => candidate.y)
+    .filter((lineY, index, lines) => index === 0 || lineY - lines[index - 1] >= minRowHeight);
+};
+
+export const detectAutoSelectionRows = (imageData: ImageData): AutoSelectionRowDetection => {
+  const { width, height } = imageData;
+  const emptyResult = { width, height, rows: [], contourLines: [] };
+  if (width <= 0 || height <= 0) {
+    return emptyResult;
+  }
+
+  const contourLines = detectRowsFromActivityGaps(imageData);
+  if (contourLines.length > 0) {
+    return buildRowsFromContourLines(width, height, contourLines);
+  }
+
+  const seamLines = detectRowsFromHorizontalSeams(imageData);
+  if (seamLines.length > 0) {
+    return buildRowsFromContourLines(width, height, seamLines);
+  }
+
+  return emptyResult;
+};
+
 export const getAutoSelectionRowAtPoint = (
   detection: AutoSelectionRowDetection,
   point: { x: number; y: number }
@@ -217,4 +295,26 @@ export const getAutoSelectionRowAtPoint = (
     point.y >= row.bounds.y &&
     point.y <= row.bounds.y + row.bounds.height
   )) ?? null;
+};
+
+export const getAutoSelectionRowNearContour = (
+  detection: AutoSelectionRowDetection,
+  point: { x: number; y: number },
+  tolerance: number
+): AutoSelectionRow | null => {
+  if (point.x < 0 || point.x > detection.width || point.y < 0 || point.y > detection.height) {
+    return null;
+  }
+
+  let bestIndex = -1;
+  let bestDistance = Infinity;
+  detection.contourLines.forEach((lineY, index) => {
+    const distance = Math.abs(point.y - lineY);
+    if (distance <= tolerance && distance < bestDistance) {
+      bestIndex = point.y >= lineY ? index + 1 : index;
+      bestDistance = distance;
+    }
+  });
+
+  return bestIndex >= 0 ? detection.rows[bestIndex] ?? null : null;
 };
