@@ -12,7 +12,7 @@
     "android:assets": "node scripts/generate-android-logo-assets.mjs",
     "android:key": "node scripts/create-android-upload-key.mjs",
     "android:bundle": "node scripts/create-android-upload-key.mjs --if-missing && node scripts/prepare-capacitor-android.mjs --bundle-release",
-    "android:publish-open-testing": "node scripts/publish-play-open-testing.mjs --publish --package link.created.assetmaster --track beta --releaseName 1.1.2 --releaseNotes \"Improves Android edge-to-edge layout and prevents repeated taps from opening duplicate interstitial ads.\" --key ..\\big-genre-172004-b7bf916fca08.json --bundle android\\app\\build\\outputs\\bundle\\release\\app-release.aab",
+    "android:publish-open-testing": "node scripts/publish-play-open-testing.mjs --publish --package link.created.assetmaster --track beta --releaseName 1.1.3 --releaseNotes \"Improves uploaded image row selection for cleaner asset extraction.\" --key ..\\big-genre-172004-b7bf916fca08.json --bundle android\\app\\build\\outputs\\bundle\\release\\app-release.aab",
     "android:publish-store-listings": "node scripts/publish-play-store-listings.mjs --publish --package link.created.assetmaster --key ..\\big-genre-172004-b7bf916fca08.json",
     "android:open": "npx cap open android",
     "deploy": "powershell -ExecutionPolicy Bypass -File .\\scripts\\deploy-lightsail.ps1",
