@@ -1,3 +1,4 @@
+import { panScroll } from '../utils/cleanupPan';
 import React, { useState, useEffect, useRef } from 'react';
 import { SavedSegment } from '../types';
 import {
@@ -52,6 +53,30 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
   const containerRef = useRef<HTMLDivElement | null>(null);
   const magicBrushColorRef = useRef<RgbColor | null>(null);
   
+  const [panMode, setPanMode] = useState(false);
+  const panGesture = useRef<{ id: number; start: PixelPoint; scroll: PixelPoint } | null>(null);
+
+  const startPan = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!panMode || panGesture.current || (event.pointerType === 'mouse' && event.button !== 0)) return;
+    event.preventDefault();
+    const viewport = event.currentTarget;
+    viewport.setPointerCapture(event.pointerId);
+    panGesture.current = { id: event.pointerId, start: { x: event.clientX, y: event.clientY }, scroll: { x: viewport.scrollLeft, y: viewport.scrollTop } };
+  };
+  const movePan = (event: React.PointerEvent<HTMLDivElement>) => {
+    const gesture = panGesture.current;
+    if (!gesture || gesture.id !== event.pointerId) return;
+    event.preventDefault();
+    const scroll = panScroll(gesture.scroll, gesture.start, { x: event.clientX, y: event.clientY });
+    event.currentTarget.scrollLeft = scroll.x;
+    event.currentTarget.scrollTop = scroll.y;
+  };
+  const endPan = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (panGesture.current?.id !== event.pointerId) return;
+    panGesture.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+  };
+
   // Undo history of base64 states
   const [history, setHistory] = useState<string[]>([]);
   const [baseImage, setBaseImage] = useState<string>(segment.thumbnailUrl);
@@ -923,14 +948,27 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
         </div>
 
         {/* Content workspace split panel */}
+        <div className="flex items-center gap-3 px-3 py-2 border-b border-slate-800">
+          <button type="button" aria-pressed={panMode} onClick={() => { handleCanvasMouseUp(); setMousePos(null); setPanMode((value) => !value); }}
+            className={`px-3 py-1 rounded text-xs font-semibold ${panMode ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-200'}`}>
+            {panMode ? 'Pan active' : 'Pan'}
+          </button>
+          <span className="text-xs text-slate-400">{panMode ? 'Drag to move. Turn off Pan to edit.' : 'Enable Pan to move with a mouse or touch.'}</span>
+        </div>
         <div className="flex-1 min-h-0 flex flex-col md:flex-row overflow-hidden relative pb-20 md:pb-0">
           
           {/* Main Visual interactive Canvas Area */}
           <div
             ref={containerRef}
+            onPointerDown={startPan}
+            onPointerMove={movePan}
+            onPointerUp={endPan}
+            onPointerCancel={endPan}
+            onLostPointerCapture={() => { panGesture.current = null; }}
+            style={{ touchAction: panMode ? 'none' : undefined, cursor: panMode ? 'grab' : undefined }}
             className={`${isControlsOpen ? 'hidden md:block' : 'block'} flex-1 min-h-0 bg-checkerboard relative overflow-auto select-none`}
           >
-            <div className="min-h-full min-w-full flex items-center justify-center p-3 pb-24 md:p-8">
+            <div className="w-max min-h-full min-w-full flex items-center justify-center p-3 pb-24 md:p-8">
             
             {/* Visual Canvas and guides */}
             <div
@@ -942,26 +980,26 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
             >
               <canvas
                 ref={canvasRef}
-                onMouseDown={handleCanvasMouseDown}
-                onMouseMove={handleCanvasMouseMove}
-                onMouseUp={handleCanvasMouseUp}
-                onMouseLeave={handleCanvasMouseLeave}
-                onTouchStart={handleTouchStart}
-                onTouchMove={handleTouchMove}
-                onTouchEnd={handleTouchEnd}
+                onMouseDown={panMode ? undefined : handleCanvasMouseDown}
+                onMouseMove={panMode ? undefined : handleCanvasMouseMove}
+                onMouseUp={panMode ? undefined : handleCanvasMouseUp}
+                onMouseLeave={panMode ? undefined : handleCanvasMouseLeave}
+                onTouchStart={panMode ? undefined : handleTouchStart}
+                onTouchMove={panMode ? undefined : handleTouchMove}
+                onTouchEnd={panMode ? undefined : handleTouchEnd}
                 className={`block transition-shadow duration-300 ${
-                  activeTool === 'magic-wand' ? 'cursor-crosshair' : 'cursor-none'
+                  panMode ? 'cursor-grab' : activeTool === 'magic-wand' ? 'cursor-crosshair' : 'cursor-none'
                 }`}
                 style={{
                   imageRendering: 'pixelated',
                   width: `${displayWidth}px`,
                   height: `${displayHeight}px`,
-                  touchAction: activeTool === 'eraser' ? 'none' : 'manipulation',
+                  touchAction: panMode || activeTool === 'eraser' ? 'none' : 'manipulation',
                 }}
               />
 
               {/* Virtual Cursor Indicator for Manual Eraser Brush */}
-              {activeTool === 'eraser' && mousePos && canvasRef.current && (
+              {!panMode && activeTool === 'eraser' && mousePos && canvasRef.current && (
                 <div
                   className={`absolute rounded-full pointer-events-none ${eraserMode === 'color-match' ? 'border border-emerald-400 bg-emerald-400/10' : 'border border-red-500 bg-red-500/10'}`}
                   style={{
@@ -1095,7 +1133,7 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
                   </button>
                 </div>
                 <p className="text-[9px] text-slate-500">
-                  Mouse wheel zooms the cleanup view. Pan with scroll when zoomed in.
+                  Mouse wheel zooms the cleanup view. Enable Pan, then drag to move.
                 </p>
               </div>
               <div className="hidden md:grid grid-cols-1 gap-2">
