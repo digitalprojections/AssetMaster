@@ -44,6 +44,7 @@ import { ANIMATION_IMAGE_ACCEPT, appendImportedAnimation, importAnimationImages,
 import JSZip from 'jszip';
 import { motion, AnimatePresence } from 'motion/react';
 import BackgroundRemover from './BackgroundRemover';
+import UsageTips from './UsageTips';
 import { createSegmentImage } from '../utils/canvasUtils';
 import { getIndexedDbRecord, setIndexedDbRecord } from '../utils/indexedDbStorage';
 import {
@@ -2644,6 +2645,15 @@ export default function AnimationStudio({
           </button>
         </div>
 
+        <div className="flex items-center gap-1.5 shrink-0">
+        <UsageTips preferenceKey="assetmaster.animationStudio.usageTips.v1">
+          <ol className="space-y-3">
+            <li><strong className="text-indigo-300">1. Import frames.</strong> Choose Images or Choose Folder adds images in filename order. On small screens, open Source &amp; Slice first.</li>
+            <li><strong className="text-indigo-300">2. Clean in any order.</strong> Select a source cutout, open Clean / Polish Background, then Save Cleaned Cutout. Cleaning within this studio updates its frame without moving it.</li>
+            <li><strong className="text-indigo-300">3. Export the sequence.</strong> Export Centered PNGs ZIP saves separate transparent images numbered in timeline order. Check playback before exporting.</li>
+          </ol>
+          <p className="mt-3 border-t border-slate-700 pt-3 text-xs text-slate-400">Export uses the project canvas size and alignment, with numbered filenames such as walk_centered_001.png. Original filenames are not retained.</p>
+        </UsageTips>
         {/* Right close button */}
         <button
           onClick={onClose}
@@ -2652,6 +2662,7 @@ export default function AnimationStudio({
           <X className="h-3.5 w-3.5" />
           <span>Exit</span>
         </button>
+        </div>
       </header>
 
       {/* 2. Main Studio workspace */}

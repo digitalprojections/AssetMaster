@@ -40,7 +40,7 @@ async function choose(button, selection) {
   await (await chooser).setFiles(selection);
 }
 try {
-  await page.goto(process.env.ASSETMASTER_URL || 'http://127.0.0.1:3000/');
+  await page.goto(process.env.ASSETMASTER_URL || 'http://127.0.0.1:3001/');
   await page.getByRole('button', { name: 'Open Animation Studio', exact: true }).click();
   await choose('Choose Folder', folder);
   await page.getByRole('status').filter({ hasText: `Added ${paths.length} frames` }).waitFor();

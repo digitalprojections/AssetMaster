@@ -24,6 +24,7 @@ import './listDeletionControls.test';
 import './professionalToolsUi.test';
 import './videoFrames.test';
 import './animationImageImport.test';
+import './usageTips.test';
 import './backgroundKeying.test';
 import './imageAutoSelection.test';
 import './segmentFilters.test';
