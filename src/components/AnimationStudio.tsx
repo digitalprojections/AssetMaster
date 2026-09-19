@@ -40,6 +40,7 @@ import {
   Save,
   Film
 } from 'lucide-react';
+import { ANIMATION_IMAGE_ACCEPT, appendImportedAnimation, importAnimationImages, type ImportedAnimationImages } from '../utils/animationImageImport';
 import JSZip from 'jszip';
 import { motion, AnimatePresence } from 'motion/react';
 import BackgroundRemover from './BackgroundRemover';
@@ -173,6 +174,13 @@ export default function AnimationStudio({
   const [cleanupQueue, setCleanupQueue] = useState<string[]>([]);
   const dropdownRef = useRef<HTMLDivElement | null>(null);
   const projectImportInputRef = useRef<HTMLInputElement | null>(null);
+  const imageImportInputRef = useRef<HTMLInputElement | null>(null);
+  const folderImportInputRef = useRef<HTMLInputElement | null>(null);
+  const imageImportGenerationRef = useRef(0);
+  const imageImportBusyRef = useRef(false);
+  const [isImportingImages, setIsImportingImages] = useState(false);
+  const [imageImportMessage, setImageImportMessage] = useState('Add images in filename order. Each image becomes one frame.');
+  useEffect(() => () => { imageImportGenerationRef.current += 1; }, []);
   
   // Grid subdivision config
   const [cols, setCols] = useState<number>(4);
@@ -254,6 +262,39 @@ export default function AnimationStudio({
     setProjectHistory((prev) => pushAnimationProjectHistory(prev, currentSnapshot));
     setProject(nextProject);
     setActiveFrameIndex(clampedFrameIndex);
+  };
+
+  // Use the latest project/history if editing continues while images decode.
+  const commitImageImportRef = useRef<(images: ImportedAnimationImages) => void>(() => {});
+  commitImageImportRef.current = (images) => {
+    applyProjectEdit(current => appendImportedAnimation(current, images), project.frames.length);
+    onCreateSegments?.(images.segments);
+    setSelectedSegmentId(images.segments[0].id);
+    setIsPlaying(false);
+    setActiveStudioTab('player');
+  };
+
+  const handleImageImportFiles = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from<File>(event.currentTarget.files ?? []);
+    event.currentTarget.value = '';
+    if (!files.length || imageImportBusyRef.current) return;
+    const generation = imageImportGenerationRef.current;
+    imageImportBusyRef.current = true;
+    setIsImportingImages(true);
+    setImageImportMessage('Importing image frames...');
+    try {
+      const images = await importAnimationImages(files);
+      if (generation !== imageImportGenerationRef.current) return;
+      commitImageImportRef.current(images);
+      setImageImportMessage(`Added ${images.frames.length} frame${images.frames.length === 1 ? '' : 's'} in filename order.${images.ignoredCount ? ` Skipped ${images.ignoredCount} unsupported or hidden file${images.ignoredCount === 1 ? '' : 's'}.` : ''}`);
+    } catch (error) {
+      if (generation === imageImportGenerationRef.current) {
+        setImageImportMessage(error instanceof Error ? error.message : 'The images could not be imported.');
+      }
+    } finally {
+      imageImportBusyRef.current = false;
+      if (generation === imageImportGenerationRef.current) setIsImportingImages(false);
+    }
   };
 
   const restoreProjectSnapshot = (snapshot: { project: AnimationProject; activeFrameIndex: number }) => {
@@ -2499,6 +2540,10 @@ export default function AnimationStudio({
     >
       {/* Invisible canvas for slices */}
       <canvas ref={sliceCanvasRef} className="hidden" />
+      <input ref={imageImportInputRef} type="file" accept={ANIMATION_IMAGE_ACCEPT} multiple
+        aria-label="Import animation images" className="hidden" onChange={handleImageImportFiles} />
+      <input ref={folderImportInputRef} type="file" accept={ANIMATION_IMAGE_ACCEPT} multiple
+        {...{ webkitdirectory: '' }} aria-label="Import animation folder" className="hidden" onChange={handleImageImportFiles} />
       <input
         ref={projectImportInputRef}
         type="file"
@@ -2638,8 +2683,18 @@ export default function AnimationStudio({
         </div>
         
         {/* 2.1 Left Panel: Cutouts importer / Subdivision Tools */}
-        <aside className={`${activeStudioTab === 'source' ? 'flex' : 'hidden lg:flex'} w-full lg:w-80 flex-1 lg:flex-none min-h-0 border-r border-slate-800 bg-slate-950 flex-col overflow-y-auto overscroll-contain lg:overflow-hidden shrink-0`}>
+        <aside className={`${activeStudioTab === 'source' ? 'flex' : 'hidden lg:flex'} w-full lg:w-80 flex-1 lg:flex-none min-h-0 border-r border-slate-800 bg-slate-950 flex-col overflow-y-auto overscroll-contain shrink-0`}>
           <div className="p-4 border-b border-slate-800 bg-slate-950/95 backdrop-blur shrink-0 space-y-3">
+            <section className="space-y-2 rounded-xl border border-indigo-500/20 bg-indigo-500/5 p-3" aria-label="Import image frames">
+              <h2 className="text-xs font-bold text-slate-200">Image Frames</h2>
+              <div className="grid grid-cols-2 gap-2">
+                <button onClick={() => imageImportInputRef.current?.click()} disabled={isImportingImages || !isProjectHydrated}
+                  className="rounded-lg bg-indigo-600 px-2 py-2.5 text-xs font-semibold text-white hover:bg-indigo-500 disabled:opacity-50 cursor-pointer">Choose Images</button>
+                <button onClick={() => folderImportInputRef.current?.click()} disabled={isImportingImages || !isProjectHydrated}
+                  className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-2.5 text-xs font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-50 cursor-pointer">Choose Folder</button>
+              </div>
+              <p role="status" aria-live="polite" className="text-[11px] leading-relaxed text-slate-400">{imageImportMessage}</p>
+            </section>
             <div>
               <h2 className="text-xs font-bold uppercase tracking-wider text-slate-300">Source Actions</h2>
               <p className="text-[10px] text-slate-500">
@@ -2748,7 +2803,7 @@ export default function AnimationStudio({
               <p className="text-[10px] text-slate-500 leading-relaxed">{videoImportMessage}</p>
             </div>
           </div>
-          <div className="flex-none lg:flex-1 overflow-visible lg:overflow-y-auto overscroll-contain p-4 space-y-5">
+          <div className="flex-none p-4 space-y-5">
           {/* Mobile-only Project Properties inside Left Panel */}
           <div className="block lg:hidden bg-slate-900/40 border border-slate-800 p-3.5 rounded-xl space-y-3 shrink-0">
             <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Project Configuration</h3>
@@ -3150,7 +3205,7 @@ export default function AnimationStudio({
                 </div>
                 <h3 className="text-sm font-semibold text-slate-300">Animation Timeline Empty</h3>
                 <p className="text-xs text-slate-500 leading-relaxed">
-                  Select a saved cutout from the left panel, and click <strong className="text-indigo-400">Slice & View</strong> or <strong className="text-slate-300">Append</strong> to load image frames here.
+                  Import images or a folder from <strong className="text-indigo-400">Source & Slice</strong>, or slice a saved cutout into frames.
                 </p>
               </div>
             ) : (

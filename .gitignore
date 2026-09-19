@@ -2,7 +2,15 @@ node_modules/
 build/
 dist/
 coverage/
+test-results/
+playwright-report/
 .DS_Store
 *.log
 .env*
 !.env.example
+
+# Local attachments and signing material
+.codex-remote-attachments/
+*.pem
+*.keystore
+*.jks

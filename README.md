@@ -1,12 +1,6 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# AssetMaster
 
-# Run and deploy your AI Studio app
-
-This contains everything you need to run your app locally.
-
-View your app in AI Studio: https://ai.studio/apps/6e75cf24-8457-4b13-a686-3e2d5537d112
+Image cutouts, background cleanup, collages, sprite sheets, and frame animation.
 
 ## Run Locally
 
@@ -15,9 +9,12 @@ View your app in AI Studio: https://ai.studio/apps/6e75cf24-8457-4b13-a686-3e2d5
 
 1. Install dependencies:
    `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
+2. Run the app:
    `npm run dev`
+
+## Import Animation Frames
+
+Open Animation Studio and use **Choose Images** to select multiple images or **Choose Folder** to import an image sequence. On small screens, open **Source & Slice** first. Images are appended in natural filename order (`walk_2.png` before `walk_10.png`), keep their full dimensions and transparency, and are saved as a cutout collection. Hidden and unsupported files are skipped. Undo removes the imported batch from the timeline; existing frames and playback speed are preserved.
 
 ## Deploy To created.link
 

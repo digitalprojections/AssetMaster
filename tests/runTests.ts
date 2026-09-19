@@ -23,7 +23,10 @@ import './animationStudioTimeline.test';
 import './listDeletionControls.test';
 import './professionalToolsUi.test';
 import './videoFrames.test';
+import './animationImageImport.test';
 import './backgroundKeying.test';
 import './imageAutoSelection.test';
 import './segmentFilters.test';
 import './segmentCleanup.test';
+
+import './cleanupPan.test';
