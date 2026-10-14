@@ -40,6 +40,7 @@ import {
   CollageTextBubbleStyle,
   SavedSegment,
 } from '../types';
+import { reorderLayers, LayerMove } from '../utils/collageLayers';
 import { getClipboardImageFiles, isImageFile } from '../utils/collageClipboard';
 import {
   DEFAULT_TEXT_BUBBLE_FILL_COLOR,
@@ -1144,37 +1145,15 @@ export default function CollageStudio({
     onDeleteSavedSegment?.(segment.id);
   };
 
-  const reorderSelectedItem = (mode: 'forward' | 'backward' | 'front' | 'back') => {
-    if (!selectedItem) {
-      return;
-    }
+  const selectedLayerIndex = project.items.findIndex((item) => item.id === selectedItemId);
+  const canMoveForward = selectedLayerIndex >= 0 && selectedLayerIndex < project.items.length - 1;
+  const canMoveBackward = selectedLayerIndex > 0;
 
+  const reorderSelectedItem = (mode: LayerMove) => {
+    if (!selectedItemId) return;
     setProject((prev) => {
-      const currentIndex = prev.items.findIndex((item) => item.id === selectedItem.id);
-      if (currentIndex === -1) {
-        return prev;
-      }
-
-      const nextItems = [...prev.items];
-      const [item] = nextItems.splice(currentIndex, 1);
-      let targetIndex = currentIndex;
-
-      if (mode === 'forward') {
-        targetIndex = Math.min(nextItems.length, currentIndex + 1);
-      } else if (mode === 'backward') {
-        targetIndex = Math.max(0, currentIndex - 1);
-      } else if (mode === 'front') {
-        targetIndex = nextItems.length;
-      } else {
-        targetIndex = 0;
-      }
-
-      nextItems.splice(targetIndex, 0, item);
-      return {
-        ...prev,
-        updatedAt: Date.now(),
-        items: nextItems,
-      };
+      const items = reorderLayers(prev.items, selectedItemId, mode);
+      return items === prev.items ? prev : { ...prev, items, updatedAt: Date.now() };
     });
   };
 
@@ -1917,7 +1896,6 @@ export default function CollageStudio({
                           opacity: item.opacity,
                           filter: getLayerFilterCss(item),
                           mixBlendMode: item.blendMode === 'normal' ? undefined : item.blendMode,
-                          zIndex: isSelected ? project.items.length + 10 : undefined,
                           cursor: item.locked ? 'default' : 'move',
                         }}
                       >
@@ -2381,13 +2359,33 @@ export default function CollageStudio({
                 </button>
                 {!collapsedSections.layers && (
                 <div className="px-3 pb-3 space-y-2.5">
+                <p className="text-[11px] text-slate-400">Frontmost layer first. Select a layer to change its stacking order.</p>
+                <div className="grid grid-cols-2 gap-2" role="group" aria-label="Layer stacking order">
+                  {([
+                    ['front', 'Bring to front', ArrowUpToLine, canMoveForward],
+                    ['forward', 'Move forward', ArrowUp, canMoveForward],
+                    ['backward', 'Move backward', ArrowDown, canMoveBackward],
+                    ['back', 'Send to back', ArrowDownToLine, canMoveBackward],
+                  ] as const).map(([mode, label, Icon, enabled]) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      disabled={!enabled}
+                      onClick={() => reorderSelectedItem(mode)}
+                      className="min-h-10 rounded-md border border-slate-800 bg-slate-900 px-2 py-2 text-[11px] text-slate-200 flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed hover:enabled:border-orange-500"
+                    >
+                      <Icon className="h-3.5 w-3.5 shrink-0" />
+                      {label}
+                    </button>
+                  ))}
+                </div>
                 <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
                   {project.items.length === 0 ? (
                     <div className="rounded-lg border border-slate-800 bg-slate-900/40 p-3 text-center text-[10px] text-slate-500">
                       Add cutouts from the library to start building a collage.
                     </div>
                   ) : (
-                    [...project.items].map((item, index) => {
+                    [...project.items].reverse().map((item, index) => {
                       const isSelected = item.id === selectedItemId;
                       return (
                         <div
@@ -2400,13 +2398,14 @@ export default function CollageStudio({
                         >
                           <button
                             type="button"
+                            aria-pressed={isSelected}
                             onClick={() => setSelectedItemId(item.id)}
                             className="flex min-w-0 flex-1 items-center gap-2 text-left"
                           >
                             {renderLayerPreview(item, 'h-9 w-9 shrink-0')}
                             <div className="min-w-0 flex-1">
                               <p className="text-[11px] font-semibold text-slate-200 truncate">{item.name}</p>
-                              <p className="text-[10px] text-slate-500">{getLayerKindLabel(item)} • Layer {index + 1}</p>
+                              <p className="text-[10px] text-slate-500">{getLayerKindLabel(item)} • Layer {project.items.length - index}</p>
                             </div>
                             <div className="flex items-center gap-1">
                               {item.locked ? <Lock className="h-3 w-3 text-amber-400" /> : null}
@@ -2711,37 +2710,6 @@ export default function CollageStudio({
                       >
                         <AlignCenterVertical className="h-3 w-3" />
                         <span>Center Y</span>
-                      </button>
-                    </div>
-
-                    <div className="grid grid-cols-4 gap-2">
-                      <button
-                        onClick={() => reorderSelectedItem('back')}
-                        className="rounded-md border border-slate-800 bg-slate-900 px-2 py-1.5 text-slate-300 flex items-center justify-center cursor-pointer"
-                        title="Send to back"
-                      >
-                        <ArrowDownToLine className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        onClick={() => reorderSelectedItem('backward')}
-                        className="rounded-md border border-slate-800 bg-slate-900 px-2 py-1.5 text-slate-300 flex items-center justify-center cursor-pointer"
-                        title="Move backward"
-                      >
-                        <ArrowDown className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        onClick={() => reorderSelectedItem('forward')}
-                        className="rounded-md border border-slate-800 bg-slate-900 px-2 py-1.5 text-slate-300 flex items-center justify-center cursor-pointer"
-                        title="Move forward"
-                      >
-                        <ArrowUp className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        onClick={() => reorderSelectedItem('front')}
-                        className="rounded-md border border-slate-800 bg-slate-900 px-2 py-1.5 text-slate-300 flex items-center justify-center cursor-pointer"
-                        title="Bring to front"
-                      >
-                        <ArrowUpToLine className="h-3.5 w-3.5" />
                       </button>
                     </div>
 

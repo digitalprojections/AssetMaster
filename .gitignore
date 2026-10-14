@@ -14,3 +14,6 @@ playwright-report/
 *.pem
 *.keystore
 *.jks
+
+# Local UI verification artifacts
+.browser-test/
