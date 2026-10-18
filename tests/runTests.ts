@@ -38,3 +38,5 @@ import './animationFrameExport.test';
 import './animationFrameDeletion.test';
 
 import './animationBatchDeletion.test';
+
+import './sourceGroups.test';

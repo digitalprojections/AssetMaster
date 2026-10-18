@@ -69,6 +69,7 @@ export async function importAnimationImages(
       id: segmentId, name: file.name, thumbnailUrl, type: 'rectangle', feather: 0,
       path: [{ x: 0, y: 0 }, { x: width, y: 0 }, { x: width, y: height }, { x: 0, y: height }],
       bounds: { x: 0, y: 0, width, height }, createdAt: createdAt + index,
+      inputSourceId: collectionId, inputSourceName: first.webkitRelativePath?.split('/')[0] || (selected.length === 1 ? first.name : name), inputSourceType: first.webkitRelativePath ? 'folder' : 'images',
       collectionId, collectionName: name, collectionIndex: index + 1, collectionCount: selected.length,
       tags: ['image frame', name],
     });

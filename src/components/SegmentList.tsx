@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import { buildSourceGroups } from '../utils/sourceGroups';
+import React, { useState, useMemo } from 'react';
 import { SavedSegment } from '../types';
 import { Download, Trash2, Edit3, Check, X, Archive, FolderOpen, Upload, RotateCcw, Tags, Info, ChevronDown } from 'lucide-react';
 import JSZip from 'jszip';
@@ -13,6 +14,7 @@ interface SegmentListProps {
   onExportLibrary: () => void;
   onImportLibrary: () => void;
   onRestoreBackup: () => void;
+  onDeleteSourceGroup?: (label: string, sourceIds: string[]) => void;
   onManageFrameSets?: () => void;
 }
 
@@ -27,7 +29,9 @@ export default function SegmentList({
   onImportLibrary,
   onRestoreBackup,
   onManageFrameSets,
+  onDeleteSourceGroup,
 }: SegmentListProps) {
+  const sourceGroups = useMemo(() => buildSourceGroups(segments, []), [segments]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
   const [isExporting, setIsExporting] = useState(false);
@@ -243,10 +247,10 @@ export default function SegmentList({
         </div>
       </div>
 
-      {onManageFrameSets && segments.some(segment => segment.collectionId) && (
+      {onManageFrameSets && segments.length > 0 && (
         <div className="shrink-0 border-b border-slate-800 px-4 py-2">
-          <button onClick={onManageFrameSets} className="w-full min-h-11 rounded-xl border border-indigo-700 bg-indigo-950/50 px-3 text-xs font-semibold text-indigo-200">Manage Frame Sets</button>
-          <p className="mt-1 text-[10px] text-slate-400">Remove an entire import or select multiple cutouts in Animation Studio.</p>
+          <button onClick={onManageFrameSets} className="w-full min-h-11 rounded-xl border border-indigo-700 bg-indigo-950/50 px-3 text-xs font-semibold text-indigo-200">Manage Sources</button>
+          <p className="mt-1 text-[10px] text-slate-400">Browse input sources and manage their cutouts together.</p>
         </div>
       )}
 
@@ -264,7 +268,12 @@ export default function SegmentList({
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-3">
-            {segments.map((segment) => (
+            {sourceGroups.map(group => (
+              <details key={group.id} className="rounded-xl border border-slate-700 bg-slate-950/50">
+                <summary aria-label={`${group.name}, ${group.category}, ${group.sources.length} cutouts`} className="min-h-11 cursor-pointer p-3 text-xs text-slate-200"><span className="text-[10px] text-indigo-300">{group.category}</span><span className="ml-2 font-semibold">{group.name}</span><span className="ml-2 text-slate-400">({group.sources.length})</span></summary>
+                {onDeleteSourceGroup && <button onClick={() => onDeleteSourceGroup(`source “${group.name}”`, group.sources.map(source => source.id))} aria-label={`Delete library source ${group.name}`} className="mx-3 mb-3 min-h-11 rounded-lg border border-rose-800 px-3 text-xs text-rose-300">Delete Source</button>}
+                <div className="space-y-3 p-3 pt-0">
+                {group.sources.map((segment) => (
               <div
                 id={`segment-card-${segment.id}`}
                 key={segment.id}
@@ -399,6 +408,9 @@ export default function SegmentList({
                   </div>
                 </div>
               </div>
+                ))}
+                </div>
+              </details>
             ))}
           </div>
         )}

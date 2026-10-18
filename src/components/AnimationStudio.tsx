@@ -1,4 +1,6 @@
-import { buildAnimationFrameSets, planBatchFrameDeletion } from '../utils/animationBatchDeletion';
+import { buildSourceGroups } from '../utils/sourceGroups';
+import SourceGroupManager from './SourceGroupManager';
+import { planBatchFrameDeletion } from '../utils/animationBatchDeletion';
 import BulkFrameDeletionDialog from './BulkFrameDeletionDialog';
 import { planFrameDeletion, clearReaddedSourceMarkers, getSourceTimelineLabel } from '../utils/animationFrameDeletion';
 import { frameExportFilename, renderSingleAnimationFrame } from '../utils/animationFrameExport';
@@ -145,6 +147,7 @@ interface AnimationStudioProps {
   onTimelineSourceStatusChange?: (removedIds: string[]) => void;
   onSyncDeletedSources?: (previous: SavedSegment[], next: SavedSegment[]) => void;
   onRegisterAgentControls?: (controls: AnimationStudioAgentControls | null) => void;
+  initialSourceDeletion?: { label: string; sourceIds: string[] } | null;
   initialStudioTab?: 'player' | 'source';
   useCompactControls?: boolean;
   onClose: () => void;
@@ -159,6 +162,7 @@ export default function AnimationStudio({
   onSyncDeletedSources,
   onTimelineSourceStatusChange,
   onRegisterAgentControls,
+  initialSourceDeletion = null,
   initialStudioTab = 'player',
   useCompactControls = true,
   onClose,
@@ -176,8 +180,6 @@ export default function AnimationStudio({
 
   const [activeFrameIndex, setActiveFrameIndex] = useState<number>(0);
   const [deletedSources, setDeletedSources] = useState<SavedSegment[]>([]);
-  const [selectedFrameIds, setSelectedFrameIds] = useState<Set<string>>(() => new Set());
-  const [selectedSourceIds, setSelectedSourceIds] = useState<Set<string>>(() => new Set());
   const [pendingBulkDelete, setPendingBulkDelete] = useState<{ label: string; frameIds: string[]; sourceIds: string[] } | null>(null);
   const [pendingDeleteFrameId, setPendingDeleteFrameId] = useState<string | null>(null);
   const [deletionMessage, setDeletionMessage] = useState('');
@@ -186,11 +188,9 @@ export default function AnimationStudio({
   const [selectedSegmentId, setSelectedSegmentId] = useState<string>('');
   const [showBgRemover, setShowBgRemover] = useState<boolean>(false);
   const [activeStudioTab, setActiveStudioTab] = useState<'player' | 'source' | 'nudge'>(initialStudioTab);
-  const [isDropdownOpen, setIsDropdownOpen] = useState<boolean>(false);
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all');
   const [sourceSearch, setSourceSearch] = useState<string>('');
   const [cleanupQueue, setCleanupQueue] = useState<string[]>([]);
-  const dropdownRef = useRef<HTMLDivElement | null>(null);
   const projectImportInputRef = useRef<HTMLInputElement | null>(null);
   const imageImportInputRef = useRef<HTMLInputElement | null>(null);
   const folderImportInputRef = useRef<HTMLInputElement | null>(null);
@@ -327,8 +327,6 @@ export default function AnimationStudio({
     setDeletedSources(nextDeletedSources);
     setPendingDeleteFrameId(null);
     setPendingBulkDelete(null);
-    setSelectedFrameIds(new Set());
-    setSelectedSourceIds(new Set());
     setDeletionMessage('');
     const restoredProject = normalizeProject(snapshot.project);
     onTimelineSourceStatusChange?.(restoredProject.timelineRemovedSourceIds ?? []);
@@ -782,18 +780,7 @@ export default function AnimationStudio({
     });
   }, [cols, isProjectHydrated, project, rows, selectedSegmentId, showSubdivisionGrid]);
 
-  // Close custom dropdown when clicking outside
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setIsDropdownOpen(false);
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, []);
+
 
   // Playback loop timer
   useEffect(() => {
@@ -1265,6 +1252,7 @@ export default function AnimationStudio({
           count: captureTimes.length,
           createdAt: timestamp + index,
         });
+        frameSegment.inputSourceName = file.name;
         frameSegments.push(frameSegment);
 
         frames.push({
@@ -1606,9 +1594,8 @@ export default function AnimationStudio({
     </div>
   ) : null;
 
-  const frameSets = useMemo(() => buildAnimationFrameSets(savedSegments, project.frames), [savedSegments, project.frames]);
-  const selectedFrames = project.frames.filter(frame => selectedFrameIds.has(frame.id));
-  const selectedSources = savedSegments.filter(source => selectedSourceIds.has(source.id));
+  const sourceGroups = useMemo(() => buildSourceGroups(savedSegments, project.frames), [savedSegments, project.frames]);
+  const matchingSourceIds = useMemo(() => new Set(filteredSegments.map(source => source.id)), [filteredSegments]);
   const batchDeletion = pendingBulkDelete ? planBatchFrameDeletion(project.frames, savedSegments, pendingBulkDelete.frameIds, pendingBulkDelete.sourceIds, true) : null;
   const requestBulkDelete = (label: string, frameIds: string[], sourceIds: string[]) => {
     if ((!frameIds.length && !sourceIds.length) || isExtractingVideoFrames || isImportingImages || !isProjectHydrated) return;
@@ -1640,13 +1627,14 @@ export default function AnimationStudio({
       }
     }
     setPendingBulkDelete(null);
-    setSelectedFrameIds(new Set());
-    setSelectedSourceIds(new Set());
     setDeletionMessage(`Removed ${result.removedFrameIds.length} timeline frames and ${result.deletedSources.length} saved cutouts. Undo restores this operation.`);
   };
-  const toggleBatchSelection = (setter: React.Dispatch<React.SetStateAction<Set<string>>>, id: string) => setter(current => {
-    const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next;
-  });
+  const initialSourceDeletionHandled = useRef(false);
+  useEffect(() => {
+    if (!initialSourceDeletion || !isProjectHydrated || initialSourceDeletionHandled.current) return;
+    initialSourceDeletionHandled.current = true;
+    requestBulkDelete(initialSourceDeletion.label, [], initialSourceDeletion.sourceIds);
+  }, [initialSourceDeletion, isProjectHydrated]);
 
   const pendingDeletion = pendingDeleteFrameId
     ? planFrameDeletion(project.frames, savedSegments, pendingDeleteFrameId, true)
@@ -2643,8 +2631,7 @@ export default function AnimationStudio({
 
       if (hasActiveFrame && (event.key === 'Delete' || event.key === 'Backspace')) {
         event.preventDefault();
-        if (selectedFrames.length) requestBulkDelete('selected frames', selectedFrames.map(frame => frame.id), []);
-        else removeFrameAt(activeFrameIndex);
+        removeFrameAt(activeFrameIndex);
         return;
       }
 
@@ -2681,7 +2668,7 @@ export default function AnimationStudio({
 
     window.addEventListener('keydown', handleStudioKeyDown);
     return () => window.removeEventListener('keydown', handleStudioKeyDown);
-  }, [activeFrameIndex, activeSegment, hasActiveFrame, project, showBgRemover, pendingDeleteFrameId, pendingBulkDelete, selectedFrameIds, deletedSources, savedSegments]);
+  }, [activeFrameIndex, activeSegment, hasActiveFrame, project, showBgRemover, pendingDeleteFrameId, pendingBulkDelete, deletedSources, savedSegments]);
 
   return (
     <div
@@ -3075,146 +3062,9 @@ export default function AnimationStudio({
                   </div>
                 </div>
 
-                {frameSets.length > 0 && <section aria-label="Imported frame sets" className="space-y-2 rounded-xl border border-slate-700 bg-slate-900/60 p-3">
-                  <h3 className="text-xs font-semibold text-slate-200">Imported Frame Sets</h3>
-                  <div className="max-h-44 overflow-y-auto space-y-2">
-                    {frameSets.map(set => <div key={set.id} className="flex items-center gap-2 border-t border-slate-800 pt-2">
-                      <div className="min-w-0 flex-1"><p className="break-words text-xs font-medium text-slate-200">{set.name}</p><p className="text-[10px] text-slate-400">{set.frameCount} timeline frames · {set.sourceIds.length} cutouts</p></div>
-                      <button disabled={isExtractingVideoFrames || isImportingImages || !isProjectHydrated} onClick={() => requestBulkDelete(`frame set “${set.name}”`, [], set.sourceIds)} aria-label={`Remove frame set ${set.name}`} className="min-h-11 shrink-0 rounded-lg border border-rose-800 px-3 text-xs font-semibold text-rose-300 disabled:opacity-40">Remove Set</button>
-                    </div>)}
-                  </div>
-                </section>}
-                <div className="flex flex-wrap items-center gap-2 text-xs">
-                  <span className="text-slate-400">{selectedSources.length} cutouts selected</span>
-                  <button disabled={!filteredSegments.length} onClick={() => setSelectedSourceIds(new Set(filteredSegments.map(source => source.id)))} className="min-h-11 rounded-lg border border-slate-700 px-2 text-slate-200 disabled:opacity-40">Select Visible Cutouts</button>
-                  <button disabled={!selectedSources.length} onClick={() => setSelectedSourceIds(new Set())} className="min-h-11 rounded-lg border border-slate-700 px-2 text-slate-200 disabled:opacity-40">Clear Cutout Selection</button>
-                  <button disabled={!selectedSources.length} onClick={() => requestBulkDelete('selected cutouts', [], selectedSources.map(source => source.id))} className="min-h-11 rounded-lg border border-rose-800 px-2 text-rose-300 disabled:opacity-40">Delete Selected Cutouts</button>
-                </div>
-                <div className="space-y-2 relative" ref={dropdownRef}>
-                  {/* Custom Dropdown Trigger Button */}
-                  <button
-                    type="button"
-                    aria-label="Choose source cutout"
-                    aria-expanded={isDropdownOpen}
-                    onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-slate-200 flex items-center justify-between outline-none cursor-pointer hover:border-slate-700 hover:bg-slate-900/80 transition-all text-left"
-                  >
-                    {activeSegment ? (
-                      <div className="flex items-center space-x-2 min-w-0">
-                        <div className="w-6 h-6 bg-checkerboard rounded border border-slate-800 flex items-center justify-center overflow-hidden shrink-0">
-                          <img
-                            src={activeSegment.thumbnailUrl}
-                            alt=""
-                            className="max-w-full max-h-full object-contain"
-                            referrerPolicy="no-referrer"
-                          />
-                        </div>
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate font-medium">{activeSegment.name}</span>
-                          {sourceTimelineLabel(activeSegment) && <span className="mt-0.5 block text-[10px] font-semibold text-amber-300">{sourceTimelineLabel(activeSegment)}</span>}
-                        </span>
-                        <span className="text-[10px] text-slate-500 font-mono shrink-0">({activeSegment.bounds.width}×{activeSegment.bounds.height})</span>
-                        <span
-                          className={`hidden sm:inline text-[9px] px-1.5 py-0.5 rounded-full border shrink-0 ${
-                            activeSegment.backgroundRemovedAt
-                              ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
-                              : 'border-amber-500/30 bg-amber-500/10 text-amber-300'
-                          }`}
-                        >
-                          {getSegmentCleanupStatusLabel(activeSegment)}
-                        </span>
-                      </div>
-                    ) : (
-                      <span className="text-slate-400">Select a saved cut...</span>
-                    )}
-                    <ChevronDown className={`h-4 w-4 text-slate-400 transition-transform shrink-0 ml-1.5 ${isDropdownOpen ? 'rotate-180' : ''}`} />
-                  </button>
-
-                  {/* Dropdown Options List */}
-                  {isDropdownOpen && (
-                    <div className="absolute left-0 right-0 mt-1 bg-slate-950 border border-slate-800 rounded-xl shadow-2xl z-30 max-h-60 overflow-y-auto py-1 divide-y divide-slate-900">
-                      {filteredSegments.length === 0 ? (
-                        <div className="px-3 py-4 text-center text-xs text-slate-500">
-                          No cutouts match the current search and filter.
-                        </div>
-                      ) : filteredSegments.map((seg) => {
-                        const isSelected = seg.id === selectedSegmentId;
-                        return (
-                          <div
-                            key={seg.id}
-                            className={`w-full px-3 py-2 flex items-center space-x-2.5 hover:bg-indigo-600/10 text-left transition-all cursor-pointer ${
-                              isSelected ? 'bg-indigo-950/40 text-indigo-400' : 'text-slate-300'
-                            }`}
-                          >
-                            <label className="min-h-11 min-w-8 flex items-center justify-center">
-                              <input type="checkbox" aria-label={`Select cutout ${seg.name}`} checked={selectedSourceIds.has(seg.id)} onChange={() => toggleBatchSelection(setSelectedSourceIds, seg.id)} className="h-5 w-5 accent-indigo-500" />
-                            </label>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setSelectedSegmentId(seg.id);
-                                setIsDropdownOpen(false);
-                              }}
-                              className="flex min-w-0 flex-1 items-center space-x-2.5 text-left"
-                            >
-                              <div className="w-10 h-10 bg-checkerboard rounded border border-slate-800 flex items-center justify-center overflow-hidden shrink-0">
-                                <img
-                                  src={seg.thumbnailUrl}
-                                  alt=""
-                                  className="max-w-[90%] max-h-[90%] object-contain"
-                                  referrerPolicy="no-referrer"
-                                />
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <p className="text-xs font-semibold truncate text-slate-200">{seg.name}</p>
-                                {sourceTimelineLabel(seg) && <p className="mt-1 text-[10px] font-semibold text-amber-300">{sourceTimelineLabel(seg)}</p>}
-                                <div className="flex items-center gap-2 mt-0.5">
-                                  <p className="text-[10px] text-slate-500 font-mono">{seg.bounds.width} × {seg.bounds.height} px</p>
-                                  <span
-                                    className={`text-[9px] px-1.5 py-0.5 rounded-full border ${
-                                      seg.backgroundRemovedAt
-                                        ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
-                                        : 'border-amber-500/30 bg-amber-500/10 text-amber-300'
-                                    }`}
-                                  >
-                                    {getSegmentCleanupStatusLabel(seg)}
-                                  </span>
-                                </div>
-                                {seg.tags && seg.tags.length > 0 && (
-                                  <div className="mt-1 flex flex-wrap gap-1">
-                                    {seg.tags.slice(0, 3).map((tag) => (
-                                      <span
-                                        key={`${seg.id}-${tag}`}
-                                        className="rounded-full border border-indigo-500/20 bg-indigo-500/10 px-1.5 py-0.5 text-[9px] text-indigo-200"
-                                      >
-                                        {tag}
-                                      </span>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            </button>
-                            {isSelected && (
-                              <Check className="h-4 w-4 text-indigo-400 shrink-0" />
-                            )}
-                            {onDeleteSavedSegment && (
-                              <button
-                                type="button"
-                                onClick={() => deleteSourceSegment(seg)}
-                                className="h-8 w-8 shrink-0 rounded-lg border border-slate-800 bg-slate-950 text-slate-500 transition-all hover:border-rose-900/60 hover:bg-rose-950/40 hover:text-rose-300"
-                                title="Delete Cutout"
-                                aria-label={`Delete ${seg.name}`}
-                              >
-                                <Trash2 className="mx-auto h-3.5 w-3.5" />
-                              </button>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-
+                <SourceGroupManager selectedSourceId={selectedSegmentId} groups={sourceGroups.filter(group => group.sources.some(source => matchingSourceIds.has(source.id)))} disabled={isExtractingVideoFrames || isImportingImages || !isProjectHydrated}
+                  getStatus={sourceTimelineLabel} onSelect={source => setSelectedSegmentId(source.id)}
+                  onDelete={(label, sourceIds) => requestBulkDelete(label, [], sourceIds)} />
                 {activeSegment && (
                   <div className="space-y-2">
                     <div className="border border-slate-800 bg-slate-900/50 p-3 rounded-xl flex items-center space-x-3 relative overflow-hidden">
@@ -3848,12 +3698,6 @@ export default function AnimationStudio({
                 <span className="font-mono text-indigo-400 font-bold">{project.frames.length} total frames</span>
               </div>
               
-              <div className="flex flex-wrap items-center gap-2 text-xs">
-                <span className="text-slate-400">{selectedFrames.length} selected</span>
-                <button onClick={() => setSelectedFrameIds(new Set(project.frames.map(frame => frame.id)))} className="min-h-11 rounded-lg border border-slate-700 px-3 text-slate-200">Select All Frames</button>
-                <button disabled={!selectedFrames.length} onClick={() => setSelectedFrameIds(new Set())} className="min-h-11 rounded-lg border border-slate-700 px-3 text-slate-200 disabled:opacity-40">Clear Frame Selection</button>
-                <button disabled={!selectedFrames.length} onClick={() => requestBulkDelete('selected frames', selectedFrames.map(frame => frame.id), [])} className="min-h-11 rounded-lg border border-rose-800 px-3 text-rose-300 disabled:opacity-40">Delete Selected Frames</button>
-              </div>
               <div className="flex space-x-2 overflow-x-auto pb-2 scrollbar-thin">
                 {project.frames.map((frame, idx) => {
                   const isActive = idx === activeFrameIndex;
@@ -3870,9 +3714,6 @@ export default function AnimationStudio({
                           : 'border-slate-800/80 hover:border-slate-700 hover:bg-slate-850'
                       }`}
                     >
-                      <label onClick={event => event.stopPropagation()} className="absolute top-0 left-0 z-10 flex h-8 w-8 items-center justify-center rounded-lg bg-slate-950/80">
-                        <input type="checkbox" aria-label={`Select frame ${idx + 1}`} checked={selectedFrameIds.has(frame.id)} onChange={() => toggleBatchSelection(setSelectedFrameIds, frame.id)} className="h-5 w-5 accent-indigo-500" />
-                      </label>
                       {/* Image Preview */}
                       <div className="flex-1 bg-checkerboard rounded-lg flex items-center justify-center overflow-hidden border border-slate-950/40 relative">
                         <img

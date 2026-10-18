@@ -104,6 +104,7 @@ declare global {
 export default function App() {
   // Image states
   const [image, setImage] = useState<HTMLImageElement | null>(null);
+  const [imageInputId, setImageInputId] = useState('');
   const [imageName, setImageName] = useState<string>('');
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -139,6 +140,7 @@ export default function App() {
 
   // UI state
   const [previewSegment, setPreviewSegment] = useState<SavedSegment | null>(null);
+  const [sourceDeletionOnOpen, setSourceDeletionOnOpen] = useState<{ label: string; sourceIds: string[] } | null>(null);
   const [animationInitialTab, setAnimationInitialTab] = useState<'player' | 'source'>('player');
   const [showAnimationStudio, setShowAnimationStudio] = useState<boolean>(false);
   const [showCollageStudio, setShowCollageStudio] = useState<boolean>(false);
@@ -754,6 +756,7 @@ export default function App() {
     img.onload = () => {
       setImage(img);
       setImageName(name);
+      setImageInputId(crypto.randomUUID());
       setIsLoading(false);
 
       // Fit image to screen initially
@@ -1152,6 +1155,9 @@ export default function App() {
     const newSegment: SavedSegment = {
       id: `seg_${Date.now()}`,
       name,
+      inputSourceId: imageInputId,
+      inputSourceName: imageName,
+      inputSourceType: 'image',
       path: [...activePath],
       type: activeTool === 'rectangle' ? 'rectangle' : activeTool === 'magnetic' ? 'magnetic' : 'lasso',
       bounds,
@@ -1664,6 +1670,7 @@ export default function App() {
   };
 
   const openAnimationStudio = () => {
+    setSourceDeletionOnOpen(null);
     setAnimationInitialTab('player');
     changePageWithInterstitial(() => setShowAnimationStudio(true));
   };
@@ -2628,7 +2635,8 @@ export default function App() {
               onExportLibrary={handleExportLibrary}
               onImportLibrary={handleImportLibraryRequest}
               onRestoreBackup={handleRestoreLibraryBackup}
-              onManageFrameSets={() => { setAnimationInitialTab('source'); changePageWithInterstitial(() => setShowAnimationStudio(true)); }}
+              onDeleteSourceGroup={(label, sourceIds) => { setSourceDeletionOnOpen({ label, sourceIds }); setAnimationInitialTab('source'); changePageWithInterstitial(() => setShowAnimationStudio(true)); }}
+              onManageFrameSets={() => { setSourceDeletionOnOpen(null); setAnimationInitialTab('source'); changePageWithInterstitial(() => setShowAnimationStudio(true)); }}
             />
           </div>
         </aside>
@@ -2748,6 +2756,7 @@ export default function App() {
             onCreateSegment={createCleanedSegment}
             onTimelineSourceStatusChange={removedIds => setSavedSegments(current => markTimelineRemovedSources(current, removedIds))}
             onSyncDeletedSources={syncTimelineDeletedSources}
+            initialSourceDeletion={sourceDeletionOnOpen}
             initialStudioTab={animationInitialTab}
             onCreateSegments={addGeneratedSegments}
             onDeleteSavedSegment={handleDeleteSegment}

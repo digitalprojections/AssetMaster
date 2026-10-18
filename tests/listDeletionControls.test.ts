@@ -10,7 +10,7 @@ assert.match(segmentList, /title="Delete saved cutout"/u);
 assert.match(segmentList, /aria-label=\{`Delete \$\{segment\.name\}`\}/u);
 assert.match(animationStudio, /onDeleteSavedSegment\?: \(id: string\) => void/u);
 assert.match(animationStudio, /deleteSourceSegment/u);
-assert.match(animationStudio, /title="Delete Cutout"/u);
+assert.match(readFileSync('src/components/SourceGroupManager.tsx', 'utf8'), /Delete grouped cutout/u);
 assert.match(collageStudio, /onDeleteSavedSegment\?: \(id: string\) => void/u);
 assert.match(collageStudio, /deleteSavedCutoutFromSourceList/u);
 assert.match(collageStudio, /title="Delete Layer"/u);
