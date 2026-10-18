@@ -63,9 +63,16 @@ import {
 import {
   MAX_VIDEO_FRAME_FPS,
   MAX_VIDEO_FRAME_SOURCE_SECONDS,
+  MAX_VIDEO_FRAME_RANGE_SECONDS,
+  MAX_VIDEO_FRAME_COUNT,
+  MAX_VIDEO_FRAME_ENCODED_BYTES,
   MIN_VIDEO_FRAME_FPS,
   createVideoFrameCutoutSegment,
   getVideoFrameCount,
+  getVideoFrameOutputSize,
+  validateVideoFrameSourceDuration,
+  validateVideoFrameSourceDimensions,
+  validateVideoFrameFileSize,
   getVideoFrameCaptureTimes,
   normalizeVideoFrameCollectionName,
   normalizeVideoFrameFps,
@@ -223,8 +230,29 @@ export default function AnimationStudio({
   const [isProjectHydrated, setIsProjectHydrated] = useState<boolean>(false);
   const [videoFrameFps, setVideoFrameFps] = useState<number>(12);
   const [isExtractingVideoFrames, setIsExtractingVideoFrames] = useState<boolean>(false);
-  const [videoImportMessage, setVideoImportMessage] = useState<string>('Videos up to 3 seconds become editable PNG frames.');
+  const [videoImportMessage, setVideoImportMessage] = useState<string>('Choose a video, preview it, then select a range to extract.');
+  const [videoImportStatus, setVideoImportStatus] = useState<'idle' | 'loading' | 'ready' | 'extracting' | 'success' | 'error'>('idle');
+  const [videoFile, setVideoFile] = useState<File | null>(null);
+  const [videoPreviewUrl, setVideoPreviewUrl] = useState('');
+  const [videoRangeStart, setVideoRangeStart] = useState(0);
+  const [videoRangeEnd, setVideoRangeEnd] = useState(0);
   const [videoSourceSeconds, setVideoSourceSeconds] = useState<number | null>(null);
+  useEffect(() => {
+    if (!videoFile) { setVideoPreviewUrl(''); return; }
+    const url = URL.createObjectURL(videoFile);
+    setVideoPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [videoFile]);
+  useEffect(() => {
+    if (videoImportStatus !== 'loading') return;
+    const timeout = setTimeout(() => {
+      setVideoSourceSeconds(null);
+      setVideoFile(null);
+      setVideoImportStatus('error');
+      setVideoImportMessage('Loading the video timed out. Choose another video to retry.');
+    }, 30000);
+    return () => clearTimeout(timeout);
+  }, [videoFile, videoImportStatus]);
   const [isFrameEraserActive, setIsFrameEraserActive] = useState<boolean>(false);
   const [frameEraserMode, setFrameEraserMode] = useState<FrameEraserMode>('brush');
   const [frameEraserRadius, setFrameEraserRadius] = useState<number>(12);
@@ -236,6 +264,8 @@ export default function AnimationStudio({
   // Canvas ref for generating sub-frame slices
   const sliceCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const videoImportInputRef = useRef<HTMLInputElement | null>(null);
+  const videoPreviewRef = useRef<HTMLVideoElement | null>(null);
+  const playingVideoRangeRef = useRef(false);
 
   // Cache for segment images to ensure synchronous, buttery-smooth on-the-fly re-slicing
   const segmentImageCacheRef = useRef<Record<string, SegmentImageCacheEntry>>({});
@@ -1181,9 +1211,14 @@ export default function AnimationStudio({
         reject(new Error('The video could not be read.'));
       };
       const cleanup = () => {
+        clearTimeout(timeout);
         video.removeEventListener(eventName, handleEvent);
         video.removeEventListener('error', handleError);
       };
+      const timeout = setTimeout(() => {
+        cleanup();
+        reject(new Error('Video decoding timed out. Try another video or a shorter range.'));
+      }, 30000);
 
       video.addEventListener(eventName, handleEvent, { once: true });
       video.addEventListener('error', handleError, { once: true });
@@ -1205,7 +1240,8 @@ export default function AnimationStudio({
 
   const captureVideoFrames = async (file: File) => {
     setIsExtractingVideoFrames(true);
-    setVideoImportMessage('Reading video...');
+    setVideoImportStatus('extracting');
+    setVideoImportMessage('Reading selected range...');
 
     const objectUrl = URL.createObjectURL(file);
     const video = document.createElement('video');
@@ -1217,13 +1253,10 @@ export default function AnimationStudio({
     try {
       await waitForVideoEvent(video, 'loadedmetadata');
 
-      const captureTimes = getVideoFrameCaptureTimes(video.duration, videoFrameFps);
-      setVideoSourceSeconds(video.duration);
-      const width = video.videoWidth;
-      const height = video.videoHeight;
-      if (width <= 0 || height <= 0) {
-        throw new Error('The video dimensions could not be read.');
-      }
+      validateVideoFrameFileSize(file.size);
+      validateVideoFrameSourceDimensions(video.videoWidth, video.videoHeight);
+      const captureTimes = getVideoFrameCaptureTimes(video.duration, videoFrameFps, videoRangeStart, videoRangeEnd);
+      const { width, height } = getVideoFrameOutputSize(video.videoWidth, video.videoHeight, captureTimes.length);
 
       const canvas = sliceCanvasRef.current || document.createElement('canvas');
       const ctx = canvas.getContext('2d');
@@ -1238,6 +1271,7 @@ export default function AnimationStudio({
       const collectionName = normalizeVideoFrameCollectionName(file.name);
       const frames: AnimationFrame[] = [];
       const frameSegments: SavedSegment[] = [];
+      let encodedBytes = 0;
 
       for (let index = 0; index < captureTimes.length; index += 1) {
         const captureTime = captureTimes[index];
@@ -1247,6 +1281,10 @@ export default function AnimationStudio({
         ctx.drawImage(video, 0, 0, width, height);
 
         const thumbnailUrl = canvas.toDataURL('image/png');
+        encodedBytes += thumbnailUrl.length * 2;
+        if (encodedBytes > MAX_VIDEO_FRAME_ENCODED_BYTES) {
+          throw new Error('These PNG frames exceed the browser memory budget. Select a shorter range or lower the frame rate.');
+        }
         const frameSegment = createVideoFrameCutoutSegment({
           thumbnailUrl,
           width,
@@ -1295,10 +1333,12 @@ export default function AnimationStudio({
       setActiveFrameIndex(0);
       setSelectedSegmentId(frameSegments[0]?.id ?? selectedSegmentId);
       setIsPlaying(true);
+      setVideoImportStatus('success');
       setVideoImportMessage(`Saved ${frames.length} frame${frames.length === 1 ? '' : 's'} as a cutout collection at ${normalizeVideoFrameFps(videoFrameFps)} frames per second.`);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Video frames could not be extracted.';
       setVideoImportMessage(message);
+      setVideoImportStatus('error');
     } finally {
       video.removeAttribute('src');
       video.load();
@@ -1307,9 +1347,12 @@ export default function AnimationStudio({
     }
   };
 
-  const videoFrameCountPreview = videoSourceSeconds
-    ? getVideoFrameCount(videoSourceSeconds, videoFrameFps)
-    : null;
+  let videoFrameCountPreview: number | null = null;
+  let videoRangeError = '';
+  if (videoSourceSeconds !== null) {
+    try { videoFrameCountPreview = getVideoFrameCount(videoSourceSeconds, videoFrameFps, videoRangeStart, videoRangeEnd); }
+    catch (error) { videoRangeError = error instanceof Error ? error.message : 'Choose a valid range.'; }
+  }
 
   const handleVideoImportRequest = () => {
     videoImportInputRef.current?.click();
@@ -1322,7 +1365,17 @@ export default function AnimationStudio({
       return;
     }
 
-    void captureVideoFrames(file);
+    setVideoSourceSeconds(null);
+    setVideoFile(null);
+    try {
+      validateVideoFrameFileSize(file.size);
+      setVideoImportStatus('loading');
+      setVideoImportMessage('Loading video preview...');
+      setVideoFile(file);
+    } catch (error) {
+      setVideoImportStatus('error');
+      setVideoImportMessage(error instanceof Error ? error.message : 'The video could not be opened.');
+    }
   };
 
   // Helper to generate new sliced thumbnail url from original segment image
@@ -2991,16 +3044,128 @@ export default function AnimationStudio({
                 onChange={(event) => setVideoFrameFps(normalizeVideoFrameFps(parseInt(event.target.value, 10)))}
                 className="w-full accent-sky-400 cursor-pointer"
                 aria-label="Video frame extraction FPS"
+                disabled={isExtractingVideoFrames}
               />
               <div className="flex items-center justify-between gap-3 text-[10px] text-slate-500">
                 <span>{MIN_VIDEO_FRAME_FPS}/sec min</span>
-                <span>{MAX_VIDEO_FRAME_SOURCE_SECONDS}s max</span>
+                <span>{MAX_VIDEO_FRAME_RANGE_SECONDS}s range max</span>
                 <span>{MAX_VIDEO_FRAME_FPS}/sec max</span>
               </div>
+              <p className="text-[10px] text-slate-400">Source: up to {MAX_VIDEO_FRAME_SOURCE_SECONDS / 60} minutes / 250 MiB / 4K. Range: up to {MAX_VIDEO_FRAME_RANGE_SECONDS} seconds / {MAX_VIDEO_FRAME_COUNT} frames. Output is resized to fit the browser memory budget (1280px maximum edge).</p>
+              {videoPreviewUrl && (
+                <div className="space-y-2">
+                  <video
+                    key={videoPreviewUrl}
+                    ref={videoPreviewRef}
+                    src={videoPreviewUrl}
+                    controls
+                    playsInline
+                    preload="auto"
+                    aria-label="Video range preview"
+                    className="w-full max-h-48 rounded-lg bg-black"
+                    onLoadedMetadata={(event) => {
+                      try {
+                        const video = event.currentTarget;
+                        validateVideoFrameSourceDuration(video.duration);
+                        validateVideoFrameSourceDimensions(video.videoWidth, video.videoHeight);
+                        setVideoSourceSeconds(video.duration);
+                        setVideoRangeStart(0);
+                        setVideoRangeEnd(Math.min(video.duration, MAX_VIDEO_FRAME_RANGE_SECONDS, MAX_VIDEO_FRAME_COUNT / videoFrameFps));
+                        setVideoImportStatus('ready');
+                        setVideoImportMessage('Preview the video and select the range to extract.');
+                      } catch (error) {
+                        event.currentTarget.pause();
+                        setVideoFile(null);
+                        setVideoImportStatus('error');
+                        setVideoImportMessage(error instanceof Error ? error.message : 'The video could not be opened.');
+                      }
+                    }}
+                    onTimeUpdate={(event) => {
+                      if (playingVideoRangeRef.current && event.currentTarget.currentTime >= videoRangeEnd) {
+                        event.currentTarget.pause();
+                        event.currentTarget.currentTime = videoRangeEnd;
+                        playingVideoRangeRef.current = false;
+                      }
+                    }}
+                    onError={() => {
+                      setVideoSourceSeconds(null);
+                      setVideoImportStatus('error');
+                      setVideoImportMessage('This video format is unavailable in this browser or the file is damaged. Choose another video.');
+                    }}
+                  />
+                  {videoSourceSeconds !== null && (
+                    <>
+                      <p className="text-[10px] text-sky-200 break-all">{videoFile?.name} · {videoSourceSeconds.toFixed(2)} seconds</p>
+                      {(['Start', 'End'] as const).map((label) => (
+                        <div key={label} className="block text-xs text-slate-300">
+                          {label} (seconds)
+                          <input type="range" min="0" max={videoSourceSeconds} step="0.01"
+                            aria-label={`Range ${label.toLowerCase()} slider`}
+                            value={label === 'Start' ? videoRangeStart : videoRangeEnd}
+                            disabled={isExtractingVideoFrames}
+                            className="w-full accent-sky-400"
+                            onChange={(event) => {
+                              const time = Number(event.target.value);
+                              (label === 'Start' ? setVideoRangeStart : setVideoRangeEnd)(time);
+                              playingVideoRangeRef.current = false;
+                              if (videoPreviewRef.current) { videoPreviewRef.current.pause(); videoPreviewRef.current.currentTime = time; }
+                              setVideoImportStatus('ready');
+                            }} />
+                          <div className="flex gap-2">
+                            <input type="number" min="0" max={videoSourceSeconds} step="0.01"
+                              aria-label={`Range ${label.toLowerCase()} seconds`}
+                              value={label === 'Start' ? videoRangeStart : videoRangeEnd}
+                              disabled={isExtractingVideoFrames}
+                              className="min-w-0 w-24 rounded bg-slate-950 p-2"
+                              onChange={(event) => {
+                                (label === 'Start' ? setVideoRangeStart : setVideoRangeEnd)(Number(event.target.value));
+                                playingVideoRangeRef.current = false;
+                                videoPreviewRef.current?.pause();
+                                setVideoImportStatus('ready');
+                              }} />
+                            <button type="button" disabled={isExtractingVideoFrames} className="text-[10px] text-sky-300 disabled:opacity-40"
+                              onClick={() => {
+                                const video = videoPreviewRef.current;
+                                if (!video) return;
+                                (label === 'Start' ? setVideoRangeStart : setVideoRangeEnd)(Math.min(videoSourceSeconds, Math.round(video.currentTime * 100) / 100));
+                                playingVideoRangeRef.current = false;
+                                video.pause();
+                                setVideoImportStatus('ready');
+                              }}>Use Playback Position</button>
+                          </div>
+                        </div>
+                      ))}
+                      <button type="button" disabled={!!videoRangeError || isExtractingVideoFrames}
+                        className="w-full rounded-lg bg-slate-800 p-2 text-xs text-sky-200 disabled:opacity-40"
+                        onClick={() => {
+                          const video = videoPreviewRef.current;
+                          if (!video) return;
+                          video.currentTime = videoRangeStart;
+                          playingVideoRangeRef.current = true;
+                          void video.play().catch(() => {
+                            playingVideoRangeRef.current = false;
+                            setVideoImportMessage('Playback could not start. Use the video controls to try again.');
+                            setVideoImportStatus('error');
+                          });
+                        }}>Play Selected Range</button>
+                    </>
+                  )}
+                </div>
+              )}
               {videoFrameCountPreview !== null && (
                 <div className="rounded-lg border border-sky-500/20 bg-slate-950/50 px-2.5 py-2 text-[10px] text-sky-200">
-                  This setting creates {videoFrameCountPreview} actual PNG frame{videoFrameCountPreview === 1 ? '' : 's'} from the current video length.
+                  {(videoRangeEnd - videoRangeStart).toFixed(2)} seconds selected · {videoFrameCountPreview} PNG frame{videoFrameCountPreview === 1 ? '' : 's'}.
                 </div>
+              )}
+              {videoRangeError && <p role="alert" className="text-xs text-amber-300">{videoRangeError}</p>}
+              {videoSourceSeconds !== null && (
+                <button type="button" disabled={isExtractingVideoFrames || videoFrameCountPreview === null || !isProjectHydrated || isImportingImages}
+                  className="w-full rounded-xl bg-sky-600 p-2.5 text-xs font-bold text-white disabled:opacity-40"
+                  onClick={() => {
+                    videoPreviewRef.current?.pause();
+                    playingVideoRangeRef.current = false;
+                    if (videoFile) void captureVideoFrames(videoFile);
+                  }}>{isExtractingVideoFrames ? 'Extracting Frames...' : 'Extract Selected Range'}</button>
               )}
               <button
                 onClick={handleVideoImportRequest}
@@ -3010,7 +3175,7 @@ export default function AnimationStudio({
                 <Upload className="h-4 w-4" />
                 <span>{isExtractingVideoFrames ? 'Extracting Frames...' : 'Choose Video'}</span>
               </button>
-              <p className="text-[10px] text-slate-500 leading-relaxed">{videoImportMessage}</p>
+              <p role={videoImportStatus === 'error' ? 'alert' : 'status'} aria-live="polite" className="text-[10px] text-slate-400 leading-relaxed">{videoImportMessage}</p>
             </div>
           </div>
           <div className="flex-none p-4 space-y-5">

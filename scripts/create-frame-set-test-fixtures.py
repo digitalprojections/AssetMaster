@@ -14,6 +14,7 @@ def chunk(kind, data):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, default=Path('.browser-test/frame-sets'))
+    parser.add_argument('--video-seconds', type=float, default=12, help='Duration for range-selection checks (default: 12).')
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     for index, color in enumerate([(220, 60, 60), (60, 180, 80), (60, 100, 220)], 1):
@@ -23,7 +24,9 @@ def main():
     ffmpeg = shutil.which('ffmpeg')
     if not ffmpeg:
         raise SystemExit('Images created. Install FFmpeg to create the video fixture.')
-    subprocess.run([ffmpeg, '-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=size=64x64:rate=12:duration=0.5', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', str(args.output / 'disposable_video.mp4')], check=True)
+    if not 0 < args.video_seconds <= 601:
+        parser.error('--video-seconds must be between 0 and 601 seconds')
+    subprocess.run([ffmpeg, '-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i', f'testsrc2=size=64x64:rate=12:duration={args.video_seconds}', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', str(args.output / 'disposable_video.mp4')], check=True)
     print(args.output.resolve())
 
 
