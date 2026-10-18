@@ -6,7 +6,7 @@ const backgroundRemover = readFileSync('src/components/BackgroundRemover.tsx', '
 const collageStudio = readFileSync('src/components/CollageStudio.tsx', 'utf8');
 const segmentList = readFileSync('src/components/SegmentList.tsx', 'utf8');
 const app = readFileSync('src/App.tsx', 'utf8');
-const styles = readFileSync('src/index.css', 'utf8');
+const styles = readFileSync('src/index.css', 'utf8').replace(/\r\n/g, '\n');
 
 assert.match(app, /COMPACT_CONTROLS_KEY = 'assetmaster\.compactControls\.v1'/u);
 assert.match(app, /window\.localStorage\.getItem\(COMPACT_CONTROLS_KEY\) !== 'false'/u);
@@ -41,3 +41,7 @@ assert.match(styles, /\.professional-tools-ui button,\n\.professional-tools-ui i
 assert.match(styles, /\.professional-tools-ui \.w-20\.h-20/u);
 
 console.log('professional tool density tests passed');
+
+assert.match(backgroundRemover, /cleanup-slider-row/u);
+assert.match(backgroundRemover, /cleanup-color-row/u);
+assert.match(styles, /grid-template-columns: 91px minmax\(35px, 1fr\) 34px/u);

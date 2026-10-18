@@ -42,3 +42,5 @@ import './animationBatchDeletion.test';
 import './sourceGroups.test';
 
 import './deletionConfirmations.test';
+
+import './cleanupSession.test';

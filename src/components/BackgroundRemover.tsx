@@ -1,3 +1,4 @@
+import { getCleanupSessionStorage, readBorderDetection, saveBorderDetection } from '../utils/cleanupSession';
 import { panScroll } from '../utils/cleanupPan';
 import React, { useState, useEffect, useRef } from 'react';
 import { SavedSegment } from '../types';
@@ -92,7 +93,11 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
   const [magicBrushSize, setMagicBrushSize] = useState<number>(10);
   const [brushSize, setBrushSize] = useState<number>(16);
   const [shaveWidth, setShaveWidth] = useState<number>(1);
-  const [isContiguous, setIsContiguous] = useState<boolean>(true);
+  const [isContiguous, setIsContiguous] = useState(() => readBorderDetection(getCleanupSessionStorage()));
+  const setBorderDetection = (enabled: boolean) => {
+    setIsContiguous(enabled);
+    saveBorderDetection(getCleanupSessionStorage(), enabled);
+  };
 
   // Eye-dropper/wand picked color
   const [pickedColor, setPickedColor] = useState<RgbColor | null>(null);
@@ -838,55 +843,49 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
   const displayWidth = Math.max(1, Math.round(canvasSize.width * fitScale * viewZoom));
   const displayHeight = Math.max(1, Math.round(canvasSize.height * fitScale * viewZoom));
   const zoomPercent = Math.round(viewZoom * 100);
-  const keyRefinementControls = (
-    <div className="space-y-3 rounded-xl border border-emerald-500/20 bg-slate-900/70 p-3">
-      <div className="flex items-center justify-between gap-3">
-        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Key Refinement</span>
-        <span className="text-[10px] font-mono text-emerald-300">{keyStrengthPercent}%</span>
-      </div>
+  const keyColorControls = (label: string) => (
+    <div className="cleanup-color-row">
+      <span>Key Color</span>
+      <input type="color" value={manualKeyColor} onChange={event => setManualKeyColor(event.target.value)} aria-label={label} />
+      <span className="font-mono">{manualKeyColor.toUpperCase()}</span>
+      <button onClick={handleApplyManualKeyColor} title="Apply the selected key color" className="border border-slate-700 rounded text-emerald-300">Apply</button>
+    </div>
+  );
 
-      <div className="space-y-1.5">
-        <div className="flex justify-between text-xs text-slate-300">
+  const keyRefinementControls = (
+    <div className="cleanup-refinement">
+      <h4 className="cleanup-section-label">Key Refinement</h4>
+
+      <div className="cleanup-slider-row"><div className="flex justify-between text-xs text-slate-300">
           <span>Removal Strength</span>
           <span className="font-mono text-emerald-400 font-bold">{keyStrengthPercent}%</span>
-        </div>
-        <input
-          type="range"
+        </div><input
+          type="range" aria-label="Removal Strength" title="Lower strength keeps similar object edges more opaque."
           min={MIN_KEY_STRENGTH_PERCENT}
           max={MAX_KEY_STRENGTH_PERCENT}
           step="1"
           value={keyStrengthPercent}
           onChange={(e) => setKeyStrengthPercent(normalizeKeyStrengthPercent(parseInt(e.target.value, 10)))}
           className="w-full accent-emerald-500 cursor-pointer h-1.5"
-        />
-        <p className="text-[9px] text-slate-500 leading-relaxed">
-          Lower strength keeps similar object edges more opaque.
-        </p>
-      </div>
+        /></div>
 
-      <div className="space-y-1.5">
-        <div className="flex justify-between text-xs text-slate-300">
+      <div className="cleanup-slider-row"><div className="flex justify-between text-xs text-slate-300">
           <span>Edge Fade</span>
           <span className="font-mono text-emerald-400 font-bold">{keyEdgeFadePercent}%</span>
-        </div>
-        <input
-          type="range"
+        </div><input
+          type="range" aria-label="Edge Fade" title="Higher fade softens pixels near the tolerance edge."
           min={MIN_KEY_EDGE_FADE_PERCENT}
           max={MAX_KEY_EDGE_FADE_PERCENT}
           step="1"
           value={keyEdgeFadePercent}
           onChange={(e) => setKeyEdgeFadePercent(normalizeKeyEdgeFadePercent(parseInt(e.target.value, 10)))}
           className="w-full accent-emerald-500 cursor-pointer h-1.5"
-        />
-        <p className="text-[9px] text-slate-500 leading-relaxed">
-          Higher fade softens pixels near the tolerance edge.
-        </p>
-      </div>
+        /></div>
     </div>
   );
 
   return (
-    <div id="bg-remover-modal" className="fixed inset-0 h-[100dvh] overflow-hidden bg-slate-950/95 backdrop-blur-md z-50 flex items-start md:items-center justify-center p-0 md:p-6 text-slate-100 font-sans">
+    <div id="bg-remover-modal" className="cleanup-workspace fixed inset-0 h-[100dvh] overflow-hidden bg-slate-950/95 backdrop-blur-md z-50 flex items-start md:items-center justify-center p-0 md:p-6 text-slate-100 font-sans">
       <div className="w-full max-w-5xl h-full md:h-[85vh] bg-slate-900 border-0 md:border border-slate-800 rounded-none md:rounded-3xl flex flex-col overflow-hidden shadow-2xl relative">
         
         {/* Header */}
@@ -896,7 +895,7 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
               <Scissors className="h-5 w-5 animate-pulse" />
             </div>
             <div className="min-w-0">
-              <h1 className="font-bold text-xs sm:text-sm text-slate-100 truncate">Cutout Boundary & Background Polish Workshop</h1>
+              <h1 className="font-bold text-xs sm:text-sm text-slate-100 truncate">Background Cleanup</h1>
               <p className="hidden sm:block text-[10px] text-slate-500 font-mono">Erase halos, background artifacts & solid color backing</p>
             </div>
           </div>
@@ -1086,21 +1085,18 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
           </div>
 
           {/* Right Control Sidebar */}
-          <aside className={`${isControlsOpen ? 'flex' : 'hidden md:flex'} w-full md:w-80 flex-1 md:flex-none min-h-0 border-t md:border-t-0 md:border-l border-slate-800 bg-slate-950 flex-col shrink-0 overflow-hidden`}>
+          <aside className={`${isControlsOpen ? 'flex' : 'hidden md:flex'} cleanup-inspector w-full md:w-72 flex-1 md:flex-none min-h-0 border-t md:border-t-0 md:border-l border-slate-800 bg-slate-950 flex-col shrink-0 overflow-hidden`}>
             
             {/* Mobile Bottom Sheet Handle */}
             <div className="flex md:hidden justify-center shrink-0 pt-2">
               <div className="w-12 h-1 bg-slate-800 rounded-full" />
             </div>
             
-            <div className="p-5 border-b border-slate-800 bg-slate-950/95 backdrop-blur shrink-0 space-y-3">
+            <div className="cleanup-actions p-2 border-b border-slate-800 bg-slate-950/95 backdrop-blur shrink-0 space-y-1">
               <div>
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300">Cleanup Actions</h3>
-                <p className="text-[10px] text-slate-500">
-                  Save and reset stay pinned here while tool settings scroll below.
-                </p>
+                <h3 className="sr-only">Cleanup Actions</h3>
               </div>
-              <div className="rounded-xl border border-slate-800 bg-slate-900/90 p-3 space-y-2">
+              <div className="cleanup-zoom" title="Scroll to zoom. Enable Pan and drag to move the view.">
                 <div className="grid grid-cols-[2rem_minmax(3.5rem,1fr)_2rem_2.5rem] items-center gap-2">
                   <button
                     onClick={() => setViewZoom((prev) => clampZoom(prev - ZOOM_STEP))}
@@ -1132,29 +1128,27 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
                     Fit
                   </button>
                 </div>
-                <p className="text-[9px] text-slate-500">
-                  Mouse wheel zooms the cleanup view. Enable Pan, then drag to move.
-                </p>
+
               </div>
-              <div className="hidden md:grid grid-cols-1 gap-2">
+              <div className="cleanup-save-row hidden md:grid grid-cols-[minmax(0,1fr)_auto] gap-1">
                 <button
-                  onClick={handleApply}
+                  aria-label="Save cleaned cutout" onClick={handleApply}
                   className="w-full py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-2 shadow-lg shadow-emerald-600/10 active:scale-[0.98] transition-all cursor-pointer"
                 >
                   <Check className="h-4.5 w-4.5" />
-                  <span>Save Cleaned Cutout</span>
+                  <span>Save Cutout</span>
                 </button>
                 <button
-                  onClick={handleReset}
+                  aria-label="Reset to original" onClick={handleReset}
                   className="w-full py-2 bg-slate-900 hover:bg-slate-850 border border-slate-800 text-slate-400 hover:text-slate-200 rounded-xl text-xs font-semibold flex items-center justify-center space-x-1.5 transition-all cursor-pointer"
                 >
                   <RotateCcw className="h-3.5 w-3.5" />
-                  <span>Reset to Original</span>
+                  <span>Reset</span>
                 </button>
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto overscroll-contain p-5 space-y-5">
+            <div className="cleanup-settings flex-1 overflow-y-auto overscroll-contain p-2 space-y-2">
             {/* Toolbox Selector */}
             <div className="space-y-2">
               <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center space-x-2">
@@ -1162,10 +1156,10 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
                 <span>Erase Tools</span>
               </h3>
               
-              <div className="grid grid-cols-1 gap-2">
+              <div className="cleanup-tool-selector grid grid-cols-3 gap-1">
                 {/* 1. Magic Wand */}
                 <button
-                  onClick={() => setActiveTool('magic-wand')}
+                  aria-label="Click Key Eraser" title="Click Key Eraser" onClick={() => setActiveTool('magic-wand')}
                   className={`flex items-center space-x-3 px-3 py-3 rounded-xl border text-left cursor-pointer transition-all ${
                     activeTool === 'magic-wand'
                       ? 'bg-emerald-600/10 border-emerald-500 text-white shadow-lg'
@@ -1176,14 +1170,14 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
                     <Sparkles className="h-4 w-4" />
                   </div>
                   <div>
-                    <p className="text-xs font-bold">Click Key Eraser</p>
+                    <p className="text-xs font-bold">Key Eraser</p>
                     <p className="text-[10px] text-slate-500">Click once to key out a backdrop color</p>
                   </div>
                 </button>
 
                 {/* 2. Eraser */}
                 <button
-                  onClick={() => setActiveTool('eraser')}
+                  aria-label="Brush Eraser" title="Brush Eraser" onClick={() => setActiveTool('eraser')}
                   className={`flex items-center space-x-3 px-3 py-3 rounded-xl border text-left cursor-pointer transition-all ${
                     activeTool === 'eraser'
                       ? 'bg-emerald-600/10 border-emerald-500 text-white shadow-lg'
@@ -1201,7 +1195,7 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
 
                 {/* 3. Border Shave */}
                 <button
-                  onClick={() => setActiveTool('shave')}
+                  aria-label="Border Shave" title="Border Shave" onClick={() => setActiveTool('shave')}
                   className={`flex items-center space-x-3 px-3 py-3 rounded-xl border text-left cursor-pointer transition-all ${
                     activeTool === 'shave'
                       ? 'bg-emerald-600/10 border-emerald-500 text-white shadow-lg'
@@ -1212,12 +1206,14 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
                     <Scissors className="h-4 w-4" />
                   </div>
                   <div>
-                    <p className="text-xs font-bold">Border Shave (Erode)</p>
+                    <p className="text-xs font-bold">Edge Shave</p>
                     <p className="text-[10px] text-slate-500">Shrink outline boundary halo</p>
                   </div>
                 </button>
               </div>
             </div>
+
+            <details className="cleanup-help"><summary>Tool Help</summary><p>Key Eraser samples the background color. Tolerance controls the color range; Strength controls removal; Edge Fade softens the boundary. Border Detection restricts removal to connected pixels. Scroll to zoom, or enable Pan and drag to move.</p></details>
 
             {/* Dynamic settings per selected tool */}
             <div className="flex-1 space-y-4 pt-3 border-t border-slate-900">
@@ -1226,55 +1222,24 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
                 <div className="space-y-4">
                   <span className="text-[10px] text-emerald-400 font-mono font-bold uppercase tracking-wider block">Click Key Settings</span>
                   
-                  <div className="space-y-1.5">
-                    <div className="flex justify-between text-xs text-slate-300">
+                  <div className="cleanup-slider-row"><div className="flex justify-between text-xs text-slate-300">
                       <span>Color Tolerance</span>
                       <span className="font-mono text-emerald-400 font-bold">{magicTolerance}</span>
-                    </div>
-                    <input
-                      type="range"
+                    </div><input
+                      type="range" aria-label="Color Tolerance" title="Higher tolerance removes broader shade variations of the clicked color. Lower tolerance is more selective."
                       min="0"
                       max="150"
                       step="1"
                       value={magicTolerance}
                       onChange={(e) => setMagicTolerance(parseInt(e.target.value))}
                       className="w-full accent-emerald-500 cursor-pointer h-1.5"
-                    />
-                    <p className="text-[9px] text-slate-500 leading-relaxed">
-                      Higher tolerance removes broader shade variations of the clicked color. Lower tolerance is more selective.
-                    </p>
-                  </div>
+                    /></div>
 
                   {keyRefinementControls}
 
-                  <div className="space-y-2 rounded-xl border border-slate-850 bg-slate-900 p-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <p className="text-[10px] text-slate-300 font-semibold">Selected Key Color</p>
-                        <p className="text-[9px] text-slate-500">
-                          Auto-detected from edge pixels, then still editable if you want to override it.
-                        </p>
-                      </div>
-                      <input
-                        type="color"
-                        value={manualKeyColor}
-                        onChange={(e) => setManualKeyColor(e.target.value)}
-                        className="h-10 w-14 cursor-pointer rounded-lg border border-slate-700 bg-transparent p-1"
-                        aria-label="Select key color"
-                      />
-                    </div>
-                    <div className="flex items-center justify-between gap-3 text-[10px] font-mono text-slate-400">
-                      <span>{manualKeyColor.toUpperCase()}</span>
-                      <button
-                        onClick={handleApplyManualKeyColor}
-                        className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1.5 text-[10px] font-semibold text-emerald-300 transition-all hover:bg-emerald-500/20 cursor-pointer"
-                      >
-                        Apply This Color
-                      </button>
-                    </div>
-                  </div>
+                  {keyColorControls("Select key color")}
 
-                  <div className="flex items-center justify-between p-2.5 bg-slate-900 border border-slate-850 rounded-xl cursor-pointer transition-all hover:bg-slate-850/50">
+                  <div className="cleanup-toggle-row" title="Restrict removal to connected background pixels.">
                     <div className="flex flex-col">
                       <span className="text-xs font-semibold text-slate-200">Border Detection</span>
                       <span className="text-[9px] text-slate-500">Contiguous flood-fill (only connected pixels)</span>
@@ -1282,13 +1247,14 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
                     <input
                       type="checkbox"
                       checked={isContiguous}
-                      onChange={(e) => setIsContiguous(e.target.checked)}
+                      onChange={(e) => setBorderDetection(e.target.checked)}
+                      aria-label="Border detection"
                       className="rounded text-emerald-500 focus:ring-emerald-500 bg-slate-950 border-slate-800 h-4 w-4 cursor-pointer"
                     />
                   </div>
 
                   {pickedColor && (
-                    <div className="p-3 bg-slate-900 border border-slate-850 rounded-xl space-y-2">
+                    <details className="cleanup-key-details"><summary className="cleanup-section-label">Active Key Details</summary>
                       <p className="text-[10px] text-slate-400">Active Key Color:</p>
                       <div className="flex items-center space-x-2.5">
                         <div
@@ -1311,7 +1277,7 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
                           This pass is using the selected color globally, so tolerance works even without a new canvas click.
                         </p>
                       )}
-                    </div>
+                    </details>
                   )}
 
                 </div>
@@ -1345,97 +1311,54 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
                   </div>
 
                   {eraserMode === 'manual' && (
-                    <div className="space-y-1.5">
-                      <div className="flex justify-between text-xs text-slate-300">
+                    <div className="cleanup-slider-row"><div className="flex justify-between text-xs text-slate-300">
                         <span>Brush Size</span>
                         <span className="font-mono text-emerald-400 font-bold">{brushSize}px</span>
-                      </div>
-                      <input
-                        type="range"
+                      </div><input
+                        type="range" aria-label="Brush Size" title="Freely erases pixels regardless of color."
                         min="2"
                         max="60"
                         step="1"
                         value={brushSize}
                         onChange={(e) => setBrushSize(parseInt(e.target.value))}
                         className="w-full accent-emerald-500 cursor-pointer h-1.5"
-                      />
-                      <p className="text-[9px] text-slate-500 leading-relaxed">
-                        Freely erases pixels regardless of color.
-                      </p>
-                    </div>
+                      /></div>
                   )}
 
                   {eraserMode === 'color-match' && (
                     <>
-                      <div className="space-y-1.5">
-                        <div className="flex justify-between text-xs text-slate-300">
+                      <div className="cleanup-slider-row"><div className="flex justify-between text-xs text-slate-300">
                           <span>Color Tolerance</span>
                           <span className="font-mono text-emerald-400 font-bold">{magicTolerance}</span>
-                        </div>
-                        <input
-                          type="range"
+                        </div><input
+                          type="range" aria-label="Color Tolerance" title="Only matching pixels inside the brush are erased."
                           min="0"
                           max="150"
                           step="1"
                           value={magicTolerance}
                           onChange={(e) => setMagicTolerance(parseInt(e.target.value))}
                           className="w-full accent-emerald-500 cursor-pointer h-1.5"
-                        />
-                        <p className="text-[9px] text-slate-500 leading-relaxed">
-                          Only matching pixels inside the brush are erased.
-                        </p>
-                      </div>
+                        /></div>
 
                       {keyRefinementControls}
 
-                      <div className="space-y-1.5">
-                        <div className="flex justify-between text-xs text-slate-300">
+                      <div className="cleanup-slider-row"><div className="flex justify-between text-xs text-slate-300">
                           <span>Brush Diameter</span>
                           <span className="font-mono text-emerald-400 font-bold">{magicBrushSize}px</span>
-                        </div>
-                        <input
-                          type="range"
+                        </div><input
+                          type="range" aria-label="Brush Diameter" title="Smaller diameters help remove leftover background pixels without chewing into the subject."
                           min="2"
                           max="32"
                           step="1"
                           value={magicBrushSize}
                           onChange={(e) => setMagicBrushSize(parseInt(e.target.value))}
                           className="w-full accent-emerald-500 cursor-pointer h-1.5"
-                        />
-                        <p className="text-[9px] text-slate-500 leading-relaxed">
-                          Smaller diameters help remove leftover background pixels without chewing into the subject.
-                        </p>
-                      </div>
+                        /></div>
 
-                      <div className="space-y-2 rounded-xl border border-slate-850 bg-slate-900 p-3">
-                        <div className="flex items-center justify-between gap-3">
-                          <div>
-                            <p className="text-[10px] text-slate-300 font-semibold">Selected Key Color</p>
-                            <p className="text-[9px] text-slate-500">
-                              Uses the current selected key color. If none is active yet, the first brush press samples from the image.
-                            </p>
-                          </div>
-                          <input
-                            type="color"
-                            value={manualKeyColor}
-                            onChange={(e) => setManualKeyColor(e.target.value)}
-                            className="h-10 w-14 cursor-pointer rounded-lg border border-slate-700 bg-transparent p-1"
-                            aria-label="Select eraser key color"
-                          />
-                        </div>
-                        <div className="flex items-center justify-between gap-3 text-[10px] font-mono text-slate-400">
-                          <span>{manualKeyColor.toUpperCase()}</span>
-                          <button
-                            onClick={handleApplyManualKeyColor}
-                            className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1.5 text-[10px] font-semibold text-emerald-300 transition-all hover:bg-emerald-500/20 cursor-pointer"
-                          >
-                            Use This Color
-                          </button>
-                        </div>
-                      </div>
+                      {keyColorControls("Select eraser key color")}
 
                       {pickedColor && (
-                        <div className="p-3 bg-slate-900 border border-slate-850 rounded-xl space-y-2">
+                        <details className="cleanup-key-details"><summary className="cleanup-section-label">Active Key Details</summary>
                           <p className="text-[10px] text-slate-400">Brush Key Color:</p>
                           <div className="flex items-center space-x-2.5">
                             <div
@@ -1448,7 +1371,7 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
                               RGB: {pickedColor.r}, {pickedColor.g}, {pickedColor.b}
                             </div>
                           </div>
-                        </div>
+                        </details>
                       )}
                     </>
                   )}
@@ -1459,24 +1382,18 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
                 <div className="space-y-4">
                   <span className="text-[10px] text-emerald-400 font-mono font-bold uppercase tracking-wider block">Border Shave Settings</span>
                   
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-xs text-slate-300">
+                  <div className="cleanup-slider-row"><div className="flex justify-between text-xs text-slate-300">
                       <span>Shave Width (Erode)</span>
                       <span className="font-mono text-emerald-400 font-bold">{shaveWidth} px</span>
-                    </div>
-                    <input
-                      type="range"
+                    </div><input
+                      type="range" aria-label="Shave Width (Erode)" title="Shrinks the boundary of the sprite inward by $N$ pixels. This instantly dissolves thin outline fringes and background halos."
                       min="1"
                       max="6"
                       step="1"
                       value={shaveWidth}
                       onChange={(e) => setShaveWidth(parseInt(e.target.value))}
                       className="w-full accent-emerald-500 cursor-pointer h-1.5"
-                    />
-                    <p className="text-[9px] text-slate-500 leading-relaxed">
-                      Shrinks the boundary of the sprite inward by $N$ pixels. This instantly dissolves thin outline fringes and background halos.
-                    </p>
-                  </div>
+                    /></div>
 
                   <button
                     onClick={applyShaveBorder}

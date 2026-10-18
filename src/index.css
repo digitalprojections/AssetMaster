@@ -353,3 +353,52 @@ canvas {
   }
 }
 
+
+/* Compact cleanup inspector: desktop editing density without shrinking labels. */
+#bg-remover-modal .cleanup-inspector { font-size: 11px; }
+#bg-remover-modal .cleanup-actions { padding: 8px; gap: 5px; }
+#bg-remover-modal .cleanup-actions > div:first-child { height: 0; margin: 0; }
+#bg-remover-modal .cleanup-zoom button,
+#bg-remover-modal .cleanup-save-row button { min-height: 25px; height: 25px; padding: 2px 7px; border-radius: 3px; font-size: 11px; }
+#bg-remover-modal .cleanup-save-row { margin-top: 5px; }
+#bg-remover-modal .cleanup-settings { padding: 8px; }
+#bg-remover-modal .cleanup-settings [class*='space-y-'] > :not([hidden]) { margin-block: 0 !important; }
+#bg-remover-modal .cleanup-settings [class*='space-y-'] > :not([hidden]) ~ :not([hidden]) { margin-block-start: 6px !important; }
+#bg-remover-modal .cleanup-settings > div:first-child > h3 { display: none; }
+#bg-remover-modal .cleanup-tool-selector { gap: 3px; }
+#bg-remover-modal .cleanup-tool-selector button { min-height: 27px; padding: 3px 4px; gap: 4px; border-radius: 3px; }
+#bg-remover-modal .cleanup-tool-selector button > div { padding: 0; margin: 0; background: none; }
+#bg-remover-modal .cleanup-tool-selector button p { font-size: 10px; white-space: nowrap; }
+#bg-remover-modal .cleanup-tool-selector button p + p { display: none; }
+#bg-remover-modal .cleanup-tool-selector button svg { width: 13px; height: 13px; }
+#bg-remover-modal .cleanup-slider-row { display: grid; grid-template-columns: 91px minmax(35px, 1fr) 34px; align-items: center; gap: 6px; min-height: 25px; }
+#bg-remover-modal .cleanup-slider-row > div { display: contents; }
+#bg-remover-modal .cleanup-slider-row > div > span:first-child { grid-column: 1; grid-row: 1; font-size: 11px; font-weight: 400; }
+#bg-remover-modal .cleanup-slider-row > div > span:last-child { grid-column: 3; grid-row: 1; text-align: right; font-size: 11px; font-weight: 400; }
+#bg-remover-modal .cleanup-slider-row input[type='range'] { grid-column: 2; grid-row: 1; width: 100%; min-width: 0; height: 18px; margin: 0; background: transparent; appearance: none; }
+#bg-remover-modal .cleanup-slider-row input[type='range']::-webkit-slider-runnable-track { height: 4px; background: #646464; border-radius: 1px; }
+#bg-remover-modal .cleanup-slider-row input[type='range']::-webkit-slider-thumb { appearance: none; width: 9px; height: 12px; margin-top: -4px; background: #c3c3c3; border: 1px solid #222; border-radius: 1px; }
+#bg-remover-modal .cleanup-slider-row input[type='range']::-moz-range-track { height: 4px; background: #646464; }
+#bg-remover-modal .cleanup-slider-row input[type='range']::-moz-range-thumb { width: 8px; height: 11px; background: #c3c3c3; border: 1px solid #222; border-radius: 1px; }
+#bg-remover-modal .cleanup-slider-row input:focus-visible { outline: 1px solid #70aaff; outline-offset: 2px; }
+#bg-remover-modal .cleanup-refinement { padding: 5px 0; border-top: 1px solid #454545; border-bottom: 1px solid #454545; }
+#bg-remover-modal .cleanup-section-label { font-size: 10px; line-height: 16px; font-weight: 600; color: #aaa; text-transform: uppercase; letter-spacing: .03em; margin: 0; }
+#bg-remover-modal .cleanup-color-row { display: grid; grid-template-columns: 62px 24px minmax(0, 1fr) auto; align-items: center; gap: 5px; min-height: 27px; font-size: 11px; }
+#bg-remover-modal .cleanup-color-row input[type='color'] { width: 24px; height: 21px; min-height: 0; padding: 1px; border: 1px solid #666; border-radius: 2px; background: none; cursor: pointer; }
+#bg-remover-modal .cleanup-color-row button { min-height: 23px; height: 23px; padding: 2px 7px; font-size: 11px; }
+#bg-remover-modal .cleanup-toggle-row { display: flex; justify-content: space-between; align-items: center; min-height: 26px; padding: 1px 0; }
+#bg-remover-modal .cleanup-toggle-row > div > span + span { display: none; }
+#bg-remover-modal .cleanup-toggle-row > div > span:first-child { font-size: 11px; font-weight: 400; }
+#bg-remover-modal .cleanup-help,
+#bg-remover-modal .cleanup-key-details { padding: 4px 0; border-top: 1px solid #454545; font-size: 11px; }
+#bg-remover-modal .cleanup-help summary,
+#bg-remover-modal .cleanup-key-details summary { cursor: pointer; font-size: 10px; line-height: 18px; }
+#bg-remover-modal .cleanup-help p { padding: 5px 0; font-size: 11px; line-height: 1.4; color: #aaa; }
+#bg-remover-modal > div > header { min-height: 42px; padding-top: 4px; padding-bottom: 4px; }
+@media (pointer: coarse) {
+  #bg-remover-modal .cleanup-slider-row,
+  #bg-remover-modal .cleanup-toggle-row { min-height: 32px; }
+  #bg-remover-modal .cleanup-tool-selector button,
+  #bg-remover-modal .cleanup-color-row button,
+  #bg-remover-modal .cleanup-zoom button { min-height: 32px; height: 32px; }
+}
