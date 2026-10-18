@@ -1,4 +1,6 @@
-import { buildSourceGroups } from '../utils/sourceGroups';
+import { areGroupConfirmationsMuted, getMutedFrameAction, readDeletionConfirmations, saveDeletionConfirmations, setGroupConfirmations, type FrameDeletionAction } from '../utils/deletionConfirmations';
+import { getUsageTipsStorage } from '../utils/usageTips';
+import { buildSourceGroups, getSourceGroupId } from '../utils/sourceGroups';
 import SourceGroupManager from './SourceGroupManager';
 import { planSourceDeletion } from '../utils/animationBatchDeletion';
 import BulkFrameDeletionDialog from './BulkFrameDeletionDialog';
@@ -181,6 +183,9 @@ export default function AnimationStudio({
   const [activeFrameIndex, setActiveFrameIndex] = useState<number>(0);
   const [deletedSources, setDeletedSources] = useState<SavedSegment[]>([]);
   const [pendingBulkDelete, setPendingBulkDelete] = useState<{ label: string; frameIds: string[]; sourceIds: string[] } | null>(null);
+  const [deletionConfirmations, setDeletionConfirmations] = useState(() => readDeletionConfirmations(getUsageTipsStorage()));
+  const [skipFrameConfirmation, setSkipFrameConfirmation] = useState(false);
+  const [confirmationPreferenceNotice, setConfirmationPreferenceNotice] = useState('');
   const [pendingDeleteFrameId, setPendingDeleteFrameId] = useState<string | null>(null);
   const [deletionMessage, setDeletionMessage] = useState('');
   const [projectHistory, setProjectHistory] = useState(createAnimationProjectHistory);
@@ -1584,6 +1589,17 @@ export default function AnimationStudio({
     </div>
   ) : null;
 
+  const groupIdsForSources = (ids: string[]) => {
+    const requested = new Set(ids);
+    return [...new Set(savedSegments.filter(source => requested.has(source.id)).map(getSourceGroupId))];
+  };
+  const updateGroupConfirmations = (groupIds: string[], muted: boolean, action?: FrameDeletionAction) => {
+    const next = setGroupConfirmations(deletionConfirmations, groupIds, muted, action);
+    setDeletionConfirmations(next);
+    const persisted = saveDeletionConfirmations(getUsageTipsStorage(), next);
+    setConfirmationPreferenceNotice(persisted ? '' : 'Browser storage is unavailable. The confirmation setting applies until this studio is closed.');
+  };
+  const mutedGroupIds = useMemo(() => new Set(Object.keys(deletionConfirmations)), [deletionConfirmations]);
   const sourceGroups = useMemo(() => buildSourceGroups(savedSegments, project.frames), [savedSegments, project.frames]);
   const matchingSourceIds = useMemo(() => new Set(filteredSegments.map(source => source.id)), [filteredSegments]);
   const batchDeletion = pendingBulkDelete ? planSourceDeletion(project.frames, savedSegments, pendingBulkDelete.sourceIds) : null;
@@ -1591,12 +1607,16 @@ export default function AnimationStudio({
     if ((!frameIds.length && !sourceIds.length) || isExtractingVideoFrames || isImportingImages || !isProjectHydrated) return;
     setIsPlaying(false);
     setPendingDeleteFrameId(null);
-    setPendingBulkDelete({ label, frameIds, sourceIds });
     setDeletionMessage('');
+    if (areGroupConfirmationsMuted(deletionConfirmations, groupIdsForSources(sourceIds))) {
+      performSourceDeletion(sourceIds);
+    } else {
+      setPendingBulkDelete({ label, frameIds, sourceIds });
+    }
   };
-  const confirmBulkDeletion = () => {
-    if (!pendingBulkDelete || !onSyncDeletedSources) return;
-    const result = planSourceDeletion(project.frames, savedSegments, pendingBulkDelete.sourceIds);
+  const performSourceDeletion = (sourceIds: string[]) => {
+    if (!onSyncDeletedSources) return;
+    const result = planSourceDeletion(project.frames, savedSegments, sourceIds);
     if (!result.removedFrameIds.length && !result.deletedSources.length) { setPendingBulkDelete(null); return; }
     const removedSources = new Set(result.deletedSources.map(source => source.id));
     const activeId = project.frames[activeFrameIndex]?.id;
@@ -1619,6 +1639,11 @@ export default function AnimationStudio({
     setPendingBulkDelete(null);
     setDeletionMessage(`Removed ${result.removedFrameIds.length} timeline ${result.removedFrameIds.length === 1 ? 'frame' : 'frames'} and ${result.deletedSources.length} saved ${result.deletedSources.length === 1 ? 'cutout' : 'cutouts'}. Undo restores this operation.`);
   };
+  const confirmBulkDeletion = (muteGroups: boolean) => {
+    if (!pendingBulkDelete) return;
+    if (muteGroups) updateGroupConfirmations(groupIdsForSources(pendingBulkDelete.sourceIds), true);
+    performSourceDeletion(pendingBulkDelete.sourceIds);
+  };
   const initialSourceDeletionHandled = useRef(false);
   useEffect(() => {
     if (!initialSourceDeletion || !isProjectHydrated || initialSourceDeletionHandled.current) return;
@@ -1636,15 +1661,18 @@ export default function AnimationStudio({
     const frame = project.frames[index];
     if (!frame) return;
     setIsPlaying(false);
-    setPendingDeleteFrameId(frame.id);
+    setSkipFrameConfirmation(false);
     setDeletionMessage('');
+    const plan = planFrameDeletion(project.frames, savedSegments, frame.id, true);
+    const action = plan.source ? getMutedFrameAction(deletionConfirmations, getSourceGroupId(plan.source), Boolean(onSyncDeletedSources && plan.deletedSource)) : null;
+    if (action) performFrameDeletion(frame.id, action === 'both');
+    else setPendingDeleteFrameId(frame.id);
   };
 
-  const confirmFrameDeletion = (deleteSource: boolean) => {
-    if (!pendingDeleteFrameId) return;
-    const index = project.frames.findIndex(frame => frame.id === pendingDeleteFrameId);
+  const performFrameDeletion = (frameId: string, deleteSource: boolean) => {
+    const index = project.frames.findIndex(frame => frame.id === frameId);
     if (index < 0) { setPendingDeleteFrameId(null); return; }
-    const result = planFrameDeletion(project.frames, savedSegments, pendingDeleteFrameId, deleteSource);
+    const result = planFrameDeletion(project.frames, savedSegments, frameId, deleteSource);
     if (deleteSource && (!onSyncDeletedSources || !result.deletedSource)) return;
     const nextActiveFrameIndex = getActiveFrameIndexAfterAnimationFrameRemoval(project.frames.length, activeFrameIndex, index);
     applyProjectEdit(prev => ({
@@ -1666,6 +1694,14 @@ export default function AnimationStudio({
     }
     setPendingDeleteFrameId(null);
     setDeletionMessage(result.deletedSource ? 'Frame and source cutout deleted. Undo restores both.' : 'Frame removed from the timeline. Source cutout kept and marked as removed from the timeline.');
+  };
+
+  const confirmFrameDeletion = (deleteSource: boolean) => {
+    if (!pendingDeleteFrameId) return;
+    const frame = project.frames.find(candidate => candidate.id === pendingDeleteFrameId);
+    const source = savedSegments.find(candidate => candidate.id === frame?.sourceSegmentId);
+    if (skipFrameConfirmation && source) updateGroupConfirmations([getSourceGroupId(source)], true, deleteSource ? 'both' : 'timeline');
+    performFrameDeletion(pendingDeleteFrameId, deleteSource);
   };
 
   const duplicateFrameAt = (index: number) => {
@@ -2658,7 +2694,7 @@ export default function AnimationStudio({
 
     window.addEventListener('keydown', handleStudioKeyDown);
     return () => window.removeEventListener('keydown', handleStudioKeyDown);
-  }, [activeFrameIndex, activeSegment, hasActiveFrame, project, showBgRemover, pendingDeleteFrameId, pendingBulkDelete, deletedSources, savedSegments]);
+  }, [activeFrameIndex, activeSegment, hasActiveFrame, project, showBgRemover, pendingDeleteFrameId, pendingBulkDelete, deletionConfirmations, deletedSources, savedSegments]);
 
   return (
     <div
@@ -2687,6 +2723,7 @@ export default function AnimationStudio({
       />
 
       {pendingBulkDelete && batchDeletion && <BulkFrameDeletionDialog
+        groupCount={groupIdsForSources(pendingBulkDelete.sourceIds).length}
         label={pendingBulkDelete.label} frameCount={batchDeletion.removedFrameIds.length}
         sourceCount={batchDeletion.deletedSources.length} sharedSourceCount={batchDeletion.sharedSourceCount}
         canDeleteSources={Boolean(onSyncDeletedSources)} onCancel={() => setPendingBulkDelete(null)} onConfirm={confirmBulkDeletion}
@@ -2696,7 +2733,7 @@ export default function AnimationStudio({
           <section role="dialog" aria-modal="true" aria-labelledby="delete-frame-title" aria-describedby="delete-frame-description" className="w-full max-w-md max-h-[90dvh] overflow-y-auto rounded-2xl border border-slate-700 bg-slate-900 p-5 shadow-xl" onKeyDown={event => {
             if (event.key === 'Escape') { event.stopPropagation(); setPendingDeleteFrameId(null); }
             if (event.key === 'Tab') {
-              const buttons = Array.from((event.currentTarget as HTMLElement).querySelectorAll<HTMLButtonElement>('button:not(:disabled)'));
+              const buttons = Array.from((event.currentTarget as HTMLElement).querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled)'));
               const first = buttons[0], last = buttons[buttons.length - 1];
               if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
               else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
@@ -2707,6 +2744,10 @@ export default function AnimationStudio({
             {pendingDeletion.source && <p className="mt-2 break-words text-sm text-slate-300">Source: {pendingDeletion.source.name}</p>}
             {pendingDeletion.sharedFrameCount > 0 && <p className="mt-2 text-sm text-amber-200">This source is used by {pendingDeletion.sharedFrameCount} other timeline {pendingDeletion.sharedFrameCount === 1 ? 'frame' : 'frames'}. It stays available until its last frame is removed.</p>}
             {!pendingDeletion.source && <p className="mt-2 text-sm text-slate-400">This frame has no saved source cutout to delete.</p>}
+            {pendingDeletion.source && <label className="mt-4 flex min-h-11 items-center gap-3 text-sm text-slate-200">
+              <input type="checkbox" checked={skipFrameConfirmation} onChange={event => setSkipFrameConfirmation(event.target.checked)} className="h-5 w-5 shrink-0 accent-indigo-500" />
+              <span>Don't ask again for this source group<span className="mt-1 block text-xs text-slate-400">Future frame deletions will use the action you choose below.</span></span>
+            </label>}
             <div className="mt-5 flex flex-col gap-2">
               <button autoFocus onClick={() => setPendingDeleteFrameId(null)} className="min-h-11 rounded-xl border border-slate-600 px-4 text-sm text-slate-200">Cancel</button>
               <button onClick={() => confirmFrameDeletion(false)} className="min-h-11 rounded-xl bg-slate-700 px-4 text-sm text-white">Remove from Timeline</button>
@@ -2715,6 +2756,7 @@ export default function AnimationStudio({
           </section>
         </div>
       )}
+      {confirmationPreferenceNotice && <p role="status" className="shrink-0 bg-slate-900 px-4 py-2 text-xs text-amber-200">{confirmationPreferenceNotice}</p>}
       {deletionMessage && <p role="status" className="shrink-0 bg-slate-900 px-4 py-2 text-xs text-slate-200">{deletionMessage}</p>}
 
       {/* 1. Header Toolbar */}
@@ -3052,7 +3094,7 @@ export default function AnimationStudio({
                   </div>
                 </div>
 
-                <SourceGroupManager selectedSourceId={selectedSegmentId} groups={sourceGroups.filter(group => group.sources.some(source => matchingSourceIds.has(source.id)))} disabled={isExtractingVideoFrames || isImportingImages || !isProjectHydrated}
+                <SourceGroupManager mutedGroupIds={mutedGroupIds} onEnableConfirmations={id => updateGroupConfirmations([id], false)} selectedSourceId={selectedSegmentId} groups={sourceGroups.filter(group => group.sources.some(source => matchingSourceIds.has(source.id)))} disabled={isExtractingVideoFrames || isImportingImages || !isProjectHydrated}
                   getStatus={sourceTimelineLabel} onSelect={source => setSelectedSegmentId(source.id)}
                   onDelete={(label, sourceIds) => requestBulkDelete(label, [], sourceIds)} />
                 {activeSegment && (

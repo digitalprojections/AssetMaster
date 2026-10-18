@@ -20,5 +20,5 @@ assert.match(app, /onDeleteSavedSegment=\{handleDeleteSegment\}/u);
 
 console.log('list deletion control tests passed');
 assert.match(app, /onDeleteSourceGroup=\{requestSourceDeletion\}/u);
-assert.match(animationStudio, /planSourceDeletion\(project.frames, savedSegments, pendingBulkDelete.sourceIds\)/u);
+assert.match(animationStudio, /planSourceDeletion\(project.frames, savedSegments, sourceIds\)/u);
 assert.doesNotMatch(readFileSync('src/components/BulkFrameDeletionDialog.tsx', 'utf8'), /Remove from Timeline Only/u);

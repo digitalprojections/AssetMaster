@@ -1,11 +1,13 @@
-import React from 'react';
+import React, { useState } from 'react';
 
 type Props = {
   label: string; frameCount: number; sourceCount: number; sharedSourceCount: number;
-  canDeleteSources: boolean; onCancel: () => void; onConfirm: () => void;
+  groupCount: number;
+  canDeleteSources: boolean; onCancel: () => void; onConfirm: (muteGroups: boolean) => void;
 };
 
-export default function BulkFrameDeletionDialog({ label, frameCount, sourceCount, sharedSourceCount, canDeleteSources, onCancel, onConfirm }: Props) {
+export default function BulkFrameDeletionDialog({ label, frameCount, sourceCount, sharedSourceCount, groupCount, canDeleteSources, onCancel, onConfirm }: Props) {
+  const [muteGroups, setMuteGroups] = useState(false);
   return (
     <div className="fixed inset-0 z-[100] bg-slate-950/80 flex items-center justify-center p-4">
       <section role="dialog" aria-modal="true" aria-labelledby="bulk-delete-title" aria-describedby="bulk-delete-summary"
@@ -13,7 +15,7 @@ export default function BulkFrameDeletionDialog({ label, frameCount, sourceCount
         onKeyDown={event => {
           if (event.key === 'Escape') { event.stopPropagation(); onCancel(); }
           if (event.key === 'Tab') {
-            const buttons = Array.from((event.currentTarget as HTMLElement).querySelectorAll<HTMLButtonElement>('button:not(:disabled)'));
+            const buttons = Array.from((event.currentTarget as HTMLElement).querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled)'));
             const first = buttons[0], last = buttons[buttons.length - 1];
             if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
             else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
@@ -23,9 +25,13 @@ export default function BulkFrameDeletionDialog({ label, frameCount, sourceCount
         <p id="bulk-delete-summary" className="mt-2 text-sm text-slate-300">This will delete {sourceCount} saved {sourceCount === 1 ? 'cutout' : 'cutouts'} and all {frameCount} linked timeline {frameCount === 1 ? 'frame' : 'frames'}.</p>
         {sharedSourceCount > 0 && <p className="mt-2 text-sm text-amber-200">{sharedSourceCount} shared {sharedSourceCount === 1 ? 'source stays' : 'sources stay'} because other timeline frames still use them.</p>}
         <p className="mt-2 text-sm text-slate-400">Items outside this selection stay unchanged. Undo restores this operation.</p>
+        {groupCount > 0 && <label className="mt-4 flex min-h-11 items-center gap-3 text-sm text-slate-200">
+          <input type="checkbox" checked={muteGroups} onChange={event => setMuteGroups(event.target.checked)} className="h-5 w-5 shrink-0 accent-indigo-500" />
+          <span>{groupCount === 1 ? "Don't ask again for this source group" : `Don't ask again for these ${groupCount} source groups`}</span>
+        </label>}
         <div className="mt-5 flex flex-col gap-2">
           <button autoFocus onClick={onCancel} className="min-h-11 rounded-xl border border-slate-600 px-4 text-sm text-slate-200">Cancel</button>
-          <button disabled={!canDeleteSources || !sourceCount} onClick={onConfirm} className="min-h-11 rounded-xl bg-rose-600 px-4 text-sm font-semibold text-white disabled:opacity-40">Delete Source and Frames</button>
+          <button disabled={!canDeleteSources || !sourceCount} onClick={() => onConfirm(muteGroups)} className="min-h-11 rounded-xl bg-rose-600 px-4 text-sm font-semibold text-white disabled:opacity-40">Delete Source and Frames</button>
         </div>
       </section>
     </div>

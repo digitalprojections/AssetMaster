@@ -40,3 +40,5 @@ import './animationFrameDeletion.test';
 import './animationBatchDeletion.test';
 
 import './sourceGroups.test';
+
+import './deletionConfirmations.test';

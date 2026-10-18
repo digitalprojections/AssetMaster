@@ -3,13 +3,14 @@ import type { SavedSegment } from '../types';
 import { SOURCE_CATEGORIES, type SourceGroup } from '../utils/sourceGroups';
 
 type Props = {
+  mutedGroupIds: ReadonlySet<string>; onEnableConfirmations: (id: string) => void;
   groups: SourceGroup[]; disabled: boolean; selectedSourceId: string;
   onDelete: (label: string, sourceIds: string[]) => void;
   onSelect: (source: SavedSegment) => void;
   getStatus: (source: SavedSegment) => string | null;
 };
 
-export default function SourceGroupManager({ groups, disabled, selectedSourceId, onDelete, onSelect, getStatus }: Props) {
+export default function SourceGroupManager({ groups, mutedGroupIds, onEnableConfirmations, disabled, selectedSourceId, onDelete, onSelect, getStatus }: Props) {
   const [query, setQuery] = useState('');
   const search = query.trim().toLowerCase();
   const visible = groups.filter(group => group.name.toLowerCase().includes(search) || group.sources.some(source => source.name.toLowerCase().includes(search)));
@@ -27,6 +28,10 @@ export default function SourceGroupManager({ groups, disabled, selectedSourceId,
               <div className="min-w-0 flex-1"><p className="break-words text-xs font-semibold text-slate-100">{group.name}</p><p className="mt-1 text-[10px] text-slate-400">{group.sources.length} {group.sources.length === 1 ? 'cutout' : 'cutouts'} · {group.frameCount} timeline {group.frameCount === 1 ? 'frame' : 'frames'}</p></div>
             </div>
             <button disabled={disabled} onClick={() => onDelete(`source “${group.name}”`, group.sources.map(source => source.id))} aria-label={`Delete source group ${group.name}`} className="mt-2 w-full min-h-11 rounded-lg border border-rose-800 px-3 text-xs font-semibold text-rose-300 disabled:opacity-40">Delete Source</button>
+            {mutedGroupIds.has(group.id) && <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+              <span className="text-[10px] text-amber-300">Deletion confirmations off</span>
+              <button onClick={() => onEnableConfirmations(group.id)} aria-label={`Enable confirmations for ${group.name}`} className="min-h-11 rounded-lg border border-slate-700 px-2 text-[11px] text-slate-200">Enable Confirmations</button>
+            </div>}
             <details className="mt-2">
               <summary className="min-h-11 cursor-pointer py-3 text-xs text-slate-300">View Cutouts ({group.sources.length})</summary>
               <ul className="space-y-1">
