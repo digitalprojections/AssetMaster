@@ -32,3 +32,5 @@ import './segmentFilters.test';
 import './segmentCleanup.test';
 
 import './cleanupPan.test';
+
+import './animationFrameExport.test';

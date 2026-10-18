@@ -1,3 +1,4 @@
+import { frameExportFilename, renderSingleAnimationFrame } from '../utils/animationFrameExport';
 import React, { useState, useEffect, useRef } from 'react';
 import { SavedSegment, AnimationFrame, AnimationProject, AnimationStudioProjectFile, Point } from '../types';
 import {
@@ -1938,6 +1939,40 @@ export default function AnimationStudio({
     }
   };
 
+  const [frameExportStatus, setFrameExportStatus] = useState('');
+
+  const exportCurrentFrame = async () => {
+    const frame = project.frames[activeFrameIndex];
+    if (!frame || isExporting) return;
+    const filename = frameExportFilename(project.name, activeFrameIndex);
+    setIsExporting(true);
+    setFrameExportStatus('Preparing current frame...');
+    try {
+      const image = await loadEffectiveFrameImage(frame);
+      const canvas = document.createElement('canvas');
+      canvas.width = project.width;
+      canvas.height = project.height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Could not create image canvas');
+      renderSingleAnimationFrame(ctx, image, frame, canvas.width, canvas.height, getFramePivot(frame, image.width, image.height));
+      const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob(
+        result => result ? resolve(result) : reject(new Error('Could not encode PNG')), 'image/png',
+      ));
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      try { link.click(); } finally { link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000); }
+      setFrameExportStatus(`PNG download started: ${filename}`);
+    } catch (error) {
+      console.error('Failed to export current frame', error);
+      setFrameExportStatus('Could not save this frame. Please try again.');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   // Download centered frames as ZIP package
   const exportCenteredPngZip = async () => {
     if (project.frames.length === 0) return;
@@ -3461,12 +3496,21 @@ export default function AnimationStudio({
 
                 <div className="grid grid-cols-1 gap-2">
                   <button
+                    onClick={() => void exportCurrentFrame()}
+                    disabled={!hasActiveFrame || isExporting}
+                    className="w-full min-h-11 py-3 px-4 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2"
+                  >
+                    <Save className="h-4 w-4" />
+                    <span>Save Current Frame PNG</span>
+                  </button>
+                  {frameExportStatus && <p role="status" className="text-xs text-slate-300">{frameExportStatus}</p>}
+                  <button
                     onClick={exportCenteredPngZip}
                     disabled={isExporting}
                     className="w-full py-3 px-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-2 shadow-lg shadow-emerald-600/10 active:scale-[0.98] transition-all cursor-pointer"
                   >
                     <Archive className="h-4.5 w-4.5" />
-                    <span>{isExporting ? 'Packaging ZIP...' : 'Export Centered PNGs ZIP'}</span>
+                    <span>{isExporting ? 'Exporting...' : 'Export Centered PNGs ZIP'}</span>
                   </button>
                   <button
                     onClick={exportSpriteSheet}
@@ -3860,7 +3904,7 @@ export default function AnimationStudio({
                   className="w-full py-3 px-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-2 shadow-lg shadow-emerald-600/10 active:scale-[0.98] transition-all cursor-pointer"
                 >
                   <Archive className="h-4.5 w-4.5" />
-                  <span>{isExporting ? 'Packaging ZIP...' : 'Export Centered PNGs ZIP'}</span>
+                  <span>{isExporting ? 'Exporting...' : 'Export Centered PNGs ZIP'}</span>
                 </button>
 
                 <button

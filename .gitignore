@@ -17,3 +17,7 @@ playwright-report/
 
 # Local UI verification artifacts
 .browser-test/
+
+# Local Python automation caches
+__pycache__/
+*.py[cod]
