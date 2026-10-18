@@ -1,6 +1,6 @@
-import { planFrameDeletion, clearReaddedSourceMarkers } from '../utils/animationFrameDeletion';
+import { planFrameDeletion, clearReaddedSourceMarkers, getSourceTimelineLabel } from '../utils/animationFrameDeletion';
 import { frameExportFilename, renderSingleAnimationFrame } from '../utils/animationFrameExport';
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { SavedSegment, AnimationFrame, AnimationProject, AnimationStudioProjectFile, Point } from '../types';
 import {
   Play,
@@ -823,6 +823,8 @@ export default function AnimationStudio({
     }
   }, [project.frames.length, activeFrameIndex]);
 
+  const timelineSourceIds = useMemo(() => new Set(project.frames.map(frame => frame.sourceSegmentId).filter((id): id is string => Boolean(id))), [project.frames]);
+  const sourceTimelineLabel = (source: SavedSegment) => getSourceTimelineLabel(source, timelineSourceIds, isProjectHydrated);
   const activeSegment = savedSegments.find((s) => s.id === selectedSegmentId);
   const hasActiveFrame = project.frames.length > 0 && Boolean(project.frames[activeFrameIndex]);
   const activeFrame = hasActiveFrame ? project.frames[activeFrameIndex] : null;
@@ -3019,6 +3021,8 @@ export default function AnimationStudio({
                   {/* Custom Dropdown Trigger Button */}
                   <button
                     type="button"
+                    aria-label="Choose source cutout"
+                    aria-expanded={isDropdownOpen}
                     onClick={() => setIsDropdownOpen(!isDropdownOpen)}
                     className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-slate-200 flex items-center justify-between outline-none cursor-pointer hover:border-slate-700 hover:bg-slate-900/80 transition-all text-left"
                   >
@@ -3032,7 +3036,10 @@ export default function AnimationStudio({
                             referrerPolicy="no-referrer"
                           />
                         </div>
-                        <span className="truncate font-medium">{activeSegment.name}{activeSegment.removedFromTimeline ? ' · Removed from Timeline' : ''}</span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate font-medium">{activeSegment.name}</span>
+                          {sourceTimelineLabel(activeSegment) && <span className="mt-0.5 block text-[10px] font-semibold text-amber-300">{sourceTimelineLabel(activeSegment)}</span>}
+                        </span>
                         <span className="text-[10px] text-slate-500 font-mono shrink-0">({activeSegment.bounds.width}×{activeSegment.bounds.height})</span>
                         <span
                           className={`hidden sm:inline text-[9px] px-1.5 py-0.5 rounded-full border shrink-0 ${
@@ -3084,6 +3091,7 @@ export default function AnimationStudio({
                               </div>
                               <div className="flex-1 min-w-0">
                                 <p className="text-xs font-semibold truncate text-slate-200">{seg.name}</p>
+                                {sourceTimelineLabel(seg) && <p className="mt-1 text-[10px] font-semibold text-amber-300">{sourceTimelineLabel(seg)}</p>}
                                 <div className="flex items-center gap-2 mt-0.5">
                                   <p className="text-[10px] text-slate-500 font-mono">{seg.bounds.width} × {seg.bounds.height} px</p>
                                   <span
@@ -3094,7 +3102,6 @@ export default function AnimationStudio({
                                     }`}
                                   >
                                     {getSegmentCleanupStatusLabel(seg)}
-                                    {seg.removedFromTimeline && <span className="block text-amber-300">Removed from Timeline</span>}
                                   </span>
                                 </div>
                                 {seg.tags && seg.tags.length > 0 && (
@@ -3140,7 +3147,7 @@ export default function AnimationStudio({
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-bold truncate text-slate-200">{activeSegment.name}</p>
-                        {activeSegment.removedFromTimeline && <p className="mt-1 text-xs font-semibold text-amber-300">Removed from Timeline</p>}
+                        {sourceTimelineLabel(activeSegment) && <p className="mt-1 text-xs font-semibold text-amber-300">{sourceTimelineLabel(activeSegment)}</p>}
                         <p className="text-[10px] text-slate-500 font-mono mt-0.5">{activeSegment.bounds.width} × {activeSegment.bounds.height} px</p>
                         <p className="text-[10px] text-indigo-400 font-medium mt-1">
                           {isAutoDetectingGrid ? 'Analyzing transparent objects...' : autoDetectedGridLabel || 'Ready for animation'}

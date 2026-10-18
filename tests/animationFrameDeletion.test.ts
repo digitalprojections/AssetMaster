@@ -2,7 +2,7 @@ import { createAnimationProjectHistory, pushAnimationProjectHistory, undoAnimati
 import type { AnimationProject } from '../src/types';
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { planFrameDeletion, reconcileDeletedSources, clearReaddedSourceMarkers, markTimelineRemovedSources } from '../src/utils/animationFrameDeletion';
+import { planFrameDeletion, reconcileDeletedSources, clearReaddedSourceMarkers, markTimelineRemovedSources, getSourceTimelineLabel } from '../src/utils/animationFrameDeletion';
 import type { AnimationFrame, SavedSegment } from '../src/types';
 const frame = (id: string, sourceSegmentId?: string) => ({ id, sourceSegmentId, thumbnailUrl: id, offsetX: 0, offsetY: 0, scale: 1, duration: 1 } as AnimationFrame);
 const source = (id: string) => ({ id, name: `${id}.png` } as SavedSegment);
@@ -82,4 +82,14 @@ test('readding a source clears its marker while unrelated edits retain it', () =
   const before = [frame('a', 's1')];
   assert.deepEqual(clearReaddedSourceMarkers(before, before, ['s2']), ['s2']);
   assert.deepEqual(clearReaddedSourceMarkers(before, [...before, frame('b', 's2')], ['s2', 's3']), ['s3']);
+});
+
+test('dropdown status derives missing legacy sources from current membership', () => {
+  const active = new Set(['a']);
+  assert.equal(getSourceTimelineLabel(source('b'), active, true), 'Not in Timeline');
+  assert.equal(getSourceTimelineLabel(source('a'), active, true), null);
+  assert.equal(getSourceTimelineLabel({ ...source('b'), removedFromTimeline: true }, active, true), 'Removed from Timeline');
+  assert.equal(getSourceTimelineLabel({ ...source('a'), removedFromTimeline: true }, active, true), 'Some Frames Removed');
+  assert.equal(getSourceTimelineLabel(source('b'), active, false), 'Checking Timeline...');
+  assert.equal(getSourceTimelineLabel(source('a'), new Set(), true), 'Not in Timeline');
 });

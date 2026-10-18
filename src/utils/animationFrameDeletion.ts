@@ -52,3 +52,9 @@ export function markTimelineRemovedSources(sources: SavedSegment[], removedIds: 
   });
   return changed ? result : sources;
 }
+
+export function getSourceTimelineLabel(source: SavedSegment, timelineSourceIds: ReadonlySet<string>, hydrated: boolean): string | null {
+  if (!hydrated) return 'Checking Timeline...';
+  if (source.removedFromTimeline) return timelineSourceIds.has(source.id) ? 'Some Frames Removed' : 'Removed from Timeline';
+  return timelineSourceIds.has(source.id) ? null : 'Not in Timeline';
+}
