@@ -17,6 +17,8 @@ assert.match(collageStudio, /title="Delete Layer"/u);
 assert.match(collageStudio, /removeCustomFont/u);
 assert.match(collageStudio, /title="Delete Font"/u);
 assert.match(app, /onDeleteSavedSegment=\{handleDeleteSegment\}/u);
-assert.match(app, /setPreviewSegment\(\(current\) => \(current\?\.id === id \? null : current\)\)/u);
 
 console.log('list deletion control tests passed');
+assert.match(app, /onDeleteSourceGroup=\{requestSourceDeletion\}/u);
+assert.match(animationStudio, /planSourceDeletion\(project.frames, savedSegments, pendingBulkDelete.sourceIds\)/u);
+assert.doesNotMatch(readFileSync('src/components/BulkFrameDeletionDialog.tsx', 'utf8'), /Remove from Timeline Only/u);

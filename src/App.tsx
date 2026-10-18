@@ -1535,9 +1535,19 @@ export default function App() {
     setPreviewSegment(current => current && next.some(source => source.id === current.id) ? null : current);
   };
 
+  const requestSourceDeletion = (label: string, sourceIds: string[]) => {
+    if (!sourceIds.length) return;
+    setSourceDeletionOnOpen({ label, sourceIds });
+    setAnimationInitialTab('source');
+    changePageWithInterstitial(() => {
+      setShowCollageStudio(false);
+      setShowAnimationStudio(true);
+    });
+  };
+
   const handleDeleteSegment = (id: string) => {
-    updateSavedSegments(savedSegments.filter((s) => s.id !== id));
-    setPreviewSegment((current) => (current?.id === id ? null : current));
+    const source = savedSegments.find(segment => segment.id === id);
+    if (source) requestSourceDeletion(`source “${source.name}”`, [id]);
   };
 
   const handleRenameSegment = (id: string, newName: string) => {
@@ -1633,10 +1643,7 @@ export default function App() {
   };
 
   const handleClearAllSegments = () => {
-    if (window.confirm('Are you sure you want to delete all saved selections?')) {
-      updateSavedSegments([]);
-      updateCutoutIndex(1);
-    }
+    requestSourceDeletion('all saved sources', savedSegments.map(source => source.id));
   };
 
   // Load selection path again back to active selection
@@ -2635,7 +2642,7 @@ export default function App() {
               onExportLibrary={handleExportLibrary}
               onImportLibrary={handleImportLibraryRequest}
               onRestoreBackup={handleRestoreLibraryBackup}
-              onDeleteSourceGroup={(label, sourceIds) => { setSourceDeletionOnOpen({ label, sourceIds }); setAnimationInitialTab('source'); changePageWithInterstitial(() => setShowAnimationStudio(true)); }}
+              onDeleteSourceGroup={requestSourceDeletion}
               onManageFrameSets={() => { setSourceDeletionOnOpen(null); setAnimationInitialTab('source'); changePageWithInterstitial(() => setShowAnimationStudio(true)); }}
             />
           </div>

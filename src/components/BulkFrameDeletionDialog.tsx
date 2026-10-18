@@ -2,7 +2,7 @@ import React from 'react';
 
 type Props = {
   label: string; frameCount: number; sourceCount: number; sharedSourceCount: number;
-  canDeleteSources: boolean; onCancel: () => void; onConfirm: (deleteSources: boolean) => void;
+  canDeleteSources: boolean; onCancel: () => void; onConfirm: () => void;
 };
 
 export default function BulkFrameDeletionDialog({ label, frameCount, sourceCount, sharedSourceCount, canDeleteSources, onCancel, onConfirm }: Props) {
@@ -19,14 +19,13 @@ export default function BulkFrameDeletionDialog({ label, frameCount, sourceCount
             else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
           }
         }}>
-        <h2 id="bulk-delete-title" className="text-lg font-semibold text-white">Remove {label}?</h2>
-        <p id="bulk-delete-summary" className="mt-2 text-sm text-slate-300">{frameCount} timeline {frameCount === 1 ? 'frame' : 'frames'} selected. Deleting both will also remove {sourceCount} saved {sourceCount === 1 ? 'cutout' : 'cutouts'}.</p>
+        <h2 id="bulk-delete-title" className="text-lg font-semibold text-white">Delete {label}?</h2>
+        <p id="bulk-delete-summary" className="mt-2 text-sm text-slate-300">This will delete {sourceCount} saved {sourceCount === 1 ? 'cutout' : 'cutouts'} and all {frameCount} linked timeline {frameCount === 1 ? 'frame' : 'frames'}.</p>
         {sharedSourceCount > 0 && <p className="mt-2 text-sm text-amber-200">{sharedSourceCount} shared {sharedSourceCount === 1 ? 'source stays' : 'sources stay'} because other timeline frames still use them.</p>}
         <p className="mt-2 text-sm text-slate-400">Items outside this selection stay unchanged. Undo restores this operation.</p>
         <div className="mt-5 flex flex-col gap-2">
           <button autoFocus onClick={onCancel} className="min-h-11 rounded-xl border border-slate-600 px-4 text-sm text-slate-200">Cancel</button>
-          <button disabled={!frameCount} onClick={() => onConfirm(false)} className="min-h-11 rounded-xl bg-slate-700 px-4 text-sm text-white disabled:opacity-40">Remove from Timeline Only</button>
-          <button disabled={!canDeleteSources || !sourceCount} onClick={() => onConfirm(true)} className="min-h-11 rounded-xl bg-rose-600 px-4 text-sm font-semibold text-white disabled:opacity-40">Delete Frames and Sources</button>
+          <button disabled={!canDeleteSources || !sourceCount} onClick={onConfirm} className="min-h-11 rounded-xl bg-rose-600 px-4 text-sm font-semibold text-white disabled:opacity-40">Delete Source and Frames</button>
         </div>
       </section>
     </div>

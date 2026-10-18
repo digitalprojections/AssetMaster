@@ -42,3 +42,8 @@ export function planBatchFrameDeletion(
     sharedSourceCount: [...candidates].filter(id => sourceMap.has(id) && remainingSourceIds.has(id)).length,
   };
 }
+
+// Source ownership is authoritative: deleting a source removes every frame using it.
+export function planSourceDeletion(frames: readonly AnimationFrame[], sources: readonly SavedSegment[], sourceIds: readonly string[]) {
+  return planBatchFrameDeletion(frames, sources, [], sourceIds, true);
+}

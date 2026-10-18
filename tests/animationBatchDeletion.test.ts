@@ -3,7 +3,7 @@ import { reconcileDeletedSources } from '../src/utils/animationFrameDeletion';
 import type { AnimationProject } from '../src/types';
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildAnimationFrameSets, planBatchFrameDeletion } from '../src/utils/animationBatchDeletion';
+import { buildAnimationFrameSets, planBatchFrameDeletion, planSourceDeletion } from '../src/utils/animationBatchDeletion';
 import type { AnimationFrame, SavedSegment } from '../src/types';
 const frame = (id: string, sourceSegmentId?: string) => ({ id, sourceSegmentId } as AnimationFrame);
 const source = (id: string, collectionId?: string, collectionName = 'Video') => ({ id, collectionId, collectionName, name: id } as SavedSegment);
@@ -66,4 +66,13 @@ test('separate imports with the same name remain separate sets', () => {
   const sets = buildAnimationFrameSets([source('a', 'first'), source('b', 'second')], []);
   assert.equal(sets.length, 2);
   assert.deepEqual(sets.map(set => set.id), ['first', 'second']);
+});
+
+test('source deletion always removes every linked frame, including duplicates, without affecting other sources', () => {
+  const sources = [source('a'), source('b')];
+  const frames = [frame('1', 'a'), frame('2', 'b'), frame('3', 'a'), frame('4', 'a')];
+  const result = planSourceDeletion(frames, sources, ['a']);
+  assert.deepEqual(result.frames.map(f => f.id), ['2']);
+  assert.deepEqual(result.deletedSources.map(s => s.id), ['a']);
+  assert.deepEqual(result.markedSourceIds, []);
 });

@@ -1,6 +1,6 @@
 import { buildSourceGroups } from '../utils/sourceGroups';
 import SourceGroupManager from './SourceGroupManager';
-import { planBatchFrameDeletion } from '../utils/animationBatchDeletion';
+import { planSourceDeletion } from '../utils/animationBatchDeletion';
 import BulkFrameDeletionDialog from './BulkFrameDeletionDialog';
 import { planFrameDeletion, clearReaddedSourceMarkers, getSourceTimelineLabel } from '../utils/animationFrameDeletion';
 import { frameExportFilename, renderSingleAnimationFrame } from '../utils/animationFrameExport';
@@ -1425,17 +1425,7 @@ export default function AnimationStudio({
   };
 
   const deleteSourceSegment = (segment: SavedSegment) => {
-    if (!onDeleteSavedSegment) return;
-
-    onDeleteSavedSegment(segment.id);
-    delete segmentImageCacheRef.current[segment.id];
-    setCleanupQueue((prev) => prev.filter((queuedId) => queuedId !== segment.id));
-
-    if (selectedSegmentId === segment.id) {
-      const nextSegment = filteredSegments.find((candidate) => candidate.id !== segment.id)
-        ?? savedSegments.find((candidate) => candidate.id !== segment.id);
-      setSelectedSegmentId(nextSegment?.id ?? '');
-    }
+    requestBulkDelete(`source “${segment.name}”`, [], [segment.id]);
   };
 
   // Nudge selected frame position offsets or source slicing rectangle
@@ -1596,7 +1586,7 @@ export default function AnimationStudio({
 
   const sourceGroups = useMemo(() => buildSourceGroups(savedSegments, project.frames), [savedSegments, project.frames]);
   const matchingSourceIds = useMemo(() => new Set(filteredSegments.map(source => source.id)), [filteredSegments]);
-  const batchDeletion = pendingBulkDelete ? planBatchFrameDeletion(project.frames, savedSegments, pendingBulkDelete.frameIds, pendingBulkDelete.sourceIds, true) : null;
+  const batchDeletion = pendingBulkDelete ? planSourceDeletion(project.frames, savedSegments, pendingBulkDelete.sourceIds) : null;
   const requestBulkDelete = (label: string, frameIds: string[], sourceIds: string[]) => {
     if ((!frameIds.length && !sourceIds.length) || isExtractingVideoFrames || isImportingImages || !isProjectHydrated) return;
     setIsPlaying(false);
@@ -1604,9 +1594,9 @@ export default function AnimationStudio({
     setPendingBulkDelete({ label, frameIds, sourceIds });
     setDeletionMessage('');
   };
-  const confirmBulkDeletion = (deleteSources: boolean) => {
-    if (!pendingBulkDelete || (deleteSources && !onSyncDeletedSources)) return;
-    const result = planBatchFrameDeletion(project.frames, savedSegments, pendingBulkDelete.frameIds, pendingBulkDelete.sourceIds, deleteSources);
+  const confirmBulkDeletion = () => {
+    if (!pendingBulkDelete || !onSyncDeletedSources) return;
+    const result = planSourceDeletion(project.frames, savedSegments, pendingBulkDelete.sourceIds);
     if (!result.removedFrameIds.length && !result.deletedSources.length) { setPendingBulkDelete(null); return; }
     const removedSources = new Set(result.deletedSources.map(source => source.id));
     const activeId = project.frames[activeFrameIndex]?.id;
@@ -1627,7 +1617,7 @@ export default function AnimationStudio({
       }
     }
     setPendingBulkDelete(null);
-    setDeletionMessage(`Removed ${result.removedFrameIds.length} timeline frames and ${result.deletedSources.length} saved cutouts. Undo restores this operation.`);
+    setDeletionMessage(`Removed ${result.removedFrameIds.length} timeline ${result.removedFrameIds.length === 1 ? 'frame' : 'frames'} and ${result.deletedSources.length} saved ${result.deletedSources.length === 1 ? 'cutout' : 'cutouts'}. Undo restores this operation.`);
   };
   const initialSourceDeletionHandled = useRef(false);
   useEffect(() => {
