@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { renderSingleAnimationFrame, frameExportFilename } from '../src/utils/animationFrameExport';
@@ -14,4 +15,9 @@ test('frame filenames are safe, numbered and have a fallback project name', () =
   assert.equal(frameExportFilename('Walk', 2), 'Walk_frame_003.png');
   assert.equal(frameExportFilename('a/b:c', 0), 'a_b_c_frame_001.png');
   assert.equal(frameExportFilename('  ', 0), 'assetmaster_frame_001.png');
+});
+
+test('both studio layouts expose current-frame saving', () => {
+  const source = readFileSync('src/components/AnimationStudio.tsx', 'utf8');
+  assert.equal(source.split('<span>Save Current Frame PNG</span>').length - 1, 2);
 });

@@ -3899,6 +3899,16 @@ export default function AnimationStudio({
                 </div>
 
                 <button
+                  onClick={() => void exportCurrentFrame()}
+                  disabled={!hasActiveFrame || isExporting}
+                  className="w-full min-h-11 py-3 px-4 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2"
+                >
+                  <Save className="h-4 w-4" />
+                  <span>Save Current Frame PNG</span>
+                </button>
+                {frameExportStatus && <p role="status" className="text-xs text-slate-300">{frameExportStatus}</p>}
+
+                <button
                   onClick={exportCenteredPngZip}
                   disabled={isExporting}
                   className="w-full py-3 px-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-2 shadow-lg shadow-emerald-600/10 active:scale-[0.98] transition-all cursor-pointer"
