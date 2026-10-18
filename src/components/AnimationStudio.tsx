@@ -1,3 +1,5 @@
+import { buildAnimationFrameSets, planBatchFrameDeletion } from '../utils/animationBatchDeletion';
+import BulkFrameDeletionDialog from './BulkFrameDeletionDialog';
 import { planFrameDeletion, clearReaddedSourceMarkers, getSourceTimelineLabel } from '../utils/animationFrameDeletion';
 import { frameExportFilename, renderSingleAnimationFrame } from '../utils/animationFrameExport';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
@@ -143,6 +145,7 @@ interface AnimationStudioProps {
   onTimelineSourceStatusChange?: (removedIds: string[]) => void;
   onSyncDeletedSources?: (previous: SavedSegment[], next: SavedSegment[]) => void;
   onRegisterAgentControls?: (controls: AnimationStudioAgentControls | null) => void;
+  initialStudioTab?: 'player' | 'source';
   useCompactControls?: boolean;
   onClose: () => void;
 }
@@ -156,6 +159,7 @@ export default function AnimationStudio({
   onSyncDeletedSources,
   onTimelineSourceStatusChange,
   onRegisterAgentControls,
+  initialStudioTab = 'player',
   useCompactControls = true,
   onClose,
 }: AnimationStudioProps) {
@@ -172,13 +176,16 @@ export default function AnimationStudio({
 
   const [activeFrameIndex, setActiveFrameIndex] = useState<number>(0);
   const [deletedSources, setDeletedSources] = useState<SavedSegment[]>([]);
+  const [selectedFrameIds, setSelectedFrameIds] = useState<Set<string>>(() => new Set());
+  const [selectedSourceIds, setSelectedSourceIds] = useState<Set<string>>(() => new Set());
+  const [pendingBulkDelete, setPendingBulkDelete] = useState<{ label: string; frameIds: string[]; sourceIds: string[] } | null>(null);
   const [pendingDeleteFrameId, setPendingDeleteFrameId] = useState<string | null>(null);
   const [deletionMessage, setDeletionMessage] = useState('');
   const [projectHistory, setProjectHistory] = useState(createAnimationProjectHistory);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [selectedSegmentId, setSelectedSegmentId] = useState<string>('');
   const [showBgRemover, setShowBgRemover] = useState<boolean>(false);
-  const [activeStudioTab, setActiveStudioTab] = useState<'player' | 'source' | 'nudge'>('player');
+  const [activeStudioTab, setActiveStudioTab] = useState<'player' | 'source' | 'nudge'>(initialStudioTab);
   const [isDropdownOpen, setIsDropdownOpen] = useState<boolean>(false);
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all');
   const [sourceSearch, setSourceSearch] = useState<string>('');
@@ -319,6 +326,9 @@ export default function AnimationStudio({
     onSyncDeletedSources?.(deletedSources, nextDeletedSources);
     setDeletedSources(nextDeletedSources);
     setPendingDeleteFrameId(null);
+    setPendingBulkDelete(null);
+    setSelectedFrameIds(new Set());
+    setSelectedSourceIds(new Set());
     setDeletionMessage('');
     const restoredProject = normalizeProject(snapshot.project);
     onTimelineSourceStatusChange?.(restoredProject.timelineRemovedSourceIds ?? []);
@@ -1596,6 +1606,48 @@ export default function AnimationStudio({
     </div>
   ) : null;
 
+  const frameSets = useMemo(() => buildAnimationFrameSets(savedSegments, project.frames), [savedSegments, project.frames]);
+  const selectedFrames = project.frames.filter(frame => selectedFrameIds.has(frame.id));
+  const selectedSources = savedSegments.filter(source => selectedSourceIds.has(source.id));
+  const batchDeletion = pendingBulkDelete ? planBatchFrameDeletion(project.frames, savedSegments, pendingBulkDelete.frameIds, pendingBulkDelete.sourceIds, true) : null;
+  const requestBulkDelete = (label: string, frameIds: string[], sourceIds: string[]) => {
+    if ((!frameIds.length && !sourceIds.length) || isExtractingVideoFrames || isImportingImages || !isProjectHydrated) return;
+    setIsPlaying(false);
+    setPendingDeleteFrameId(null);
+    setPendingBulkDelete({ label, frameIds, sourceIds });
+    setDeletionMessage('');
+  };
+  const confirmBulkDeletion = (deleteSources: boolean) => {
+    if (!pendingBulkDelete || (deleteSources && !onSyncDeletedSources)) return;
+    const result = planBatchFrameDeletion(project.frames, savedSegments, pendingBulkDelete.frameIds, pendingBulkDelete.sourceIds, deleteSources);
+    if (!result.removedFrameIds.length && !result.deletedSources.length) { setPendingBulkDelete(null); return; }
+    const removedSources = new Set(result.deletedSources.map(source => source.id));
+    const activeId = project.frames[activeFrameIndex]?.id;
+    const remainingIndex = result.frames.findIndex(frame => frame.id === activeId);
+    applyProjectEdit(prev => ({
+      ...prev, frames: result.frames,
+      timelineRemovedSourceIds: [...new Set([...(prev.timelineRemovedSourceIds ?? []), ...result.markedSourceIds])].filter(id => !removedSources.has(id)),
+    }), remainingIndex >= 0 ? remainingIndex : Math.min(activeFrameIndex, Math.max(0, result.frames.length - 1)));
+    if (result.deletedSources.length) {
+      const nextDeleted = [...deletedSources.filter(source => !removedSources.has(source.id)), ...result.deletedSources];
+      onSyncDeletedSources?.(deletedSources, nextDeleted);
+      setDeletedSources(nextDeleted);
+      for (const id of removedSources) delete segmentImageCacheRef.current[id];
+      setCleanupQueue(queue => queue.filter(id => !removedSources.has(id)));
+      if (removedSources.has(selectedSegmentId)) {
+        setSelectedSegmentId(savedSegments.find(source => !removedSources.has(source.id))?.id ?? '');
+        setShowBgRemover(false);
+      }
+    }
+    setPendingBulkDelete(null);
+    setSelectedFrameIds(new Set());
+    setSelectedSourceIds(new Set());
+    setDeletionMessage(`Removed ${result.removedFrameIds.length} timeline frames and ${result.deletedSources.length} saved cutouts. Undo restores this operation.`);
+  };
+  const toggleBatchSelection = (setter: React.Dispatch<React.SetStateAction<Set<string>>>, id: string) => setter(current => {
+    const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next;
+  });
+
   const pendingDeletion = pendingDeleteFrameId
     ? planFrameDeletion(project.frames, savedSegments, pendingDeleteFrameId, true)
     : null;
@@ -2531,7 +2583,7 @@ export default function AnimationStudio({
 
   useEffect(() => {
     const handleStudioKeyDown = (event: KeyboardEvent) => {
-      if (showBgRemover || pendingDeleteFrameId) {
+      if (showBgRemover || pendingDeleteFrameId || pendingBulkDelete) {
         return;
       }
 
@@ -2591,7 +2643,8 @@ export default function AnimationStudio({
 
       if (hasActiveFrame && (event.key === 'Delete' || event.key === 'Backspace')) {
         event.preventDefault();
-        removeFrameAt(activeFrameIndex);
+        if (selectedFrames.length) requestBulkDelete('selected frames', selectedFrames.map(frame => frame.id), []);
+        else removeFrameAt(activeFrameIndex);
         return;
       }
 
@@ -2628,7 +2681,7 @@ export default function AnimationStudio({
 
     window.addEventListener('keydown', handleStudioKeyDown);
     return () => window.removeEventListener('keydown', handleStudioKeyDown);
-  }, [activeFrameIndex, activeSegment, hasActiveFrame, project, showBgRemover, pendingDeleteFrameId, deletedSources, savedSegments]);
+  }, [activeFrameIndex, activeSegment, hasActiveFrame, project, showBgRemover, pendingDeleteFrameId, pendingBulkDelete, selectedFrameIds, deletedSources, savedSegments]);
 
   return (
     <div
@@ -2656,6 +2709,11 @@ export default function AnimationStudio({
         onChange={handleVideoImportFile}
       />
 
+      {pendingBulkDelete && batchDeletion && <BulkFrameDeletionDialog
+        label={pendingBulkDelete.label} frameCount={batchDeletion.removedFrameIds.length}
+        sourceCount={batchDeletion.deletedSources.length} sharedSourceCount={batchDeletion.sharedSourceCount}
+        canDeleteSources={Boolean(onSyncDeletedSources)} onCancel={() => setPendingBulkDelete(null)} onConfirm={confirmBulkDeletion}
+      />}
       {pendingDeletion && pendingFrameIndex >= 0 && (
         <div className="fixed inset-0 z-[100] bg-slate-950/80 flex items-center justify-center p-4">
           <section role="dialog" aria-modal="true" aria-labelledby="delete-frame-title" aria-describedby="delete-frame-description" className="w-full max-w-md max-h-[90dvh] overflow-y-auto rounded-2xl border border-slate-700 bg-slate-900 p-5 shadow-xl" onKeyDown={event => {
@@ -3017,6 +3075,21 @@ export default function AnimationStudio({
                   </div>
                 </div>
 
+                {frameSets.length > 0 && <section aria-label="Imported frame sets" className="space-y-2 rounded-xl border border-slate-700 bg-slate-900/60 p-3">
+                  <h3 className="text-xs font-semibold text-slate-200">Imported Frame Sets</h3>
+                  <div className="max-h-44 overflow-y-auto space-y-2">
+                    {frameSets.map(set => <div key={set.id} className="flex items-center gap-2 border-t border-slate-800 pt-2">
+                      <div className="min-w-0 flex-1"><p className="break-words text-xs font-medium text-slate-200">{set.name}</p><p className="text-[10px] text-slate-400">{set.frameCount} timeline frames · {set.sourceIds.length} cutouts</p></div>
+                      <button disabled={isExtractingVideoFrames || isImportingImages || !isProjectHydrated} onClick={() => requestBulkDelete(`frame set “${set.name}”`, [], set.sourceIds)} aria-label={`Remove frame set ${set.name}`} className="min-h-11 shrink-0 rounded-lg border border-rose-800 px-3 text-xs font-semibold text-rose-300 disabled:opacity-40">Remove Set</button>
+                    </div>)}
+                  </div>
+                </section>}
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <span className="text-slate-400">{selectedSources.length} cutouts selected</span>
+                  <button disabled={!filteredSegments.length} onClick={() => setSelectedSourceIds(new Set(filteredSegments.map(source => source.id)))} className="min-h-11 rounded-lg border border-slate-700 px-2 text-slate-200 disabled:opacity-40">Select Visible Cutouts</button>
+                  <button disabled={!selectedSources.length} onClick={() => setSelectedSourceIds(new Set())} className="min-h-11 rounded-lg border border-slate-700 px-2 text-slate-200 disabled:opacity-40">Clear Cutout Selection</button>
+                  <button disabled={!selectedSources.length} onClick={() => requestBulkDelete('selected cutouts', [], selectedSources.map(source => source.id))} className="min-h-11 rounded-lg border border-rose-800 px-2 text-rose-300 disabled:opacity-40">Delete Selected Cutouts</button>
+                </div>
                 <div className="space-y-2 relative" ref={dropdownRef}>
                   {/* Custom Dropdown Trigger Button */}
                   <button
@@ -3073,6 +3146,9 @@ export default function AnimationStudio({
                               isSelected ? 'bg-indigo-950/40 text-indigo-400' : 'text-slate-300'
                             }`}
                           >
+                            <label className="min-h-11 min-w-8 flex items-center justify-center">
+                              <input type="checkbox" aria-label={`Select cutout ${seg.name}`} checked={selectedSourceIds.has(seg.id)} onChange={() => toggleBatchSelection(setSelectedSourceIds, seg.id)} className="h-5 w-5 accent-indigo-500" />
+                            </label>
                             <button
                               type="button"
                               onClick={() => {
@@ -3772,6 +3848,12 @@ export default function AnimationStudio({
                 <span className="font-mono text-indigo-400 font-bold">{project.frames.length} total frames</span>
               </div>
               
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="text-slate-400">{selectedFrames.length} selected</span>
+                <button onClick={() => setSelectedFrameIds(new Set(project.frames.map(frame => frame.id)))} className="min-h-11 rounded-lg border border-slate-700 px-3 text-slate-200">Select All Frames</button>
+                <button disabled={!selectedFrames.length} onClick={() => setSelectedFrameIds(new Set())} className="min-h-11 rounded-lg border border-slate-700 px-3 text-slate-200 disabled:opacity-40">Clear Frame Selection</button>
+                <button disabled={!selectedFrames.length} onClick={() => requestBulkDelete('selected frames', selectedFrames.map(frame => frame.id), [])} className="min-h-11 rounded-lg border border-rose-800 px-3 text-rose-300 disabled:opacity-40">Delete Selected Frames</button>
+              </div>
               <div className="flex space-x-2 overflow-x-auto pb-2 scrollbar-thin">
                 {project.frames.map((frame, idx) => {
                   const isActive = idx === activeFrameIndex;
@@ -3788,6 +3870,9 @@ export default function AnimationStudio({
                           : 'border-slate-800/80 hover:border-slate-700 hover:bg-slate-850'
                       }`}
                     >
+                      <label onClick={event => event.stopPropagation()} className="absolute top-0 left-0 z-10 flex h-8 w-8 items-center justify-center rounded-lg bg-slate-950/80">
+                        <input type="checkbox" aria-label={`Select frame ${idx + 1}`} checked={selectedFrameIds.has(frame.id)} onChange={() => toggleBatchSelection(setSelectedFrameIds, frame.id)} className="h-5 w-5 accent-indigo-500" />
+                      </label>
                       {/* Image Preview */}
                       <div className="flex-1 bg-checkerboard rounded-lg flex items-center justify-center overflow-hidden border border-slate-950/40 relative">
                         <img

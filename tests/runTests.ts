@@ -36,3 +36,5 @@ import './cleanupPan.test';
 import './animationFrameExport.test';
 
 import './animationFrameDeletion.test';
+
+import './animationBatchDeletion.test';

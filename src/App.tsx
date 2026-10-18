@@ -139,6 +139,7 @@ export default function App() {
 
   // UI state
   const [previewSegment, setPreviewSegment] = useState<SavedSegment | null>(null);
+  const [animationInitialTab, setAnimationInitialTab] = useState<'player' | 'source'>('player');
   const [showAnimationStudio, setShowAnimationStudio] = useState<boolean>(false);
   const [showCollageStudio, setShowCollageStudio] = useState<boolean>(false);
   const [showBgRemover, setShowBgRemover] = useState<boolean>(false);
@@ -1663,6 +1664,7 @@ export default function App() {
   };
 
   const openAnimationStudio = () => {
+    setAnimationInitialTab('player');
     changePageWithInterstitial(() => setShowAnimationStudio(true));
   };
 
@@ -2626,6 +2628,7 @@ export default function App() {
               onExportLibrary={handleExportLibrary}
               onImportLibrary={handleImportLibraryRequest}
               onRestoreBackup={handleRestoreLibraryBackup}
+              onManageFrameSets={() => { setAnimationInitialTab('source'); changePageWithInterstitial(() => setShowAnimationStudio(true)); }}
             />
           </div>
         </aside>
@@ -2745,6 +2748,7 @@ export default function App() {
             onCreateSegment={createCleanedSegment}
             onTimelineSourceStatusChange={removedIds => setSavedSegments(current => markTimelineRemovedSources(current, removedIds))}
             onSyncDeletedSources={syncTimelineDeletedSources}
+            initialStudioTab={animationInitialTab}
             onCreateSegments={addGeneratedSegments}
             onDeleteSavedSegment={handleDeleteSegment}
             onRegisterAgentControls={registerAnimationAgentControls}

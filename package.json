@@ -1,7 +1,7 @@
 {
   "name": "assetmaster",
   "private": true,
-  "version": "1.1.11",
+  "version": "1.1.12",
   "type": "module",
   "scripts": {
     "dev": "vite --port=3001 --strictPort --host=0.0.0.0",
@@ -12,7 +12,7 @@
     "android:assets": "node scripts/generate-android-logo-assets.mjs",
     "android:key": "node scripts/create-android-upload-key.mjs",
     "android:bundle": "node scripts/create-android-upload-key.mjs --if-missing && node scripts/prepare-capacitor-android.mjs --bundle-release",
-    "android:publish-open-testing": "node scripts/publish-play-open-testing.mjs --publish --package link.created.assetmaster --track beta --releaseName 1.1.11 --releaseNotes \"Adds single-frame PNG export and optional synchronized timeline and source deletion with retained-source markers.\" --key ..\\big-genre-172004-b7bf916fca08.json --bundle android\\app\\build\\outputs\\bundle\\release\\app-release.aab",
+    "android:publish-open-testing": "node scripts/publish-play-open-testing.mjs --publish --package link.created.assetmaster --track beta --releaseName 1.1.12 --releaseNotes \"Adds single-frame PNG export and optional synchronized timeline and source deletion with retained-source markers and bulk frame-set removal.\" --key ..\\big-genre-172004-b7bf916fca08.json --bundle android\\app\\build\\outputs\\bundle\\release\\app-release.aab",
     "android:publish-store-listings": "node scripts/publish-play-store-listings.mjs --publish --package link.created.assetmaster --key ..\\big-genre-172004-b7bf916fca08.json",
     "android:open": "npx cap open android",
     "deploy": "powershell -ExecutionPolicy Bypass -File .\\scripts\\deploy-lightsail.ps1",

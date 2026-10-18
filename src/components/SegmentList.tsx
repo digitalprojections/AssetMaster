@@ -13,6 +13,7 @@ interface SegmentListProps {
   onExportLibrary: () => void;
   onImportLibrary: () => void;
   onRestoreBackup: () => void;
+  onManageFrameSets?: () => void;
 }
 
 export default function SegmentList({
@@ -25,6 +26,7 @@ export default function SegmentList({
   onExportLibrary,
   onImportLibrary,
   onRestoreBackup,
+  onManageFrameSets,
 }: SegmentListProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
@@ -240,6 +242,13 @@ export default function SegmentList({
             </button>
         </div>
       </div>
+
+      {onManageFrameSets && segments.some(segment => segment.collectionId) && (
+        <div className="shrink-0 border-b border-slate-800 px-4 py-2">
+          <button onClick={onManageFrameSets} className="w-full min-h-11 rounded-xl border border-indigo-700 bg-indigo-950/50 px-3 text-xs font-semibold text-indigo-200">Manage Frame Sets</button>
+          <p className="mt-1 text-[10px] text-slate-400">Remove an entire import or select multiple cutouts in Animation Studio.</p>
+        </div>
+      )}
 
       {/* Segments Gallery Grid */}
       <div id="segment-list-gallery" className="flex-1 overflow-y-auto p-4 space-y-4">
