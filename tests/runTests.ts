@@ -34,3 +34,5 @@ import './segmentCleanup.test';
 import './cleanupPan.test';
 
 import './animationFrameExport.test';
+
+import './animationFrameDeletion.test';

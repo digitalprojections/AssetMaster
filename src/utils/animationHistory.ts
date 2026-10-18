@@ -1,10 +1,11 @@
-import type { AnimationProject } from '../types';
+import type { AnimationProject, SavedSegment } from '../types';
 
 export const ANIMATION_HISTORY_LIMIT = 50;
 
 export type AnimationProjectSnapshot = {
   project: AnimationProject;
   activeFrameIndex: number;
+  deletedSources?: SavedSegment[];
 };
 
 export type AnimationProjectHistory = {

@@ -1,3 +1,4 @@
+import { reconcileDeletedSources, markTimelineRemovedSources } from './utils/animationFrameDeletion';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Point, SavedSegment, SelectionTool, RectBounds, AssetLibraryFile } from './types';
 import { findAxisSnapGuides, findSnappedPoint, createSegmentImage, getPathBounds } from './utils/canvasUtils';
@@ -1522,6 +1523,11 @@ export default function App() {
   };
 
   // Saved Segments handlers
+  const syncTimelineDeletedSources = (previous: SavedSegment[], next: SavedSegment[]) => {
+    setSavedSegments(current => reconcileDeletedSources(current, previous, next));
+    setPreviewSegment(current => current && next.some(source => source.id === current.id) ? null : current);
+  };
+
   const handleDeleteSegment = (id: string) => {
     updateSavedSegments(savedSegments.filter((s) => s.id !== id));
     setPreviewSegment((current) => (current?.id === id ? null : current));
@@ -2737,6 +2743,8 @@ export default function App() {
             savedSegments={savedSegments}
             workspaceImage={image}
             onCreateSegment={createCleanedSegment}
+            onTimelineSourceStatusChange={removedIds => setSavedSegments(current => markTimelineRemovedSources(current, removedIds))}
+            onSyncDeletedSources={syncTimelineDeletedSources}
             onCreateSegments={addGeneratedSegments}
             onDeleteSavedSegment={handleDeleteSegment}
             onRegisterAgentControls={registerAnimationAgentControls}

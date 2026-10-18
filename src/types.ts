@@ -27,6 +27,7 @@ export interface SavedSegment {
   collectionIndex?: number; // 1-based position inside the collection
   collectionCount?: number; // Total number of items in the collection
   tags?: string[];
+  removedFromTimeline?: boolean; // Retained source whose frame was explicitly removed
 }
 
 export type SelectionTool = 'select' | 'rectangle' | 'lasso' | 'magnetic';
@@ -70,6 +71,7 @@ export interface AnimationProject {
   id: string;
   name: string;
   frames: AnimationFrame[];
+  timelineRemovedSourceIds?: string[]; // Retained source deletion markers, included in undo and saved projects
   fps: number;
   loop: boolean;
   width: number; // Playback bounding canvas width

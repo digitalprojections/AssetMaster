@@ -1,3 +1,4 @@
+import { planFrameDeletion, clearReaddedSourceMarkers } from '../utils/animationFrameDeletion';
 import { frameExportFilename, renderSingleAnimationFrame } from '../utils/animationFrameExport';
 import React, { useState, useEffect, useRef } from 'react';
 import { SavedSegment, AnimationFrame, AnimationProject, AnimationStudioProjectFile, Point } from '../types';
@@ -64,6 +65,7 @@ import {
   normalizeVideoFrameFps,
 } from '../utils/videoFrames';
 import {
+  type AnimationProjectSnapshot,
   createAnimationProjectHistory,
   pushAnimationProjectHistory,
   redoAnimationProjectHistory,
@@ -138,6 +140,8 @@ interface AnimationStudioProps {
   onCreateSegment?: (sourceSegment: SavedSegment, updatedUrl: string) => SavedSegment | undefined;
   onCreateSegments?: (segments: SavedSegment[]) => void;
   onDeleteSavedSegment?: (id: string) => void;
+  onTimelineSourceStatusChange?: (removedIds: string[]) => void;
+  onSyncDeletedSources?: (previous: SavedSegment[], next: SavedSegment[]) => void;
   onRegisterAgentControls?: (controls: AnimationStudioAgentControls | null) => void;
   useCompactControls?: boolean;
   onClose: () => void;
@@ -149,6 +153,8 @@ export default function AnimationStudio({
   onCreateSegment,
   onCreateSegments,
   onDeleteSavedSegment,
+  onSyncDeletedSources,
+  onTimelineSourceStatusChange,
   onRegisterAgentControls,
   useCompactControls = true,
   onClose,
@@ -165,6 +171,9 @@ export default function AnimationStudio({
   });
 
   const [activeFrameIndex, setActiveFrameIndex] = useState<number>(0);
+  const [deletedSources, setDeletedSources] = useState<SavedSegment[]>([]);
+  const [pendingDeleteFrameId, setPendingDeleteFrameId] = useState<string | null>(null);
+  const [deletionMessage, setDeletionMessage] = useState('');
   const [projectHistory, setProjectHistory] = useState(createAnimationProjectHistory);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [selectedSegmentId, setSelectedSegmentId] = useState<string>('');
@@ -244,6 +253,9 @@ export default function AnimationStudio({
   const normalizeProject = (incomingProject: AnimationProject): AnimationProject => ({
     ...incomingProject,
     updatedAt: Date.now(),
+    timelineRemovedSourceIds: Array.isArray(incomingProject.timelineRemovedSourceIds)
+      ? incomingProject.timelineRemovedSourceIds.filter((id): id is string => typeof id === 'string')
+      : [],
     frames: incomingProject.frames.map((frame) => normalizeFrame(frame, incomingProject.width, incomingProject.height)),
   });
 
@@ -254,8 +266,11 @@ export default function AnimationStudio({
     const currentSnapshot = {
       project: normalizeProject(project),
       activeFrameIndex,
+      deletedSources,
     };
     const nextProject = normalizeProject(updateProject(project));
+    nextProject.timelineRemovedSourceIds = clearReaddedSourceMarkers(project.frames, nextProject.frames, nextProject.timelineRemovedSourceIds ?? []);
+    onTimelineSourceStatusChange?.(nextProject.timelineRemovedSourceIds);
     const clampedFrameIndex = Math.max(
       0,
       Math.min(nextActiveFrameIndex ?? activeFrameIndex, Math.max(0, nextProject.frames.length - 1))
@@ -299,8 +314,14 @@ export default function AnimationStudio({
     }
   };
 
-  const restoreProjectSnapshot = (snapshot: { project: AnimationProject; activeFrameIndex: number }) => {
+  const restoreProjectSnapshot = (snapshot: AnimationProjectSnapshot) => {
+    const nextDeletedSources = snapshot.deletedSources ?? [];
+    onSyncDeletedSources?.(deletedSources, nextDeletedSources);
+    setDeletedSources(nextDeletedSources);
+    setPendingDeleteFrameId(null);
+    setDeletionMessage('');
     const restoredProject = normalizeProject(snapshot.project);
+    onTimelineSourceStatusChange?.(restoredProject.timelineRemovedSourceIds ?? []);
     setProject(restoredProject);
     setActiveFrameIndex(Math.max(0, Math.min(snapshot.activeFrameIndex, Math.max(0, restoredProject.frames.length - 1))));
     setIsPlaying(false);
@@ -310,6 +331,7 @@ export default function AnimationStudio({
     const currentSnapshot = {
       project: normalizeProject(project),
       activeFrameIndex,
+      deletedSources,
     };
     const result = undoAnimationProjectHistory(projectHistory, currentSnapshot);
     if (!result) return;
@@ -322,6 +344,7 @@ export default function AnimationStudio({
     const currentSnapshot = {
       project: normalizeProject(project),
       activeFrameIndex,
+      deletedSources,
     };
     const result = redoAnimationProjectHistory(projectHistory, currentSnapshot);
     if (!result) return;
@@ -1571,12 +1594,46 @@ export default function AnimationStudio({
     </div>
   ) : null;
 
-  // Delete a frame from timeline
+  const pendingDeletion = pendingDeleteFrameId
+    ? planFrameDeletion(project.frames, savedSegments, pendingDeleteFrameId, true)
+    : null;
+  const pendingFrameIndex = project.frames.findIndex(frame => frame.id === pendingDeleteFrameId);
+
+  // Mouse and keyboard deletion share the same explicit choice.
   const removeFrameAt = (index: number) => {
+    const frame = project.frames[index];
+    if (!frame) return;
+    setIsPlaying(false);
+    setPendingDeleteFrameId(frame.id);
+    setDeletionMessage('');
+  };
+
+  const confirmFrameDeletion = (deleteSource: boolean) => {
+    if (!pendingDeleteFrameId) return;
+    const index = project.frames.findIndex(frame => frame.id === pendingDeleteFrameId);
+    if (index < 0) { setPendingDeleteFrameId(null); return; }
+    const result = planFrameDeletion(project.frames, savedSegments, pendingDeleteFrameId, deleteSource);
+    if (deleteSource && (!onSyncDeletedSources || !result.deletedSource)) return;
     const nextActiveFrameIndex = getActiveFrameIndexAfterAnimationFrameRemoval(project.frames.length, activeFrameIndex, index);
-    applyProjectEdit((prev) => {
-      return { ...prev, frames: removeAnimationFrameAt(prev.frames, index) };
-    }, nextActiveFrameIndex);
+    applyProjectEdit(prev => ({
+      ...prev, frames: result.frames,
+      timelineRemovedSourceIds: result.source && !result.deletedSource
+        ? [...new Set([...(prev.timelineRemovedSourceIds ?? []), result.source.id])]
+        : (prev.timelineRemovedSourceIds ?? []).filter(id => id !== result.deletedSource?.id),
+    }), nextActiveFrameIndex);
+    if (result.deletedSource) {
+      const nextDeletedSources = [...deletedSources.filter(source => source.id !== result.deletedSource!.id), result.deletedSource];
+      onSyncDeletedSources?.(deletedSources, nextDeletedSources);
+      setDeletedSources(nextDeletedSources);
+      delete segmentImageCacheRef.current[result.deletedSource.id];
+      setCleanupQueue(queue => queue.filter(id => id !== result.deletedSource!.id));
+      if (selectedSegmentId === result.deletedSource.id) {
+        setSelectedSegmentId(savedSegments.find(source => source.id !== result.deletedSource!.id)?.id ?? '');
+        setShowBgRemover(false);
+      }
+    }
+    setPendingDeleteFrameId(null);
+    setDeletionMessage(result.deletedSource ? 'Frame and source cutout deleted. Undo restores both.' : 'Frame removed from the timeline. Source cutout kept and marked as removed from the timeline.');
   };
 
   const duplicateFrameAt = (index: number) => {
@@ -2472,7 +2529,7 @@ export default function AnimationStudio({
 
   useEffect(() => {
     const handleStudioKeyDown = (event: KeyboardEvent) => {
-      if (showBgRemover) {
+      if (showBgRemover || pendingDeleteFrameId) {
         return;
       }
 
@@ -2528,6 +2585,8 @@ export default function AnimationStudio({
         return;
       }
 
+      if (pendingDeleteFrameId) return;
+
       if (hasActiveFrame && (event.key === 'Delete' || event.key === 'Backspace')) {
         event.preventDefault();
         removeFrameAt(activeFrameIndex);
@@ -2567,7 +2626,7 @@ export default function AnimationStudio({
 
     window.addEventListener('keydown', handleStudioKeyDown);
     return () => window.removeEventListener('keydown', handleStudioKeyDown);
-  }, [activeFrameIndex, activeSegment, hasActiveFrame, project.frames.length, showBgRemover]);
+  }, [activeFrameIndex, activeSegment, hasActiveFrame, project, showBgRemover, pendingDeleteFrameId, deletedSources, savedSegments]);
 
   return (
     <div
@@ -2594,6 +2653,32 @@ export default function AnimationStudio({
         className="hidden"
         onChange={handleVideoImportFile}
       />
+
+      {pendingDeletion && pendingFrameIndex >= 0 && (
+        <div className="fixed inset-0 z-[100] bg-slate-950/80 flex items-center justify-center p-4">
+          <section role="dialog" aria-modal="true" aria-labelledby="delete-frame-title" aria-describedby="delete-frame-description" className="w-full max-w-md max-h-[90dvh] overflow-y-auto rounded-2xl border border-slate-700 bg-slate-900 p-5 shadow-xl" onKeyDown={event => {
+            if (event.key === 'Escape') { event.stopPropagation(); setPendingDeleteFrameId(null); }
+            if (event.key === 'Tab') {
+              const buttons = Array.from((event.currentTarget as HTMLElement).querySelectorAll<HTMLButtonElement>('button:not(:disabled)'));
+              const first = buttons[0], last = buttons[buttons.length - 1];
+              if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+              else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+            }
+          }}>
+            <h2 id="delete-frame-title" className="text-lg font-semibold text-white">Remove frame {pendingFrameIndex + 1}?</h2>
+            <p id="delete-frame-description" className="mt-2 text-sm text-slate-300">Keep the source cutout for later use, or delete it with this frame. Undo can restore the deletion.</p>
+            {pendingDeletion.source && <p className="mt-2 break-words text-sm text-slate-300">Source: {pendingDeletion.source.name}</p>}
+            {pendingDeletion.sharedFrameCount > 0 && <p className="mt-2 text-sm text-amber-200">This source is used by {pendingDeletion.sharedFrameCount} other timeline {pendingDeletion.sharedFrameCount === 1 ? 'frame' : 'frames'}. It stays available until its last frame is removed.</p>}
+            {!pendingDeletion.source && <p className="mt-2 text-sm text-slate-400">This frame has no saved source cutout to delete.</p>}
+            <div className="mt-5 flex flex-col gap-2">
+              <button autoFocus onClick={() => setPendingDeleteFrameId(null)} className="min-h-11 rounded-xl border border-slate-600 px-4 text-sm text-slate-200">Cancel</button>
+              <button onClick={() => confirmFrameDeletion(false)} className="min-h-11 rounded-xl bg-slate-700 px-4 text-sm text-white">Remove from Timeline</button>
+              <button disabled={!onSyncDeletedSources || !pendingDeletion.deletedSource} onClick={() => confirmFrameDeletion(true)} className="min-h-11 rounded-xl bg-rose-600 px-4 text-sm font-semibold text-white disabled:opacity-40">Delete Frame and Source</button>
+            </div>
+          </section>
+        </div>
+      )}
+      {deletionMessage && <p role="status" className="shrink-0 bg-slate-900 px-4 py-2 text-xs text-slate-200">{deletionMessage}</p>}
 
       {/* 1. Header Toolbar */}
       <header className="safe-area-top-bar z-20 min-h-16 border-b border-slate-800 bg-slate-950 flex items-center justify-between gap-3 px-3 py-2 sm:px-6 shrink-0">
@@ -2947,7 +3032,7 @@ export default function AnimationStudio({
                             referrerPolicy="no-referrer"
                           />
                         </div>
-                        <span className="truncate font-medium">{activeSegment.name}</span>
+                        <span className="truncate font-medium">{activeSegment.name}{activeSegment.removedFromTimeline ? ' · Removed from Timeline' : ''}</span>
                         <span className="text-[10px] text-slate-500 font-mono shrink-0">({activeSegment.bounds.width}×{activeSegment.bounds.height})</span>
                         <span
                           className={`hidden sm:inline text-[9px] px-1.5 py-0.5 rounded-full border shrink-0 ${
@@ -3009,6 +3094,7 @@ export default function AnimationStudio({
                                     }`}
                                   >
                                     {getSegmentCleanupStatusLabel(seg)}
+                                    {seg.removedFromTimeline && <span className="block text-amber-300">Removed from Timeline</span>}
                                   </span>
                                 </div>
                                 {seg.tags && seg.tags.length > 0 && (
@@ -3054,6 +3140,7 @@ export default function AnimationStudio({
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-bold truncate text-slate-200">{activeSegment.name}</p>
+                        {activeSegment.removedFromTimeline && <p className="mt-1 text-xs font-semibold text-amber-300">Removed from Timeline</p>}
                         <p className="text-[10px] text-slate-500 font-mono mt-0.5">{activeSegment.bounds.width} × {activeSegment.bounds.height} px</p>
                         <p className="text-[10px] text-indigo-400 font-medium mt-1">
                           {isAutoDetectingGrid ? 'Analyzing transparent objects...' : autoDetectedGridLabel || 'Ready for animation'}

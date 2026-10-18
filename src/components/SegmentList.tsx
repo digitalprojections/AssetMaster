@@ -290,6 +290,7 @@ export default function SegmentList({
 
                 {/* Info and action row */}
                 <div className="flex flex-col space-y-2">
+                  {segment.removedFromTimeline && <p className="mb-1 text-xs font-semibold text-amber-300">Removed from Timeline</p>}
                   {editingId === segment.id ? (
                     <div className="flex items-center space-x-1">
                       <input
