@@ -1,3 +1,5 @@
+import { detectVideoBackgroundColor, removeVideoBackground, parseVideoKeyColor, type VideoBackgroundMode } from '../utils/videoTransparency';
+import type { RgbColor } from '../utils/backgroundKeying';
 import AnimationTimeline from './AnimationTimeline';
 import { areGroupConfirmationsMuted, getMutedFrameAction, readDeletionConfirmations, saveDeletionConfirmations, setGroupConfirmations, type FrameDeletionAction } from '../utils/deletionConfirmations';
 import { getUsageTipsStorage } from '../utils/usageTips';
@@ -242,6 +244,12 @@ export default function AnimationStudio({
   const [isProjectHydrated, setIsProjectHydrated] = useState<boolean>(false);
   const [videoFrameFps, setVideoFrameFps] = useState<number>(12);
   const [isExtractingVideoFrames, setIsExtractingVideoFrames] = useState<boolean>(false);
+  const [videoBackgroundMode, setVideoBackgroundMode] = useState<VideoBackgroundMode>('preserve');
+  const [videoKeyColor, setVideoKeyColor] = useState('#00ff00');
+  const [videoKeyTolerance, setVideoKeyTolerance] = useState(50);
+  const [videoKeySoftness, setVideoKeySoftness] = useState(20);
+  const [videoTransparencyPreview, setVideoTransparencyPreview] = useState<string | null>(null);
+  const [isPreviewingTransparency, setIsPreviewingTransparency] = useState(false);
   const [videoImportMessage, setVideoImportMessage] = useState<string>('Choose a video, preview it, then select a range to extract.');
   const [videoImportStatus, setVideoImportStatus] = useState<'idle' | 'loading' | 'ready' | 'extracting' | 'success' | 'error'>('idle');
   const [videoFile, setVideoFile] = useState<File | null>(null);
@@ -1311,6 +1319,44 @@ export default function AnimationStudio({
     await waitForVideoEvent(video, 'seeked');
   };
 
+  useEffect(() => {
+    setVideoTransparencyPreview(null);
+  }, [videoBackgroundMode, videoKeyColor, videoKeyTolerance, videoKeySoftness, videoRangeStart, videoRangeEnd, videoPreviewUrl, videoFrameFps]);
+
+  const previewVideoTransparency = async () => {
+    const video = videoPreviewRef.current;
+    if (!video) return;
+    setIsPreviewingTransparency(true);
+    setVideoTransparencyPreview(null);
+    try {
+      playingVideoRangeRef.current = false;
+      video.pause();
+      await seekVideoToCaptureTime(video, videoRangeStart);
+      const { width, height } = getVideoFrameOutputSize(video.videoWidth, video.videoHeight,
+        getVideoFrameCount(video.duration, videoFrameFps, videoRangeStart, videoRangeEnd));
+      const canvas = document.createElement('canvas');
+      canvas.width = width; canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('The frame canvas is not available.');
+      ctx.drawImage(video, 0, 0, width, height);
+      if (videoBackgroundMode !== 'preserve') {
+        const image = ctx.getImageData(0, 0, width, height);
+        const key = videoBackgroundMode === 'auto' ? detectVideoBackgroundColor(image.data, width, height) : parseVideoKeyColor(videoKeyColor);
+        if (!key) throw new Error('Background color detection is unavailable: the border is transparent. Preserve source transparency or choose a custom color.');
+        removeVideoBackground(image.data, key, videoKeyTolerance, videoKeySoftness);
+        ctx.putImageData(image, 0, 0);
+      }
+      setVideoTransparencyPreview(canvas.toDataURL('image/png'));
+      setVideoImportStatus('ready');
+      setVideoImportMessage('First selected frame preview ready. Check the edges before extracting.');
+    } catch (error) {
+      setVideoImportStatus('error');
+      setVideoImportMessage(error instanceof Error ? error.message : 'Transparency preview failed.');
+    } finally {
+      setIsPreviewingTransparency(false);
+    }
+  };
+
   const captureVideoFrames = async (file: File) => {
     setIsExtractingVideoFrames(true);
     setVideoImportStatus('extracting');
@@ -1345,6 +1391,7 @@ export default function AnimationStudio({
       const frames: AnimationFrame[] = [];
       const frameSegments: SavedSegment[] = [];
       let encodedBytes = 0;
+      let backgroundKey: RgbColor | null = videoBackgroundMode === 'color' ? parseVideoKeyColor(videoKeyColor) : null;
 
       for (let index = 0; index < captureTimes.length; index += 1) {
         const captureTime = captureTimes[index];
@@ -1353,6 +1400,15 @@ export default function AnimationStudio({
         ctx.clearRect(0, 0, width, height);
         ctx.drawImage(video, 0, 0, width, height);
 
+        if (videoBackgroundMode !== 'preserve') {
+          const image = ctx.getImageData(0, 0, width, height);
+          if (index === 0 && videoBackgroundMode === 'auto') {
+            backgroundKey = detectVideoBackgroundColor(image.data, width, height);
+            if (!backgroundKey) throw new Error('Background color detection is unavailable: the border is transparent. Preserve source transparency or choose a custom color.');
+          }
+          removeVideoBackground(image.data, backgroundKey, videoKeyTolerance, videoKeySoftness);
+          ctx.putImageData(image, 0, 0);
+        }
         const thumbnailUrl = canvas.toDataURL('image/png');
         encodedBytes += thumbnailUrl.length * 2;
         if (encodedBytes > MAX_VIDEO_FRAME_ENCODED_BYTES) {
@@ -1407,7 +1463,7 @@ export default function AnimationStudio({
       setSelectedSegmentId(frameSegments[0]?.id ?? selectedSegmentId);
       setIsPlaying(true);
       setVideoImportStatus('success');
-      setVideoImportMessage(`Saved ${frames.length} frame${frames.length === 1 ? '' : 's'} as a cutout collection at ${normalizeVideoFrameFps(videoFrameFps)} frames per second.`);
+      setVideoImportMessage(`Saved ${frames.length} PNG frame${frames.length === 1 ? '' : 's'} at ${normalizeVideoFrameFps(videoFrameFps)} frames per second. ${videoBackgroundMode === 'preserve' ? 'Source background and decoded transparency preserved.' : 'Background color removal applied to every frame.'}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Video frames could not be extracted.';
       setVideoImportMessage(message);
@@ -3122,7 +3178,7 @@ export default function AnimationStudio({
                 onChange={(event) => setVideoFrameFps(normalizeVideoFrameFps(parseInt(event.target.value, 10)))}
                 className="w-full accent-sky-400 cursor-pointer"
                 aria-label="Video frame extraction FPS"
-                disabled={isExtractingVideoFrames}
+                disabled={isExtractingVideoFrames || isPreviewingTransparency}
               />
               <div className="flex items-center justify-between gap-3 text-[10px] text-slate-500">
                 <span>{MIN_VIDEO_FRAME_FPS}/sec min</span>
@@ -3130,6 +3186,41 @@ export default function AnimationStudio({
                 <span>{MAX_VIDEO_FRAME_FPS}/sec max</span>
               </div>
               <p className="text-[10px] text-slate-400">Source: up to {MAX_VIDEO_FRAME_SOURCE_SECONDS / 60} minutes / 250 MiB / 4K. Range: up to {MAX_VIDEO_FRAME_RANGE_SECONDS} seconds / {MAX_VIDEO_FRAME_COUNT} frames. Output is resized to fit the browser memory budget (1280px maximum edge).</p>
+              <fieldset disabled={isExtractingVideoFrames || isPreviewingTransparency} className="space-y-2 min-w-0">
+                <label className="block text-xs text-slate-300">Background
+                  <select aria-label="Video background" value={videoBackgroundMode}
+                    onChange={event => setVideoBackgroundMode(event.target.value as VideoBackgroundMode)}
+                    className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-xs">
+                    <option value="preserve">Preserve source background / alpha</option>
+                    <option value="auto">Remove background — detect border color</option>
+                    <option value="color">Remove background — custom color</option>
+                  </select>
+                </label>
+                {videoBackgroundMode === 'preserve' ? (
+                  <p className="text-[10px] text-slate-400">PNG frames retain transparency decoded by your browser. Opaque videos keep their background; codec support varies.</p>
+                ) : (
+                  <>
+                    <p className="text-[10px] text-slate-400">For solid or uniform backgrounds. Matching colors in the subject are also removed. Complex backgrounds need frame cleanup. Automatic detection uses the first selected frame and keeps that color for the whole range.</p>
+                    {videoBackgroundMode === 'color' && <label className="flex items-center justify-between text-xs text-slate-300">Key color
+                      <input type="color" aria-label="Video key color" value={videoKeyColor} onChange={event => setVideoKeyColor(event.target.value)} className="h-8 w-12 bg-transparent" />
+                    </label>}
+                    <label className="block text-xs text-slate-300">Color tolerance: {videoKeyTolerance}
+                      <input type="range" aria-label="Video color tolerance" min="0" max="200" value={videoKeyTolerance} onChange={event => setVideoKeyTolerance(Number(event.target.value))} className="w-full accent-sky-400" />
+                    </label>
+                    <label className="block text-xs text-slate-300">Edge softness: {videoKeySoftness}%
+                      <input type="range" aria-label="Video edge softness" min="0" max="100" value={videoKeySoftness} onChange={event => setVideoKeySoftness(Number(event.target.value))} className="w-full accent-sky-400" />
+                    </label>
+                  </>
+                )}
+                <button type="button" disabled={!videoPreviewUrl || videoFrameCountPreview === null || isExtractingVideoFrames || isPreviewingTransparency}
+                  onClick={() => void previewVideoTransparency()}
+                  className="w-full rounded-lg bg-slate-800 p-2 text-xs text-sky-200 disabled:opacity-40">
+                  {isPreviewingTransparency ? 'Preparing Preview...' : 'Preview First Selected Frame'}
+                </button>
+                {videoTransparencyPreview && <div className="rounded-lg bg-checkerboard p-2">
+                  <img src={videoTransparencyPreview} alt="Video transparency preview" className="mx-auto max-h-48 max-w-full object-contain" />
+                </div>}
+              </fieldset>
               {videoPreviewUrl && (
                 <div className="space-y-2">
                   <video
@@ -3180,7 +3271,7 @@ export default function AnimationStudio({
                           <input type="range" min="0" max={videoSourceSeconds} step="0.01"
                             aria-label={`Range ${label.toLowerCase()} slider`}
                             value={label === 'Start' ? videoRangeStart : videoRangeEnd}
-                            disabled={isExtractingVideoFrames}
+                            disabled={isExtractingVideoFrames || isPreviewingTransparency}
                             className="w-full accent-sky-400"
                             onChange={(event) => {
                               const time = Number(event.target.value);
@@ -3193,7 +3284,7 @@ export default function AnimationStudio({
                             <input type="number" min="0" max={videoSourceSeconds} step="0.01"
                               aria-label={`Range ${label.toLowerCase()} seconds`}
                               value={label === 'Start' ? videoRangeStart : videoRangeEnd}
-                              disabled={isExtractingVideoFrames}
+                              disabled={isExtractingVideoFrames || isPreviewingTransparency}
                               className="min-w-0 w-24 rounded bg-slate-950 p-2"
                               onChange={(event) => {
                                 (label === 'Start' ? setVideoRangeStart : setVideoRangeEnd)(Number(event.target.value));
@@ -3201,7 +3292,7 @@ export default function AnimationStudio({
                                 videoPreviewRef.current?.pause();
                                 setVideoImportStatus('ready');
                               }} />
-                            <button type="button" disabled={isExtractingVideoFrames} className="text-[10px] text-sky-300 disabled:opacity-40"
+                            <button type="button" disabled={isExtractingVideoFrames || isPreviewingTransparency} className="text-[10px] text-sky-300 disabled:opacity-40"
                               onClick={() => {
                                 const video = videoPreviewRef.current;
                                 if (!video) return;
@@ -3213,7 +3304,7 @@ export default function AnimationStudio({
                           </div>
                         </div>
                       ))}
-                      <button type="button" disabled={!!videoRangeError || isExtractingVideoFrames}
+                      <button type="button" disabled={!!videoRangeError || isExtractingVideoFrames || isPreviewingTransparency}
                         className="w-full rounded-lg bg-slate-800 p-2 text-xs text-sky-200 disabled:opacity-40"
                         onClick={() => {
                           const video = videoPreviewRef.current;
@@ -3237,7 +3328,7 @@ export default function AnimationStudio({
               )}
               {videoRangeError && <p role="alert" className="text-xs text-amber-300">{videoRangeError}</p>}
               {videoSourceSeconds !== null && (
-                <button type="button" disabled={isExtractingVideoFrames || videoFrameCountPreview === null || !isProjectHydrated || isImportingImages}
+                <button type="button" disabled={isExtractingVideoFrames || isPreviewingTransparency || videoFrameCountPreview === null || !isProjectHydrated || isImportingImages}
                   className="w-full rounded-xl bg-sky-600 p-2.5 text-xs font-bold text-white disabled:opacity-40"
                   onClick={() => {
                     videoPreviewRef.current?.pause();
@@ -3247,7 +3338,7 @@ export default function AnimationStudio({
               )}
               <button
                 onClick={handleVideoImportRequest}
-                disabled={isExtractingVideoFrames}
+                disabled={isExtractingVideoFrames || isPreviewingTransparency}
                 className="w-full py-2.5 px-3 bg-sky-600 hover:bg-sky-500 disabled:bg-slate-800 disabled:text-slate-500 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-1.5 shadow-md shadow-sky-600/10 cursor-pointer"
               >
                 <Upload className="h-4 w-4" />

@@ -34,3 +34,6 @@ mcp/THIRD-PARTY-NOTICES.txt
 
 # Local temporary automation files
 *.tmp
+
+# Disposable transparency verification downloads
+.verification/

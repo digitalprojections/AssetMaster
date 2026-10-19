@@ -51,3 +51,5 @@ import './mcpCutoutHistory.test';
 import './mcpRelay.test';
 
 import './animationTimelineEditing.test';
+
+import './videoTransparency.test';

@@ -27,6 +27,11 @@ def main():
     if not 0 < args.video_seconds <= 601:
         parser.error('--video-seconds must be between 0 and 601 seconds')
     subprocess.run([ffmpeg, '-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i', f'testsrc2=size=64x64:rate=12:duration={args.video_seconds}', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', str(args.output / 'disposable_video.mp4')], check=True)
+    # Opaque green-screen fixture plus a VP9 alpha fixture with an opaque red subject.
+    for name, background in [('green-screen.mp4', '0x00ff00'), ('transparent.webm', 'black@0.0')]:
+        source = f'color=c={background}:s=96x64:r=5:d=1,format=rgba,drawbox=x=32:y=16:w=32:h=32:color=red:t=fill:replace=1'
+        encoding = ['-c:v', 'libvpx-vp9', '-pix_fmt', 'yuva420p', '-auto-alt-ref', '0'] if name.endswith('.webm') else ['-c:v', 'libx264', '-pix_fmt', 'yuv420p']
+        subprocess.run([ffmpeg, '-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i', source, *encoding, str(args.output / name)], check=True)
     print(args.output.resolve())
 
 
