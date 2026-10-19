@@ -5,6 +5,7 @@ export const ANIMATION_HISTORY_LIMIT = 50;
 export type AnimationProjectSnapshot = {
   project: AnimationProject;
   activeFrameIndex: number;
+  selectedFrameIds?: string[];
   deletedSources?: SavedSegment[];
 };
 

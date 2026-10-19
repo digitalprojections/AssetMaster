@@ -288,3 +288,42 @@ export const getNextAnimationPlaybackFrameIndex = (
 
   return loop ? range.startFrameIndex : range.endFrameIndex;
 };
+
+
+const cloneAnimationFrame = (frame: AnimationFrame): AnimationFrame => ({
+  ...frame,
+  eraseStrokes: copyEraseStrokes(frame),
+  trimmedBounds: frame.trimmedBounds ? { ...frame.trimmedBounds } : undefined,
+});
+
+export function copyAnimationFrames(frames: readonly AnimationFrame[], selection: readonly number[]): AnimationFrame[] {
+  return normalizeAnimationFrameSelection(selection, frames.length).map(index => cloneAnimationFrame(frames[index]));
+}
+
+export function pasteAnimationFrames(
+  frames: readonly AnimationFrame[], clipboard: readonly AnimationFrame[], insertionIndex: number,
+  createId: () => string,
+): { frames: AnimationFrame[]; insertedIds: string[] } {
+  const insertion = Number.isFinite(insertionIndex) ? Math.max(0, Math.min(frames.length, Math.trunc(insertionIndex))) : frames.length;
+  const copies = clipboard.map(frame => ({ ...cloneAnimationFrame(frame), id: createId() }));
+  return { frames: [...frames.slice(0, insertion), ...copies, ...frames.slice(insertion)], insertedIds: copies.map(frame => frame.id) };
+}
+
+// Insertion is a boundary in the original sequence (0 = before first, length = after last).
+export function moveSelectedAnimationFrames(
+  frames: readonly AnimationFrame[], selection: readonly number[], insertionIndex: number,
+): AnimationFrame[] {
+  const indexes = normalizeAnimationFrameSelection(selection, frames.length);
+  if (!indexes.length || !Number.isInteger(insertionIndex) || insertionIndex < 0 || insertionIndex > frames.length) return [...frames];
+  const selected = new Set(indexes);
+  const remaining = frames.filter((_, index) => !selected.has(index));
+  const insertion = insertionIndex - indexes.filter(index => index < insertionIndex).length;
+  return [...remaining.slice(0, insertion), ...indexes.map(index => frames[index]), ...remaining.slice(insertion)];
+}
+
+export function reverseSelectedAnimationFrames(frames: readonly AnimationFrame[], selection: readonly number[]): AnimationFrame[] {
+  const indexes = normalizeAnimationFrameSelection(selection, frames.length);
+  const next = [...frames];
+  indexes.forEach((index, position) => { next[index] = frames[indexes[indexes.length - 1 - position]]; });
+  return next;
+}

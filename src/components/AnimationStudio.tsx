@@ -1,3 +1,4 @@
+import AnimationTimeline from './AnimationTimeline';
 import { areGroupConfirmationsMuted, getMutedFrameAction, readDeletionConfirmations, saveDeletionConfirmations, setGroupConfirmations, type FrameDeletionAction } from '../utils/deletionConfirmations';
 import { getUsageTipsStorage } from '../utils/usageTips';
 import { buildSourceGroups, getSourceGroupId } from '../utils/sourceGroups';
@@ -85,6 +86,8 @@ import {
   undoAnimationProjectHistory,
 } from '../utils/animationHistory';
 import {
+  copyAnimationFrames, pasteAnimationFrames, moveSelectedAnimationFrames, reverseSelectedAnimationFrames,
+  selectAnimationFrameRange, toggleAnimationFrameSelection,
   clampAnimationFrameScale,
   duplicateAnimationFrameAt,
   getActiveFrameIndexAfterAnimationFrameRemoval,
@@ -188,6 +191,15 @@ export default function AnimationStudio({
   });
 
   const [activeFrameIndex, setActiveFrameIndex] = useState<number>(0);
+  const [selectedFrameIds, setSelectedFrameIds] = useState<string[]>([]);
+  const selectionAnchorId = useRef<string | null>(null);
+  const [frameClipboard, setFrameClipboard] = useState<AnimationFrame[]>([]);
+  const [timelineMessage, setTimelineMessage] = useState('');
+  const selectedFrameIdSet = useMemo(() => {
+    const available = new Set(project.frames.map(frame => frame.id));
+    return new Set(selectedFrameIds.filter(id => available.has(id)));
+  }, [project.frames, selectedFrameIds]);
+  const selectedFrameIndexes = useMemo(() => project.frames.flatMap((frame, index) => selectedFrameIdSet.has(frame.id) ? [index] : []), [project.frames, selectedFrameIdSet]);
   const [deletedSources, setDeletedSources] = useState<SavedSegment[]>([]);
   const [pendingBulkDelete, setPendingBulkDelete] = useState<{ label: string; frameIds: string[]; sourceIds: string[] } | null>(null);
   const [deletionConfirmations, setDeletionConfirmations] = useState(() => readDeletionConfirmations(getUsageTipsStorage()));
@@ -308,6 +320,7 @@ export default function AnimationStudio({
     const currentSnapshot = {
       project: normalizeProject(project),
       activeFrameIndex,
+      selectedFrameIds: [...selectedFrameIdSet],
       deletedSources,
     };
     const nextProject = normalizeProject(updateProject(project));
@@ -321,6 +334,61 @@ export default function AnimationStudio({
     setProjectHistory((prev) => pushAnimationProjectHistory(prev, currentSnapshot));
     setProject(nextProject);
     setActiveFrameIndex(clampedFrameIndex);
+  };
+
+  const selectTimelineFrame = (index: number, intent: { range?: boolean; toggle?: boolean }) => {
+    const frame = project.frames[index];
+    if (!frame) return;
+    let indexes: number[];
+    if (intent.range) {
+      const anchor = project.frames.findIndex(item => item.id === selectionAnchorId.current);
+      const range = selectAnimationFrameRange(anchor >= 0 ? anchor : activeFrameIndex, index, project.frames.length);
+      indexes = intent.toggle ? [...new Set([...selectedFrameIndexes, ...range])] : range;
+    } else {
+      indexes = intent.toggle ? toggleAnimationFrameSelection(selectedFrameIndexes, index, project.frames.length) : [index];
+      selectionAnchorId.current = frame.id;
+    }
+    setSelectedFrameIds(indexes.map(position => project.frames[position].id));
+    setActiveFrameIndex(index);
+    setIsPlaying(false);
+    setTimelineMessage('');
+  };
+
+  const copyTimelineSelection = () => {
+    if (!selectedFrameIndexes.length) return;
+    const copies = copyAnimationFrames(project.frames, selectedFrameIndexes);
+    setFrameClipboard(copies);
+    setTimelineMessage(`Copied ${copies.length} ${copies.length === 1 ? 'frame' : 'frames'}. Choose a frame, then paste after it.`);
+  };
+
+  const pasteTimelineSelection = () => {
+    if (!frameClipboard.length) return;
+    const insertion = project.frames.length ? activeFrameIndex + 1 : 0;
+    const result = pasteAnimationFrames(project.frames, frameClipboard, insertion, () => `frame_${crypto.randomUUID()}`);
+    applyProjectEdit(current => ({ ...current, frames: result.frames }), insertion);
+    setSelectedFrameIds(result.insertedIds);
+    selectionAnchorId.current = result.insertedIds[0];
+    setIsPlaying(false);
+    setTimelineMessage(`Pasted ${result.insertedIds.length} ${result.insertedIds.length === 1 ? 'frame' : 'frames'}. Undo is available.`);
+  };
+
+  const commitTimelineOrder = (frames: AnimationFrame[], message: string) => {
+    if (frames.every((frame, index) => frame.id === project.frames[index]?.id)) return;
+    const activeId = project.frames[activeFrameIndex]?.id;
+    applyProjectEdit(current => ({ ...current, frames }), Math.max(0, frames.findIndex(frame => frame.id === activeId)));
+    setIsPlaying(false);
+    setTimelineMessage(message);
+  };
+
+  const moveTimelineSelection = (ids: string[], insertion: number) => {
+    const moving = new Set(ids);
+    const indexes = project.frames.flatMap((frame, index) => moving.has(frame.id) ? [index] : []);
+    commitTimelineOrder(moveSelectedAnimationFrames(project.frames, indexes, insertion), `Moved ${indexes.length} ${indexes.length === 1 ? 'frame' : 'frames'}. Undo is available.`);
+  };
+
+  const reverseTimelineSelection = () => {
+    if (selectedFrameIndexes.length < 2) return;
+    commitTimelineOrder(reverseSelectedAnimationFrames(project.frames, selectedFrameIndexes), `Reversed ${selectedFrameIndexes.length} selected frames. Undo is available.`);
   };
 
   // Use the latest project/history if editing continues while images decode.
@@ -365,6 +433,9 @@ export default function AnimationStudio({
     setDeletionMessage('');
     const restoredProject = normalizeProject(snapshot.project);
     onTimelineSourceStatusChange?.(restoredProject.timelineRemovedSourceIds ?? []);
+    setSelectedFrameIds(snapshot.selectedFrameIds ?? []);
+    selectionAnchorId.current = snapshot.selectedFrameIds?.[0] ?? null;
+    setTimelineMessage('');
     setProject(restoredProject);
     setActiveFrameIndex(Math.max(0, Math.min(snapshot.activeFrameIndex, Math.max(0, restoredProject.frames.length - 1))));
     setIsPlaying(false);
@@ -374,6 +445,7 @@ export default function AnimationStudio({
     const currentSnapshot = {
       project: normalizeProject(project),
       activeFrameIndex,
+      selectedFrameIds: [...selectedFrameIdSet],
       deletedSources,
     };
     const result = undoAnimationProjectHistory(projectHistory, currentSnapshot);
@@ -387,6 +459,7 @@ export default function AnimationStudio({
     const currentSnapshot = {
       project: normalizeProject(project),
       activeFrameIndex,
+      selectedFrameIds: [...selectedFrameIdSet],
       deletedSources,
     };
     const result = redoAnimationProjectHistory(projectHistory, currentSnapshot);
@@ -1974,6 +2047,8 @@ export default function AnimationStudio({
     isPlaying,
     onRegisterAgentControls,
     project.frames,
+    projectHistory,
+    selectedFrameIdSet,
   ]);
 
   // Move frame in timeline (reordering)
@@ -2354,6 +2429,9 @@ export default function AnimationStudio({
         return;
       }
 
+      setSelectedFrameIds([]);
+      selectionAnchorId.current = null;
+      setTimelineMessage('');
       setProject(normalizeProject(parsed.project));
       resetProjectHistory();
       setCols(parsed.cols ?? 4);
@@ -2747,7 +2825,7 @@ export default function AnimationStudio({
 
     window.addEventListener('keydown', handleStudioKeyDown);
     return () => window.removeEventListener('keydown', handleStudioKeyDown);
-  }, [activeFrameIndex, activeSegment, hasActiveFrame, project, showBgRemover, pendingDeleteFrameId, pendingBulkDelete, deletionConfirmations, deletedSources, savedSegments]);
+  }, [activeFrameIndex, activeSegment, hasActiveFrame, project, projectHistory, selectedFrameIdSet, showBgRemover, pendingDeleteFrameId, pendingBulkDelete, deletionConfirmations, deletedSources, savedSegments]);
 
   return (
     <div
@@ -3578,6 +3656,17 @@ export default function AnimationStudio({
             )}
           </div>
 
+          {(project.frames.length > 0 || frameClipboard.length > 0) && (
+            <AnimationTimeline frames={project.frames} activeFrameIndex={activeFrameIndex}
+              selectedIds={selectedFrameIdSet} clipboardCount={frameClipboard.length} message={timelineMessage}
+              onSelect={selectTimelineFrame}
+              onSelectAll={() => { setSelectedFrameIds(project.frames.map(frame => frame.id)); selectionAnchorId.current = project.frames[0]?.id ?? null; setIsPlaying(false); }}
+              onClearSelection={() => { setSelectedFrameIds([]); selectionAnchorId.current = null; }}
+              onCopy={copyTimelineSelection} onPaste={pasteTimelineSelection} onReverse={reverseTimelineSelection}
+              onMoveFrames={moveTimelineSelection} onShift={shiftFrameOrder} onDuplicate={duplicateFrameAt}
+              onRemove={removeFrameAt} getTransform={getFrameTransform} />
+          )}
+
           <div className="lg:hidden border-t border-slate-800 bg-slate-950/70 p-4 space-y-4 shrink-0">
             <div className="flex items-center justify-between">
               <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center space-x-2">
@@ -3887,108 +3976,7 @@ export default function AnimationStudio({
             )}
           </div>
 
-          {/* Timeline slider representation at base */}
-          {project.frames.length > 0 && (
-            <div className="p-4 border-t border-slate-800 bg-slate-950/80 space-y-3 shrink-0">
-              <div className="flex justify-between items-center text-xs">
-                <span className="font-semibold text-slate-400">Frame Sequence Timeline</span>
-                <span className="font-mono text-indigo-400 font-bold">{project.frames.length} total frames</span>
-              </div>
-              
-              <div className="flex space-x-2 overflow-x-auto pb-2 scrollbar-thin">
-                {project.frames.map((frame, idx) => {
-                  const isActive = idx === activeFrameIndex;
-                  return (
-                    <div
-                      key={frame.id}
-                      onClick={() => {
-                        setActiveFrameIndex(idx);
-                        setIsPlaying(false);
-                      }}
-                      className={`relative w-20 h-20 rounded-xl bg-slate-900 border flex flex-col justify-between p-1.5 cursor-pointer shrink-0 transition-all ${
-                        isActive
-                          ? 'border-indigo-500 bg-indigo-950/30 ring-2 ring-indigo-500/35 scale-[1.03] shadow-lg'
-                          : 'border-slate-800/80 hover:border-slate-700 hover:bg-slate-850'
-                      }`}
-                    >
-                      {/* Image Preview */}
-                      <div className="flex-1 bg-checkerboard rounded-lg flex items-center justify-center overflow-hidden border border-slate-950/40 relative">
-                        <img
-                          src={frame.thumbnailUrl}
-                          alt={`Frame ${idx + 1}`}
-                          className="max-w-[85%] max-h-[85%] object-contain"
-                          style={{
-                            transform: getFrameTransform(frame, 0.4),
-                          }}
-                        />
-                        
-                        {/* Sequence Number tag */}
-                        <div className="absolute bottom-1 left-1 bg-slate-950/90 text-[8px] px-1 font-bold text-slate-300 rounded font-mono">
-                          #{idx + 1}
-                        </div>
-                      </div>
 
-                      {/* Small Frame Actions */}
-                      <div className="flex justify-between items-center mt-1 text-[8px] text-slate-400 px-0.5">
-                        <div className="flex space-x-1">
-                          {idx > 0 && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                shiftFrameOrder(idx, 'left');
-                              }}
-                              className="hover:text-indigo-400"
-                              title="Move Left"
-                            >
-                              ◀
-                            </button>
-                          )}
-                          {idx < project.frames.length - 1 && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                shiftFrameOrder(idx, 'right');
-                              }}
-                              className="hover:text-indigo-400"
-                              title="Move Right"
-                            >
-                              ▶
-                            </button>
-                          )}
-                        </div>
-                        <div className="flex items-center space-x-1">
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              duplicateFrameAt(idx);
-                            }}
-                            className="hover:text-emerald-400 transition-colors"
-                            title="Duplicate Frame"
-                            aria-label={`Duplicate frame ${idx + 1}`}
-                          >
-                            <Copy className="h-3 w-3" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              removeFrameAt(idx);
-                            }}
-                            className="hover:text-rose-400 transition-colors"
-                            title="Delete Frame"
-                            aria-label={`Delete frame ${idx + 1}`}
-                          >
-                            <Trash2 className="h-3 w-3" />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
         </section>
 
         {/* 2.3 Right Panel: Visual Perfect Alignment Nudge Controls */}
