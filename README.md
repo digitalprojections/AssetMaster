@@ -32,6 +32,6 @@ This builds the app, publishes `dist` to `https://created.link/assetmaster/`, an
 
 ## Local MCP Companion
 
-AssetMaster 1.1.18 includes a local AI-agent integration. Open **AI integrations** in the web editor, then follow the setup page. The companion provides import, transparent cutout creation, image previews, PNG export, undo/redo and existing editor commands through MCP stdio. A paired browser workspace and explicitly configured asset folder are required. Requested previews and returned content may reach the AI provider.
+AssetMaster 1.1.19 includes a local AI-agent integration. Open **AI integrations** in the web editor, then follow the setup page. The companion provides import, transparent cutout creation, image previews, PNG export, undo/redo and existing editor commands through MCP stdio. A paired browser workspace and explicitly configured asset folder are required. Requested previews and returned content may reach the AI provider.
 
 See [the companion guide](mcp/README.md) for installation, privacy, recovery, tests and release packaging. Run `npm run mcp:install`, then `npm run release:mcp` to validate and build the npm tarball, Windows runtime package, checksums and website downloads. Packages are generated locally; npm publication and a signed installer require publisher access and signing configuration.

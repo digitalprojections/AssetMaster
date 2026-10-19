@@ -27,13 +27,17 @@ await writeFile(path.join(stage, 'assetmaster-mcp.cmd'), '@echo off\r\n"%~dp0run
 // Use an official runtime archive and validate it against Node's published SHA256 list.
 const nodeVersion = process.version;
 const archiveName = `node-${nodeVersion}-win-x64.zip`;
-const runtimeArchive = path.join(output, archiveName);
+const runtimeCache = path.resolve('../release/mcp/runtime-cache');
+await mkdir(runtimeCache, { recursive: true });
+const runtimeArchive = path.join(runtimeCache, archiveName);
 async function download(name) {
-  const response = await fetch(`https://nodejs.org/dist/${nodeVersion}/${name}`);
+  const response = await fetch(`https://nodejs.org/dist/${nodeVersion}/${name}`, { signal: AbortSignal.timeout(30000) });
   if (!response.ok) throw new Error(`Official Node download failed: ${name} (${response.status})`);
   return Buffer.from(await response.arrayBuffer());
 }
-const sums = (await download('SHASUMS256.txt')).toString('utf8');
+const sumsPath = path.join(runtimeCache, `SHASUMS-${nodeVersion}.txt`);
+let sums;
+try { sums = await readFile(sumsPath, 'utf8'); } catch { sums = (await download('SHASUMS256.txt')).toString('utf8'); await writeFile(sumsPath, sums); }
 const expected = sums.split('\n').find(line => line.trim().endsWith(` ${archiveName}`))?.split(/\s+/)[0];
 if (!expected) throw new Error('Official runtime checksum is unavailable.');
 let archive;

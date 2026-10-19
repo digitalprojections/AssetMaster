@@ -1,6 +1,6 @@
 {
   "name": "assetmaster-mcp-server",
-  "version": "1.1.18",
+  "version": "1.1.19",
   "description": "Local AI agent tools for the AssetMaster image editor.",
   "type": "module",
   "bin": {

@@ -51,7 +51,7 @@
     {
       "type": "mcp",
       "name": "assetmaster-mcp-server",
-      "version": "1.1.18",
+      "version": "1.1.19",
       "transport": "stdio",
       "setup_url": "https://created.link/assetmaster/mcp/",
       "requires": "A local companion and explicitly paired open browser workspace."

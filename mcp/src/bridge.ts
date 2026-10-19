@@ -1,3 +1,4 @@
+import { getRelayScript } from './relay.js';
 import { createServer, type IncomingMessage, type ServerResponse, type Server } from 'node:http';
 import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 
@@ -87,8 +88,9 @@ export class LocalBridge {
     if (![`127.0.0.1:${port}`, `localhost:${port}`].includes(req.headers.host ?? '')) return this.reply(res, 403, { error: 'Invalid local Host header.' });
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('Referrer-Policy', 'no-referrer');
-    res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'");
+    res.setHeader('Content-Security-Policy', "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'");
     const route = new URL(req.url ?? '/', this.url).pathname;
+    if (req.method === 'GET' && route === '/relay.js') { res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'X-Content-Type-Options': 'nosniff' }); res.end(getRelayScript(this.options.origins)); return; }
     if (req.method === 'GET' && route === '/') {
       if (req.headers.origin || req.headers['sec-fetch-site'] === 'cross-site') return this.reply(res, 403, { error: 'Open this address directly in your browser.' });
       this.status();
@@ -96,10 +98,10 @@ export class LocalBridge {
       const app = this.options.origins.includes('https://created.link') ? 'https://created.link/assetmaster/' : `${this.options.origins[0]}/`;
       const link = `${app}#mcp-port=${port}&mcp-code=${this.code}`;
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      return res.end(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>AssetMaster AI connection</title><style>body{font:17px system-ui;background:#020617;color:#e2e8f0;max-width:650px;margin:8vh auto;padding:24px;line-height:1.6}a{color:#67e8f9}code{overflow-wrap:anywhere}h1{line-height:1.2}</style><h1>Connect AssetMaster to your AI agent</h1><p>${this.session ? 'An editor is connected. Disconnect it in AssetMaster before pairing another workspace.' : 'Open AssetMaster using the link below, then choose Connect in the AI integrations panel.'}</p><p><a href="${link}" rel="noreferrer">Open AssetMaster to connect</a></p><p>For a different supported AssetMaster tab, enter port <strong>${port}</strong> and this pairing code:</p><p><code>${this.code}</code></p><p>Pairing expires after 10 minutes. Reload after disconnecting to get a new code. Image data shared with the agent may be sent to its AI provider.</p></html>`);
+      return res.end(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>AssetMaster AI connection</title><style>body{font:17px system-ui;background:#020617;color:#e2e8f0;max-width:650px;margin:8vh auto;padding:24px;line-height:1.6}a{color:#67e8f9}code{overflow-wrap:anywhere}h1{line-height:1.2}</style><h1>Connect AssetMaster to your AI agent</h1><p>${this.session ? 'An editor is connected. Disconnect it in AssetMaster before pairing another workspace.' : 'Open AssetMaster using the link below, then choose Connect in the AI integrations panel.'}</p><p><a id="connect-editor" href="${link}" target="assetmaster-paired-editor">Open AssetMaster to connect</a></p><p>For a different supported AssetMaster tab, enter port <strong>${port}</strong> and this pairing code:</p><p><code>${this.code}</code></p><p>Keep this pairing page open. Pairing expires after 10 minutes. Reload after disconnecting to get a new code. Image data shared with the agent may be sent to its AI provider.</p><p id="relay-status" role="status"></p><script src="/relay.js"></script></html>`);
     }
     const origin = req.headers.origin ?? '';
-    if (!this.options.origins.includes(origin)) return this.reply(res, 403, { error: 'Origin is not allowed.' });
+    if (![...this.options.origins, this.url].includes(origin)) return this.reply(res, 403, { error: 'Origin is not allowed.' });
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Vary', 'Origin');
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');

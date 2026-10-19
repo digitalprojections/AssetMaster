@@ -57,4 +57,4 @@ Local file picker and download actions require explicit confirmation with `confi
 
 Setup and downloads: https://created.link/assetmaster/mcp/
 
-Version 1.1.18 provides local stdio MCP tools through a separately installed companion. It requires an explicitly paired, open AssetMaster browser workspace. Use assetmaster_status for the local pairing page. Tools cover state, paginated asset metadata, image import, rectangle/polygon cutouts, PNG previews/exports, cutout undo/redo and existing editor/animation commands. Files are restricted to the explicitly configured workspace folder. Never claim a connection until status and a live state request succeed.
+Version 1.1.19 provides local stdio MCP tools through a separately installed companion. It requires an explicitly paired, open AssetMaster browser workspace. Use assetmaster_status for the local pairing page. Tools cover state, paginated asset metadata, image import, rectangle/polygon cutouts, PNG previews/exports, cutout undo/redo and existing editor/animation commands. Files are restricted to the explicitly configured workspace folder. Never claim a connection until status and a live state request succeed.

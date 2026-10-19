@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 import { LocalBridge, type EditorResult } from './bridge.js';
 import { WorkspaceFiles } from './files.js';
-export const VERSION = '1.1.18';
+export const VERSION = '1.1.19';
 const point = z.object({ x: z.number().finite(), y: z.number().finite() });
 const command = z.object({ action: z.enum(['readState', 'setTool', 'setFeather', 'setSnapRadius', 'clearSelection', 'toggleSidebar', 'openCollageStudio', 'openAnimationStudio', 'closeOverlays', 'zoomIn', 'zoomOut', 'zoomFit', 'zoom100', 'animationUndo', 'animationRedo', 'animationSetEraser', 'animationSetEraserRadius', 'animationEraseStroke', 'animationSetFrame']), value: z.union([z.string(), z.number().finite(), z.boolean()]).optional(), points: z.array(point).max(10000).optional(), open: z.boolean().optional() });
 const text = (data: Record<string, unknown>) => ({ content: [{ type: 'text' as const, text: JSON.stringify(data) }], structuredContent: data });

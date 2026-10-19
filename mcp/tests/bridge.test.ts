@@ -93,3 +93,18 @@ test('session credentials work only on the origin that paired the editor', async
     assert.equal(b.status().connected, true);
   } finally { await b.close(); }
 });
+
+test('local pairing page supplies a pinned postMessage relay for hosted editors', async () => {
+  const b = await fixture();
+  try {
+    const response = await fetch(b.url);
+    const html = await response.text();
+    assert.match(html, /relay\.js/);
+    assert.match(html, /id="connect-editor"/);
+    const script = await fetch(`${b.url}/relay.js`);
+    assert.equal(script.status, 200);
+    assert.match(await script.text(), /event\.source !== editorWindow/);
+    const paired = await request(b, '/pair', { code: b.pairingCode }, undefined, b.url);
+    assert.equal(paired.status, 200);
+  } finally { await b.close(); }
+});

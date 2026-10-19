@@ -1,6 +1,6 @@
 # AssetMaster MCP companion
 
-Connect a local AI application to the AssetMaster browser editor. Version 1.1.18 uses the official MCP TypeScript SDK v2 and stdio transport. The companion must run on the same computer as the browser.
+Connect a local AI application to the AssetMaster browser editor. Version 1.1.19 uses the official MCP TypeScript SDK v2 and stdio transport. The companion must run on the same computer as the browser.
 
 ## Windows download
 
@@ -21,7 +21,7 @@ Paste the emitted `mcpServers` entry into a compatible client's settings. Client
 With Node.js 22 or newer, install the supplied tarball:
 
 ```text
-npm install -g ./assetmaster-mcp-server-1.1.18.tgz
+npm install -g ./assetmaster-mcp-server-1.1.19.tgz
 assetmaster-mcp --config --workspace /absolute/path/to/assets
 ```
 
@@ -32,7 +32,7 @@ The package is independently buildable and ready for npm publication, but a pack
 1. Add the emitted executable/arguments to your AI application and start its MCP connection.
 2. Ask it to call `assetmaster_status`. Open the returned local `pairingUrl` directly in your browser.
 3. Follow **Open AssetMaster to connect**, then choose **Connect workspace**. For local development pass `--origin http://localhost:3001` so this link opens the development editor.
-4. If your browser asks, allow local network access for AssetMaster. Keep the tab open. The **AI integrations** button shows connection status and lets you disconnect.
+4. If your browser asks, allow local network access for AssetMaster. Keep both the local pairing page and editor tab open. The pairing page relays messages using the exact origin and opened-window identity; the hosted editor does not need to fetch localhost directly. The **AI integrations** button shows connection status and lets you disconnect.
 5. Ask the agent to inspect state, import an image, create a cutout, preview it, and export a PNG to a new filename.
 
 Pairing expires after ten minutes. One workspace can connect to a companion at a time. Credentials stay in memory. Reloading/closing the editor loses the connection. Disconnect, refresh the local pairing page, and pair again; restarting the companion also creates fresh credentials. A different AI-client connection needs its own companion port (`--port 0` chooses a free one).
@@ -54,7 +54,7 @@ The resource `assetmaster://workflow` describes usage and recovery. This release
 
 ## Privacy and file access
 
-No folder is accessible unless `--workspace` is explicitly configured. File paths and resolved directory links must stay inside it. Choose a dedicated assets folder. The companion binds to `127.0.0.1`, validates HTTP Host and exact allowed browser origins, and requires a short-lived pairing code followed by a per-session credential. Pairing secrets never appear in MCP tool results or persistent configuration.
+No folder is accessible unless `--workspace` is explicitly configured. File paths and resolved directory links must stay inside it. Choose a dedicated assets folder. The browser-message relay accepts only the exact opened editor window and configured origin. The companion binds to `127.0.0.1`, validates HTTP Host and exact allowed browser origins, and requires a short-lived pairing code followed by a per-session credential. Pairing secrets never appear in MCP tool results or persistent configuration.
 
 Editing runs in the browser. Metadata, requested previews, and any other returned content are passed to your AI application and may be sent to its model provider. Local processing does not imply that the AI provider receives no data. AssetMaster does not add a remote relay in this release.
 

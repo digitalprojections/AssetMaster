@@ -6,7 +6,7 @@ available(false);
 fetch('../downloads/mcp-release.json', { cache: 'no-store' }).then(async response => {
   if (!response.ok) throw new Error('unavailable');
   const release = await response.json();
-  if (release.product !== 'AssetMaster MCP' || release.version !== '1.1.18' || !Array.isArray(release.downloads) || release.downloads.length !== 2) throw new Error('invalid');
+  if (release.product !== 'AssetMaster MCP' || release.version !== '1.1.19' || !Array.isArray(release.downloads) || release.downloads.length !== 2) throw new Error('invalid');
   status.textContent = `AssetMaster companion ${release.version} downloads are available. Editor connection is checked after installation and pairing.`;
   signing.textContent = release.scriptsSigned ? 'Installer scripts have verified Authenticode signatures. The bundled Node.js runtime was verified against its official SHA-256 checksum.' : 'This preview companion package is unsigned. The bundled Node.js runtime was verified against its official SHA-256 checksum.';
   available(true);

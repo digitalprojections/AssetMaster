@@ -3,9 +3,10 @@ import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { mkdir, writeFile, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import assert from 'node:assert/strict';
+const editorOrigin = process.argv[2] ?? 'http://localhost:3001';
 const workspace = path.resolve('../.browser-test/mcp');
 await mkdir(workspace, { recursive: true });
-const transport = new StdioClientTransport({ command: process.execPath, args: [path.resolve('dist/index.js'), '--port', '38475', '--workspace', workspace, '--origin', 'http://localhost:3001'], stderr: 'pipe' });
+const transport = new StdioClientTransport({ command: process.execPath, args: [path.resolve('dist/index.js'), '--port', '38475', '--workspace', workspace, '--origin', editorOrigin], stderr: 'pipe' });
 const client = new Client({ name: 'assetmaster-browser-journey', version: '1.0.0' });
 async function call(name, args = {}) {
   const result = await client.callTool({ name: `assetmaster_${name}`, arguments: args });
@@ -42,7 +43,7 @@ try {
   assert.equal(invalid.isError, true);
   const overwrite = await client.callTool({ name: 'assetmaster_export_png', arguments: { assetId: cutout.assetId, path: path.basename(exported.path) } });
   assert.equal(overwrite.isError, true);
-  const evidence = { state: 'success', transport: 'MCP stdio SDK v2', toolCount: (await client.listTools()).tools.length, source: { width: 64, height: 48 }, cutout: { width: 48, height: 32, assetId: cutout.assetId }, output: exported.path, checks: ['browser pairing', 'import', 'polygon cutout', 'image preview', 'verified PNG dimensions', 'undo', 'redo', 'state after edit', 'batch', 'bounds rejection', 'overwrite rejection'] };
+  const evidence = { state: 'success', editorOrigin, transport: 'MCP stdio SDK v2', toolCount: (await client.listTools()).tools.length, source: { width: 64, height: 48 }, cutout: { width: 48, height: 32, assetId: cutout.assetId }, output: exported.path, checks: ['browser pairing', 'import', 'polygon cutout', 'image preview', 'verified PNG dimensions', 'undo', 'redo', 'state after edit', 'batch', 'bounds rejection', 'overwrite rejection'] };
   await writeFile(path.join(workspace, 'evidence.json'), JSON.stringify(evidence, null, 2));
   console.log(JSON.stringify(evidence));
   await call('undo_cutout');

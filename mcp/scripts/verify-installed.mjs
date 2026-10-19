@@ -8,6 +8,6 @@ try {
   assert.equal((await client.listTools()).tools.length, 10);
   const status = await client.callTool({ name: 'assetmaster_status', arguments: {} });
   assert.equal(status.structuredContent.state, 'unavailable');
-  assert.equal(status.structuredContent.version, '1.1.18');
+  assert.equal(status.structuredContent.version, '1.1.19');
   console.log('Installed MCP stdio discovery verified.');
 } finally { await client.close(); }

@@ -1,11 +1,18 @@
+import { requestMcpRelay } from './mcpRelay';
 import { getCompanionAddress, type McpEditorRequest, type McpEditorResult } from './mcpEditor';
 export type ConnectionState = 'unavailable' | 'loading' | 'success' | 'error';
 export class McpConnection {
   private controller = new AbortController();
   private token?: string;
   private url: string;
-  constructor(port: string, private execute: (request: McpEditorRequest) => Promise<McpEditorResult>, private changed: (state: ConnectionState, message: string) => void, private reset?: () => void) { this.url = getCompanionAddress(port); }
+  constructor(port: string, private execute: (request: McpEditorRequest) => Promise<McpEditorResult>, private changed: (state: ConnectionState, message: string) => void, private reset?: () => void, private relay?: Window) { this.url = getCompanionAddress(port); }
   private async post(route: string, body: unknown, keepalive = false) {
+    if (this.relay) {
+      const signal = keepalive ? AbortSignal.timeout(5000) : AbortSignal.any([this.controller.signal, AbortSignal.timeout(30000)]);
+      const response = await requestMcpRelay(this.relay, this.url, route, body, this.token, signal);
+      if (response.status < 200 || response.status >= 300) throw new Error(String(response.result.error ?? 'The companion could not complete the request.'));
+      return response.result;
+    }
     const response = await fetch(`${this.url}${route}`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}) }, body: JSON.stringify(body), signal: keepalive ? AbortSignal.timeout(5000) : AbortSignal.any([this.controller.signal, AbortSignal.timeout(30000)]), keepalive });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error ?? 'The companion could not complete the request.');
@@ -15,8 +22,9 @@ export class McpConnection {
     this.changed('loading', 'Connecting to your local companion…');
     try {
       const timeout = setTimeout(() => this.controller.abort(), 15000);
-      let paired: { token: string };
+      let paired: { token?: unknown };
       try { paired = await this.post('/pair', { code }); } finally { clearTimeout(timeout); }
+      if (typeof paired.token !== 'string') throw new Error('The companion returned invalid pairing credentials.');
       this.token = paired.token;
       this.reset?.();
       this.changed('success', 'Connected. Your AI agent can work in this editor.');

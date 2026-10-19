@@ -48,3 +48,4 @@ import './cleanupSession.test';
 import './mcpEditor.test';
 import './mcpConnection.test';
 import './mcpCutoutHistory.test';
+import './mcpRelay.test';
