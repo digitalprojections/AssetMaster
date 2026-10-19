@@ -31,3 +31,6 @@ public/downloads/
 *.tgz
 .assetmaster-mcp/
 mcp/THIRD-PARTY-NOTICES.txt
+
+# Local temporary automation files
+*.tmp

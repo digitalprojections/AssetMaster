@@ -1,4 +1,4 @@
-import { getCleanupSessionStorage, readBorderDetection, saveBorderDetection } from '../utils/cleanupSession';
+import { getCleanupSessionStorage, readCleanupSettings, saveCleanupSettings, readBorderDetection, saveBorderDetection } from '../utils/cleanupSession';
 import { panScroll } from '../utils/cleanupPan';
 import React, { useState, useEffect, useRef } from 'react';
 import { SavedSegment } from '../types';
@@ -50,11 +50,12 @@ const ZOOM_MAX = 12;
 const ZOOM_STEP = 0.25;
 
 export default function BackgroundRemover({ segment, onSave, onClose }: BackgroundRemoverProps) {
+  const [initialSettings] = useState(() => readCleanupSettings(getCleanupSessionStorage()));
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const magicBrushColorRef = useRef<RgbColor | null>(null);
   
-  const [panMode, setPanMode] = useState(false);
+  const [panMode, setPanMode] = useState(initialSettings.panMode);
   const panGesture = useRef<{ id: number; start: PixelPoint; scroll: PixelPoint } | null>(null);
 
   const startPan = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -83,16 +84,16 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
   const [baseImage, setBaseImage] = useState<string>(segment.thumbnailUrl);
 
   // Active tool state
-  const [activeTool, setActiveTool] = useState<'magic-wand' | 'eraser' | 'shave'>('magic-wand');
-  const [eraserMode, setEraserMode] = useState<'manual' | 'color-match'>('manual');
+  const [activeTool, setActiveTool] = useState<'magic-wand' | 'eraser' | 'shave'>(initialSettings.activeTool);
+  const [eraserMode, setEraserMode] = useState<'manual' | 'color-match'>(initialSettings.eraserMode);
 
   // Parameters
-  const [magicTolerance, setMagicTolerance] = useState<number>(30);
-  const [keyStrengthPercent, setKeyStrengthPercent] = useState<number>(100);
-  const [keyEdgeFadePercent, setKeyEdgeFadePercent] = useState<number>(45);
-  const [magicBrushSize, setMagicBrushSize] = useState<number>(10);
-  const [brushSize, setBrushSize] = useState<number>(16);
-  const [shaveWidth, setShaveWidth] = useState<number>(1);
+  const [magicTolerance, setMagicTolerance] = useState<number>(initialSettings.magicTolerance);
+  const [keyStrengthPercent, setKeyStrengthPercent] = useState<number>(initialSettings.keyStrengthPercent);
+  const [keyEdgeFadePercent, setKeyEdgeFadePercent] = useState<number>(initialSettings.keyEdgeFadePercent);
+  const [magicBrushSize, setMagicBrushSize] = useState<number>(initialSettings.magicBrushSize);
+  const [brushSize, setBrushSize] = useState<number>(initialSettings.brushSize);
+  const [shaveWidth, setShaveWidth] = useState<number>(initialSettings.shaveWidth);
   const [isContiguous, setIsContiguous] = useState(() => readBorderDetection(getCleanupSessionStorage()));
   const setBorderDetection = (enabled: boolean) => {
     setIsContiguous(enabled);
@@ -104,7 +105,7 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
   const [previewColor, setPreviewColor] = useState<RgbColor | null>(null);
   const [pickedPoint, setPickedPoint] = useState<PixelPoint | null>(null);
   const [edgeSeedPoint, setEdgeSeedPoint] = useState<PixelPoint | null>(null);
-  const [manualKeyColor, setManualKeyColor] = useState<string>('#ffffff');
+  const [manualKeyColor, setManualKeyColor] = useState<string>(initialSettings.manualKeyColor);
   const [isAutoDetectedKeyColor, setIsAutoDetectedKeyColor] = useState<boolean>(true);
 
   // Drawing state for manual eraser
@@ -113,8 +114,16 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
 
   // Canvas context and image load state
   const [canvasSize, setCanvasSize] = useState({ width: segment.bounds.width, height: segment.bounds.height });
-  const [viewZoom, setViewZoom] = useState<number>(1);
+  const [viewZoom, setViewZoom] = useState<number>(initialSettings.viewZoom);
   const [workspaceSize, setWorkspaceSize] = useState({ width: 0, height: 0 });
+
+  useEffect(() => {
+    saveCleanupSettings(getCleanupSessionStorage(), {
+      activeTool, eraserMode, magicTolerance, keyStrengthPercent, keyEdgeFadePercent,
+      magicBrushSize, brushSize, shaveWidth, manualKeyColor, panMode, viewZoom,
+    });
+  }, [activeTool, eraserMode, magicTolerance, keyStrengthPercent, keyEdgeFadePercent,
+    magicBrushSize, brushSize, shaveWidth, manualKeyColor, panMode, viewZoom]);
 
   // Responsive controls state
   const [isControlsOpen, setIsControlsOpen] = useState<boolean>(false);
@@ -309,7 +318,6 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
 
     setBaseImage(segment.thumbnailUrl);
     setHistory([]);
-    setViewZoom(1);
     setPickedColor(null);
     setPreviewColor(null);
     setPickedPoint(null);
@@ -323,11 +331,9 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
       }
 
       if (!detection) {
-        setManualKeyColor('#ffffff');
         return;
       }
 
-      setManualKeyColor(rgbToHex(detection.color));
       setPickedColor(detection.color);
       setPickedPoint(detection.point);
       setEdgeSeedPoint(detection.point);
