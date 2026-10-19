@@ -3,7 +3,7 @@ const signing = document.getElementById('signing-status');
 const links = document.querySelectorAll('a.button');
 const available = enabled => links.forEach(link => { link.setAttribute('aria-disabled', String(!enabled)); if (!enabled) { link.dataset.href = link.getAttribute('href'); link.removeAttribute('href'); } else if (link.dataset.href) link.setAttribute('href', link.dataset.href); });
 available(false);
-fetch('../downloads/mcp-release.json', { cache: 'no-store' }).then(async response => {
+fetch('../downloads/mcp-release.json?v=1.1.19', { cache: 'no-store' }).then(async response => {
   if (!response.ok) throw new Error('unavailable');
   const release = await response.json();
   if (release.product !== 'AssetMaster MCP' || release.version !== '1.1.19' || !Array.isArray(release.downloads) || release.downloads.length !== 2) throw new Error('invalid');
