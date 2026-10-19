@@ -10,7 +10,8 @@
     "manifest_url": "https://created.link/assetmaster/agent.json",
     "well_known_url": "https://created.link/assetmaster/.well-known/assetmaster-agent.json",
     "llms_url": "https://created.link/assetmaster/llms.txt",
-    "sitemap_url": "https://created.link/assetmaster/sitemap.xml"
+    "sitemap_url": "https://created.link/assetmaster/sitemap.xml",
+    "mcp_setup_url": "https://created.link/assetmaster/mcp/"
   },
   "control_surfaces": [
     {
@@ -35,7 +36,9 @@
             "description": "Same command object accepted by window.assetMasterAgent.run(command)."
           }
         },
-        "required": ["command"]
+        "required": [
+          "command"
+        ]
       },
       "dom_hooks": {
         "ready": "[data-agent-control=\"ready\"]",
@@ -44,6 +47,14 @@
         "actions": "[data-agent-action]",
         "tools": "[data-agent-tool]"
       }
+    },
+    {
+      "type": "mcp",
+      "name": "assetmaster-mcp-server",
+      "version": "1.1.18",
+      "transport": "stdio",
+      "setup_url": "https://created.link/assetmaster/mcp/",
+      "requires": "A local companion and explicitly paired open browser workspace."
     }
   ],
   "commands": [
@@ -57,7 +68,12 @@
       "description": "Switch the active selection tool.",
       "value": {
         "type": "string",
-        "enum": ["select", "rectangle", "lasso", "magnetic"]
+        "enum": [
+          "select",
+          "rectangle",
+          "lasso",
+          "magnetic"
+        ]
       },
       "requires_loaded_image": true,
       "confirmation_required": false
@@ -195,10 +211,17 @@
         "items": {
           "type": "object",
           "properties": {
-            "x": { "type": "number" },
-            "y": { "type": "number" }
+            "x": {
+              "type": "number"
+            },
+            "y": {
+              "type": "number"
+            }
           },
-          "required": ["x", "y"]
+          "required": [
+            "x",
+            "y"
+          ]
         },
         "minItems": 1
       },
@@ -216,8 +239,8 @@
     }
   ],
   "privacy": {
-    "storage": "Project images and cutouts stay in the user's browser unless the user exports files.",
-    "network": "The static control manifest does not receive commands or upload user files.",
+    "storage": "Images and cutouts are stored in the browser. With the local MCP companion, requested imports and exports use the configured local folder.",
+    "network": "The static manifest receives no commands. A paired local companion exchanges editor commands and results; requested previews and returned content may reach the AI application and its model provider.",
     "confirmation_policy": "Local file picker and download actions require confirm: true."
   },
   "limits": [

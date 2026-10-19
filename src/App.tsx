@@ -1,3 +1,7 @@
+import { McpCutoutHistory } from './utils/mcpCutoutHistory';
+import { flushSync } from 'react-dom';
+import McpConnectionPanel from './components/McpConnectionPanel';
+import { getCutoutPath, getMcpPng, loadMcpImage, type McpEditorRequest, type McpEditorResult } from './utils/mcpEditor';
 import { reconcileDeletedSources, markTimelineRemovedSources } from './utils/animationFrameDeletion';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Point, SavedSegment, SelectionTool, RectBounds, AssetLibraryFile } from './types';
@@ -161,6 +165,7 @@ export default function App() {
   const [isBillingBusy, setIsBillingBusy] = useState<boolean>(false);
   const [billingMessage, setBillingMessage] = useState<string | null>(null);
   const [lastAgentCommandMessage, setLastAgentCommandMessage] = useState<string>('Ready for local agent control');
+  const mcpCutoutHistory = useRef(new McpCutoutHistory<SavedSegment>());
   const emptyWorkspaceCopy = getEmptyWorkspaceCopy();
 
   // Auto-collapse sidebar on small screens on load
@@ -1949,6 +1954,80 @@ export default function App() {
     zoom,
   ]);
 
+  const executeMcpRequest = async (request: McpEditorRequest): Promise<McpEditorResult> => {
+    if (!request || typeof request.action !== 'string') throw new Error('Invalid editor request.');
+    const asset = (assetId: unknown): HTMLImageElement | string => {
+      if (assetId === 'source') { if (!image) throw new Error('Import a source image first.'); return image; }
+      const segment = savedSegments.find(item => item.id === assetId);
+      if (!segment) throw new Error('Asset not found. List assets to obtain a current ID.');
+      return segment.thumbnailUrl;
+    };
+    switch (request.action) {
+      case 'inspect':
+        return { ok: true, state: window.assetMasterAgent?.getState(), capabilities: window.assetMasterAgent?.getCapabilities(), canUndoCutout: mcpCutoutHistory.current.canUndo, canRedoCutout: mcpCutoutHistory.current.canRedo };
+      case 'listAssets': {
+        if (!isLibraryHydrated) throw new Error('The asset library is still loading. Try again when it is ready.');
+        const offset = Number(request.offset ?? 0), limit = Number(request.limit ?? 30);
+        if (!Number.isInteger(offset) || offset < 0 || !Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error('Invalid asset pagination.');
+        return { ok: true, total: savedSegments.length, offset, hasMore: offset + limit < savedSegments.length, source: image ? { id: 'source', name: imageName, width: image.width, height: image.height } : null, assets: savedSegments.slice(offset, offset + limit).map(({ id, name, bounds }) => ({ id, name, width: bounds.width, height: bounds.height })) };
+      }
+      case 'importImage': {
+        if (typeof request.dataUrl !== 'string' || typeof request.name !== 'string') throw new Error('Image data and filename are required.');
+        const next = await loadMcpImage(request.dataUrl);
+        flushSync(() => { setImage(next); setImageName(String(request.name)); setImageInputId(crypto.randomUUID()); setIsLoading(false); setErrorMsg(null); setActivePath([]); setIsClosed(false); setRectStart(null); setRectEnd(null); setRectSnapPreview(null); setHoverPoint(null); setAutoSelectionRows(null); setHoveredAutoSelectionRowIndex(null); setZoom(1); setOffset({ x: 20, y: 20 }); });
+        return { ok: true, assetId: 'source', width: next.naturalWidth, height: next.naturalHeight };
+      }
+      case 'createCutout': {
+        if (!image) throw new Error('Import a source image first.');
+        if (!isLibraryHydrated) throw new Error('The asset library is still loading. Try again when it is ready.');
+        if (typeof request.name !== 'string' || !request.name.trim() || request.name.length > 160) throw new Error('A cutout name of 1 to 160 characters is required.');
+        const path = getCutoutPath(request as { rectangle?: RectBounds; points?: Point[] }, image.width, image.height);
+        const feather = request.feather ?? 0;
+        if (typeof feather !== 'number' || !Number.isFinite(feather) || feather < 0 || feather > 40) throw new Error('Feather must be between 0 and 40 pixels.');
+        const bounds = getPathBounds(path, image.width, image.height);
+        const thumbnailUrl = createSegmentImage(image, path, bounds, feather);
+        const name = request.name.trim().replace(/\.png$/i, '') + '.png';
+        const segment: SavedSegment = { id: crypto.randomUUID(), name, path, type: request.rectangle ? 'rectangle' : 'lasso', bounds, feather, thumbnailUrl, createdAt: Date.now(), inputSourceId: imageInputId, inputSourceName: imageName, inputSourceType: 'image', tags: [] };
+        flushSync(() => setSavedSegments(current => [segment, ...current]));
+        mcpCutoutHistory.current.record(segment);
+        return { ok: true, assetId: segment.id, name, width: bounds.width, height: bounds.height };
+      }
+      case 'preview':
+      case 'exportPng': return { ok: true, ...await getMcpPng(asset(request.assetId), request.action === 'preview') };
+      case 'undoCutout': {
+        const segment = mcpCutoutHistory.current.undo(savedSegments);
+        flushSync(() => setSavedSegments(current => current.filter(item => item.id !== segment.id)));
+        return { ok: true, assetId: segment.id };
+      }
+      case 'redoCutout': {
+        const segment = mcpCutoutHistory.current.redo();
+        flushSync(() => setSavedSegments(current => [segment, ...current]));
+        return { ok: true, assetId: segment.id };
+      }
+      case 'editorCommand': {
+        const api = window.assetMasterAgent;
+        if (!api) throw new Error('Editor controls are loading. Try again.');
+        let operation: ReturnType<typeof api.run>;
+        flushSync(() => { operation = api.run(request.command as AgentCommand); });
+        const result = await operation!;
+        // The handler above can be async (for example an eraser stroke). Allow React to commit.
+        await new Promise<void>(resolve => setTimeout(resolve, 0));
+        return { ...result, state: window.assetMasterAgent?.getState() };
+      }
+      case 'batchCommands': {
+        if (!Array.isArray(request.commands) || request.commands.length < 1 || request.commands.length > 100) throw new Error('Batch requires 1 to 100 commands.');
+        const results: McpEditorResult[] = [];
+        for (const command of request.commands) {
+          const result = await executeMcpRequest({ action: 'editorCommand', command });
+          results.push(result);
+          if (!result.ok) return { ok: false, message: result.message, completed: results.length - 1, results };
+        }
+        return { ok: true, completed: results.length, results };
+      }
+      default: throw new Error('Unsupported MCP editor operation.');
+    }
+  };
+
   return (
     <div
       id="app-root"
@@ -2043,6 +2122,8 @@ export default function App() {
             <span className="hidden sm:inline">Compact UI</span>
             <span className="sm:hidden">Compact</span>
           </button>
+
+          {!Capacitor.isNativePlatform() && <McpConnectionPanel execute={executeMcpRequest} reset={() => { mcpCutoutHistory.current.reset(); }} />}
 
           {/* Open Collage Studio button */}
           <button

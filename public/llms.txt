@@ -16,7 +16,7 @@ Canonical application: https://created.link/assetmaster/
 ## Usage notes
 
 - The interactive editor requires JavaScript and a modern browser.
-- User projects and cutouts are stored locally in the browser unless explicitly exported by the user.
+- User projects and cutouts are stored in the browser; a paired local MCP companion can import/export files in the configured folder. Requested previews and returned content may reach the AI application and its provider.
 - The application is available at no charge.
 - AssetMaster serves English-language creators in the United States, Japan, and worldwide from its canonical web app URL.
 
@@ -52,3 +52,9 @@ When Animation Studio is open, supported animation commands include `animationUn
 and `animationSetFrame`.
 
 Local file picker and download actions require explicit confirmation with `confirm: true`.
+
+## Local MCP companion
+
+Setup and downloads: https://created.link/assetmaster/mcp/
+
+Version 1.1.18 provides local stdio MCP tools through a separately installed companion. It requires an explicitly paired, open AssetMaster browser workspace. Use assetmaster_status for the local pairing page. Tools cover state, paginated asset metadata, image import, rectangle/polygon cutouts, PNG previews/exports, cutout undo/redo and existing editor/animation commands. Files are restricted to the explicitly configured workspace folder. Never claim a connection until status and a live state request succeed.

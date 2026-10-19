@@ -22,3 +22,12 @@ playwright-report/
 # Local Python automation caches
 __pycache__/
 *.py[cod]
+
+# MCP companion packages, downloads and local pairing state
+mcp/dist/
+mcp/node_modules/
+release/mcp/
+public/downloads/
+*.tgz
+.assetmaster-mcp/
+mcp/THIRD-PARTY-NOTICES.txt

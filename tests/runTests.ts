@@ -44,3 +44,7 @@ import './sourceGroups.test';
 import './deletionConfirmations.test';
 
 import './cleanupSession.test';
+
+import './mcpEditor.test';
+import './mcpConnection.test';
+import './mcpCutoutHistory.test';
