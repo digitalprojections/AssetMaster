@@ -1,5 +1,6 @@
 import { getCleanupSessionStorage, readCleanupSettings, saveCleanupSettings, readBorderDetection, saveBorderDetection } from '../utils/cleanupSession';
 import { panScroll } from '../utils/cleanupPan';
+import { getCleanupNavigation } from '../utils/cleanupNavigation';
 import React, { useState, useEffect, useRef } from 'react';
 import { SavedSegment } from '../types';
 import {
@@ -15,7 +16,9 @@ import {
   Settings,
   Grid,
   Minus,
-  Plus
+  Plus,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import {
   MAX_KEY_EDGE_FADE_PERCENT,
@@ -33,6 +36,8 @@ interface BackgroundRemoverProps {
   segment: SavedSegment;
   onSave: (updatedUrl: string) => void;
   onClose: () => void;
+  segments?: readonly SavedSegment[];
+  onSelectSegment?: (segment: SavedSegment) => void;
 }
 
 type PixelPoint = {
@@ -49,7 +54,10 @@ const ZOOM_MIN = 1;
 const ZOOM_MAX = 12;
 const ZOOM_STEP = 0.25;
 
-export default function BackgroundRemover({ segment, onSave, onClose }: BackgroundRemoverProps) {
+export default function BackgroundRemover({ segment, onSave, onClose, segments = [segment], onSelectSegment }: BackgroundRemoverProps) {
+  const navigation = getCleanupNavigation(segments, segment.id);
+  const drafts = useRef(new Map<string, { sourceUrl: string; image: string; history: string[] }>());
+  const [imageState, setImageState] = useState<'loading' | 'success' | 'error'>('loading');
   const [initialSettings] = useState(() => readCleanupSettings(getCleanupSessionStorage()));
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -316,8 +324,14 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
   useEffect(() => {
     let isCancelled = false;
 
-    setBaseImage(segment.thumbnailUrl);
-    setHistory([]);
+    const storedDraft = drafts.current.get(segment.id);
+    const draft = storedDraft?.sourceUrl === segment.thumbnailUrl ? storedDraft : undefined;
+    setImageState('loading');
+    setBaseImage(draft?.image ?? segment.thumbnailUrl);
+    setHistory(draft?.history ?? []);
+    setIsDrawing(false);
+    setMousePos(null);
+    panGesture.current = null;
     setPickedColor(null);
     setPreviewColor(null);
     setPickedPoint(null);
@@ -378,8 +392,11 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
     if (!ctx) return;
 
     const img = new Image();
+    let cancelled = false;
+    setImageState('loading');
     img.crossOrigin = 'anonymous';
     img.onload = () => {
+      if (cancelled) return;
       canvas.width = img.width;
       canvas.height = img.height;
       setCanvasSize({ width: img.width, height: img.height });
@@ -394,9 +411,12 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
           keyOutColor(previewColor.r, previewColor.g, previewColor.b, magicTolerance);
         }
       }
+      setImageState('success');
     };
+    img.onerror = () => { if (!cancelled) setImageState('error'); };
     img.src = baseImage;
-  }, [baseImage, previewColor, pickedPoint, isContiguous, magicTolerance, keyStrengthPercent, keyEdgeFadePercent]);
+    return () => { cancelled = true; };
+  }, [segment.id, baseImage, previewColor, pickedPoint, isContiguous, magicTolerance, keyStrengthPercent, keyEdgeFadePercent]);
 
   // Push current canvas state to history
   const pushHistory = () => {
@@ -483,6 +503,7 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
 
   // Handle canvas mouse interaction
   const handleCanvasMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (imageState !== 'success') return;
     const canvas = canvasRef.current;
     if (!canvas) return;
 
@@ -820,9 +841,23 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
   // Apply changes back to app state
   const handleApply = () => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!canvas || imageState !== 'success') return;
     const finalUrl = canvas.toDataURL('image/png');
     onSave(finalUrl);
+  };
+
+  const navigateToSegment = (target: SavedSegment | null) => {
+    if (!target || !onSelectSegment || imageState === 'loading' || isDrawing) return;
+    const canvas = canvasRef.current;
+    if (canvas && imageState === 'success') {
+      drafts.current.set(segment.id, {
+        sourceUrl: segment.thumbnailUrl,
+        image: canvas.toDataURL('image/png'),
+        history: [...history],
+      });
+    }
+    setImageState('loading');
+    onSelectSegment(target);
   };
 
   const handleApplyManualKeyColor = () => {
@@ -926,6 +961,22 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
             </button>
           </div>
         </header>
+
+        {onSelectSegment && (
+          <nav aria-label="Cleanup frame navigation" className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 bg-slate-950 px-3 py-2 shrink-0">
+            <button type="button" aria-label="Previous frame" onClick={() => navigateToSegment(navigation.previous)} disabled={!navigation.previous || imageState === 'loading' || isDrawing} className="flex min-h-9 items-center gap-1 rounded border border-slate-700 px-2 text-xs disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-800">
+              <ChevronLeft className="h-4 w-4" /> Previous
+            </button>
+            <div className="min-w-0 flex-1 text-center text-xs" aria-live="polite">
+              <p>{navigation.index >= 0 ? `Frame ${navigation.index + 1} of ${navigation.total}` : 'Frame unavailable'}</p>
+              <p className="max-w-48 mx-auto truncate text-[10px] text-slate-400" title={segment.name}>{segment.name}</p>
+              {imageState !== 'success' && <p role="status">{imageState === 'loading' ? 'Loading frame…' : 'Unable to load frame'}</p>}
+            </div>
+            <button type="button" aria-label="Next frame" onClick={() => navigateToSegment(navigation.next)} disabled={!navigation.next || imageState === 'loading' || isDrawing} className="flex min-h-9 items-center gap-1 rounded border border-slate-700 px-2 text-xs disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-800">
+              Next <ChevronRight className="h-4 w-4" />
+            </button>
+          </nav>
+        )}
 
         <div className="grid grid-cols-2 gap-2 border-b border-slate-800 bg-slate-950 p-2 md:hidden shrink-0">
           <button
@@ -1138,7 +1189,7 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
               </div>
               <div className="cleanup-save-row hidden md:grid grid-cols-[minmax(0,1fr)_auto] gap-1">
                 <button
-                  aria-label="Save cleaned cutout" onClick={handleApply}
+                  aria-label="Save cleaned cutout" onClick={handleApply} disabled={imageState !== 'success'}
                   className="w-full py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-2 shadow-lg shadow-emerald-600/10 active:scale-[0.98] transition-all cursor-pointer"
                 >
                   <Check className="h-4.5 w-4.5" />
@@ -1423,6 +1474,7 @@ export default function BackgroundRemover({ segment, onSave, onClose }: Backgrou
             <div className="grid grid-cols-[1fr_auto_auto] gap-2">
               <button
                 onClick={handleApply}
+                disabled={imageState !== 'success'}
                 className="min-h-11 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 px-4 text-xs font-bold text-white shadow-lg shadow-emerald-600/10 active:scale-[0.98] transition-all cursor-pointer flex items-center justify-center space-x-2"
               >
                 <Check className="h-4 w-4" />

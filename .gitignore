@@ -37,3 +37,6 @@ mcp/THIRD-PARTY-NOTICES.txt
 
 # Disposable transparency verification downloads
 .verification/
+
+# Local browser capture traces
+*.trace.zip

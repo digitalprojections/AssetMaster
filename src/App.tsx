@@ -2860,6 +2860,8 @@ export default function App() {
         {showBgRemover && previewSegment && (
           <BackgroundRemover
             segment={previewSegment}
+            segments={savedSegments}
+            onSelectSegment={setPreviewSegment}
             onSave={handleSavePreviewSegmentCleanup}
             onClose={closeBackgroundRemover}
           />

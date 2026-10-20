@@ -4412,6 +4412,8 @@ export default function AnimationStudio({
         {showBgRemover && activeSegment && (
           <BackgroundRemover
             segment={activeSegment}
+            segments={filteredSegments}
+            onSelectSegment={(segment) => setSelectedSegmentId(segment.id)}
             onSave={handleSaveCleanedSegmentLocally}
             onClose={() => setShowBgRemover(false)}
           />
