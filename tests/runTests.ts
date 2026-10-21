@@ -54,3 +54,5 @@ import './mcpRelay.test';
 import './animationTimelineEditing.test';
 
 import './videoTransparency.test';
+
+import './featureRequests.test';

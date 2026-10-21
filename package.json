@@ -1,7 +1,7 @@
 {
   "name": "assetmaster",
   "private": true,
-  "version": "1.1.23",
+  "version": "1.1.24",
   "type": "module",
   "scripts": {
     "dev": "vite --port=3001 --strictPort --host=0.0.0.0",
@@ -12,7 +12,7 @@
     "android:assets": "node scripts/generate-android-logo-assets.mjs",
     "android:key": "node scripts/create-android-upload-key.mjs",
     "android:bundle": "node scripts/create-android-upload-key.mjs --if-missing && node scripts/prepare-capacitor-android.mjs --bundle-release",
-    "android:publish-open-testing": "node scripts/publish-play-open-testing.mjs --publish --package link.created.assetmaster --track beta --releaseName 1.1.23 --releaseNotes \"Adds previous and next frame selection in Background Cleanup.\" --key ..\\big-genre-172004-b7bf916fca08.json --bundle android\\app\\build\\outputs\\bundle\\release\\app-release.aab",
+    "android:publish-open-testing": "node scripts/publish-play-open-testing.mjs --publish --package link.created.assetmaster --track beta --releaseName 1.1.24 --releaseNotes \"Adds private feature requests for AssetMaster.\" --key ..\\big-genre-172004-b7bf916fca08.json --bundle android\\app\\build\\outputs\\bundle\\release\\app-release.aab",
     "android:publish-store-listings": "node scripts/publish-play-store-listings.mjs --publish --package link.created.assetmaster --key ..\\big-genre-172004-b7bf916fca08.json",
     "android:open": "npx cap open android",
     "deploy": "powershell -ExecutionPolicy Bypass -File .\\scripts\\deploy-lightsail.ps1",
@@ -28,7 +28,8 @@
     "mcp:verify": "npm --prefix mcp run typecheck && npm --prefix mcp test",
     "mcp:package": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-mcp.ps1",
     "release:mcp": "npm run verify && npm run mcp:verify && npm run mcp:package && npm run mcp:verify-package && npm run build",
-    "mcp:verify-package": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-mcp-package.ps1"
+    "mcp:verify-package": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-mcp-package.ps1",
+    "feedback:check": "node scripts/check-feature-request.mjs"
   },
   "dependencies": {
     "@capacitor-community/admob": "^8.0.0",

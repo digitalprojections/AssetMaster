@@ -40,3 +40,8 @@ mcp/THIRD-PARTY-NOTICES.txt
 
 # Local browser capture traces
 *.trace.zip
+
+# Private feedback mail configuration and transient abuse records
+assetmaster-feedback.json
+assetmaster-feedback-rate/
+.private/

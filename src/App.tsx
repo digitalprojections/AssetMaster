@@ -1,3 +1,4 @@
+import FeatureRequestPanel from './components/FeatureRequestPanel';
 import { McpCutoutHistory } from './utils/mcpCutoutHistory';
 import { flushSync } from 'react-dom';
 import McpConnectionPanel from './components/McpConnectionPanel';
@@ -2122,6 +2123,8 @@ export default function App() {
             <span className="hidden sm:inline">Compact UI</span>
             <span className="sm:hidden">Compact</span>
           </button>
+
+          <FeatureRequestPanel />
 
           {!Capacitor.isNativePlatform() && <McpConnectionPanel execute={executeMcpRequest} reset={() => { mcpCutoutHistory.current.reset(); }} />}
 

@@ -35,3 +35,7 @@ This builds the app, publishes `dist` to `https://created.link/assetmaster/`, an
 AssetMaster 1.1.19 includes a local AI-agent integration. Open **AI integrations** in the web editor, then follow the setup page. The companion provides import, transparent cutout creation, image previews, PNG export, undo/redo and existing editor commands through MCP stdio. A paired browser workspace and explicitly configured asset folder are required. Requested previews and returned content may reach the AI provider.
 
 See [the companion guide](mcp/README.md) for installation, privacy, recovery, tests and release packaging. Run `npm run mcp:install`, then `npm run release:mcp` to validate and build the npm tarball, Windows runtime package, checksums and website downloads. Packages are generated locally; npm publication and a signed installer require publisher access and signing configuration.
+
+## Feature requests
+
+The header includes **Request a feature**, with a title, description, and optional reply email. Recipient and provider credentials stay in private server configuration. See [delivery setup](scripts/feature-request-setup.md) before deployment. `npm run feedback:check` scans built assets for leaked mail settings; backend tests exercise validation, unavailable delivery, rate limits, provider failures, and successful acceptance without sending email.
