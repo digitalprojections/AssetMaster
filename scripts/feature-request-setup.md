@@ -19,3 +19,5 @@ Deploy only after a commit. A controlled live test must confirm SES acceptance a
 The recipient and a generated rate-limit secret are saved locally in ignored `.private/assetmaster-feedback.json`. Complete its SMTP host, credentials, and sender privately; never commit or copy it into the public build.
 
 The repeatable helper `python scripts/configure-feature-request-ses.py` prepares a private sender-and-recipient-restricted IAM policy. Run with `--provision` only after explicit approval to create the dedicated IAM user and persistent SMTP access key. It refuses to change an existing identity or replace existing local SMTP credentials.
+
+After provisioning approval, `powershell -File scripts/install-feature-request-config.ps1` securely transfers the ignored configuration into the dedicated private server directory. It never overwrites an existing server configuration and removes the protected transfer copy after installation.
