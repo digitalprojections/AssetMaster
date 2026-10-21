@@ -81,7 +81,7 @@ function feature_request_main(?string $rawInput = null, ?array $configOverride =
     $raw = $rawInput ?? file_get_contents('php://input', false, null, 0, 24001);
     $data = json_decode($raw ?: '', true);
     if (strlen($raw ?: '') > 24000 || !is_array($data) || !validate_feature_request($data) || $data['website'] !== '') { http_response_code(400); echo '{"ok":false}'; return; }
-    $configPath = getenv('ASSETMASTER_FEEDBACK_CONFIG') ?: dirname($_SERVER['DOCUMENT_ROOT']) . '/private/assetmaster-feedback.json';
+    $configPath = getenv('ASSETMASTER_FEEDBACK_CONFIG') ?: dirname($_SERVER['DOCUMENT_ROOT']) . '/assetmaster-private/assetmaster-feedback.json';
     $config = $configOverride ?? (is_readable($configPath) ? json_decode(file_get_contents($configPath), true) : null);
     if (!is_array($config) || !feature_mail_configuration_valid($config) || ($deliver === null && (!function_exists('curl_init') || !function_exists('mb_encode_mimeheader')))) { http_response_code(503); echo '{"ok":false}'; return; }
     // Short-lived IP hashes prevent repeated sends. No request text is stored here.
