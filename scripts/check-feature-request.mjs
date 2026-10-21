@@ -7,7 +7,7 @@ function check(directory) {
     if (entry.isDirectory()) check(path);
     else if (/\.(js|html|json|map|php)$/.test(entry.name)) {
       const text = readFileSync(path, 'utf8');
-      if (/ahmadjangroup|re_[A-Za-z0-9]{20,}/i.test(text)) throw new Error(`Private mail configuration exposed in ${path}`);
+      if (/ahmadjangroup|re_[A-Za-z0-9]{20,}|(?:AKIA|ASIA)[A-Z0-9]{16}/i.test(text)) throw new Error(`Private mail configuration exposed in ${path}`);
     }
   }
 }

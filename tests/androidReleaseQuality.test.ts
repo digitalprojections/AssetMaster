@@ -33,8 +33,8 @@ test('Android bundle automation avoids nested PowerShell quoting', () => {
 });
 
 test('Android Open testing publish metadata uses a fresh release version', () => {
-  assert.match(appBuildGradle, /versionCode 25/u);
-  assert.match(appBuildGradle, /versionName "1\.1\.24"/u);
-  assert.match(packageJson, /--releaseName 1\.1\.24/u);
+  assert.match(appBuildGradle, /versionCode 26/u);
+  assert.match(appBuildGradle, /versionName "1\.1\.25"/u);
+  assert.match(packageJson, /--releaseName 1\.1\.25/u);
   assert.match(packageJson, /private feature requests/u);
 });

@@ -17,12 +17,53 @@ function validate_feature_request(array $data): bool {
         && strlen($data['replyTo']) <= 254
         && ($data['replyTo'] === '' || filter_var($data['replyTo'], FILTER_VALIDATE_EMAIL) !== false);
 }
+function feature_mail_configuration_valid(array $config): bool {
+    foreach (['smtpHost', 'smtpUsername', 'smtpPassword', 'rateLimitSecret', 'sender', 'recipient'] as $key) {
+        if (!isset($config[$key]) || !is_string($config[$key]) || trim($config[$key]) === '') return false;
+    }
+    return preg_match('/^[a-zA-Z0-9.-]+$/D', $config['smtpHost']) === 1
+        && filter_var($config['sender'], FILTER_VALIDATE_EMAIL) !== false
+        && filter_var($config['recipient'], FILTER_VALIDATE_EMAIL) !== false;
+}
+function build_feature_request_email(array $payload, string $messageId): string {
+    $subject = str_replace(["\r", "\n"], ' ', $payload['subject']);
+    $headers = [
+        'Date: ' . gmdate('D, d M Y H:i:s +0000'),
+        'From: AssetMaster <' . $payload['from'] . '>',
+        'To: ' . implode(', ', $payload['to']),
+        'Subject: ' . mb_encode_mimeheader($subject, 'UTF-8', 'B', "\r\n", 9),
+        'Message-ID: <' . $messageId . '@created.link>',
+        'MIME-Version: 1.0',
+        'Content-Type: text/plain; charset=UTF-8',
+        'Content-Transfer-Encoding: quoted-printable',
+    ];
+    if (isset($payload['reply_to'])) $headers[] = 'Reply-To: ' . $payload['reply_to'];
+    return implode("\r\n", $headers) . "\r\n\r\n" . quoted_printable_encode(preg_replace('/\r\n|\r|\n/', "\r\n", $payload['text'])) . "\r\n";
+}
 function deliver_feature_request(array $payload, array $config, string $key, array $data): bool {
-    $curl = curl_init('https://api.resend.com/emails');
-    curl_setopt_array($curl, [CURLOPT_POST => true, CURLOPT_POSTFIELDS => json_encode($payload), CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $config['apiKey'], 'Content-Type: application/json', 'Idempotency-Key: assetmaster-' . hash_hmac('sha256', $key . json_encode($data), $config['apiKey'])], CURLOPT_RETURNTRANSFER => true, CURLOPT_CONNECTTIMEOUT => 5, CURLOPT_TIMEOUT => 15]);
-    $response = curl_exec($curl); $status = curl_getinfo($curl, CURLINFO_HTTP_CODE); curl_close($curl);
-    $result = json_decode(is_string($response) ? $response : '', true);
-    return $status >= 200 && $status < 300 && !empty($result['id']);
+    $message = build_feature_request_email($payload, hash_hmac('sha256', $key . json_encode($data), $config['rateLimitSecret']));
+    $offset = 0;
+    $curl = curl_init('smtp://' . $config['smtpHost'] . ':587');
+    curl_setopt_array($curl, [
+        CURLOPT_USE_SSL => CURLUSESSL_ALL,
+        CURLOPT_SSL_VERIFYPEER => true,
+        CURLOPT_SSL_VERIFYHOST => 2,
+        CURLOPT_SSLVERSION => CURL_SSLVERSION_TLSv1_2,
+        CURLOPT_USERNAME => $config['smtpUsername'],
+        CURLOPT_PASSWORD => $config['smtpPassword'],
+        CURLOPT_MAIL_FROM => $config['sender'],
+        CURLOPT_MAIL_RCPT => $payload['to'],
+        CURLOPT_UPLOAD => true,
+        CURLOPT_INFILESIZE => strlen($message),
+        CURLOPT_READFUNCTION => static function ($handle, $stream, int $length) use ($message, &$offset): string {
+            $chunk = substr($message, $offset, $length); $offset += strlen($chunk); return $chunk;
+        },
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_CONNECTTIMEOUT => 5,
+        CURLOPT_TIMEOUT => 15,
+    ]);
+    $response = curl_exec($curl); $status = curl_getinfo($curl, CURLINFO_RESPONSE_CODE); curl_close($curl);
+    return $response !== false && $status === 250;
 }
 function feature_request_main(?string $rawInput = null, ?array $configOverride = null, ?callable $deliver = null): void {
     header('Content-Type: application/json; charset=utf-8');
@@ -42,21 +83,31 @@ function feature_request_main(?string $rawInput = null, ?array $configOverride =
     if (strlen($raw ?: '') > 24000 || !is_array($data) || !validate_feature_request($data) || $data['website'] !== '') { http_response_code(400); echo '{"ok":false}'; return; }
     $configPath = getenv('ASSETMASTER_FEEDBACK_CONFIG') ?: dirname($_SERVER['DOCUMENT_ROOT']) . '/private/assetmaster-feedback.json';
     $config = $configOverride ?? (is_readable($configPath) ? json_decode(file_get_contents($configPath), true) : null);
-    if (!is_array($config) || empty($config['apiKey']) || empty($config['recipient']) || empty($config['sender']) || ($deliver === null && !function_exists('curl_init'))) { http_response_code(503); echo '{"ok":false}'; return; }
+    if (!is_array($config) || !feature_mail_configuration_valid($config) || ($deliver === null && (!function_exists('curl_init') || !function_exists('mb_encode_mimeheader')))) { http_response_code(503); echo '{"ok":false}'; return; }
     // Short-lived IP hashes prevent repeated sends. No request text is stored here.
     $directory = dirname($configPath) . '/assetmaster-feedback-rate';
     if (!is_dir($directory) && !mkdir($directory, 0700, true) && !is_dir($directory)) { http_response_code(503); echo '{"ok":false}'; return; }
     foreach (glob($directory . '/*.json') ?: [] as $old) { if (filemtime($old) < time() - 3600) @unlink($old); }
-    $key = hash_hmac('sha256', $_SERVER['REMOTE_ADDR'] ?? 'unknown', $config['apiKey']);
+    $key = hash_hmac('sha256', $_SERVER['REMOTE_ADDR'] ?? 'unknown', $config['rateLimitSecret']);
     $file = fopen($directory . '/' . $key . '.json', 'c+');
     if (!$file || !flock($file, LOCK_EX)) { http_response_code(503); echo '{"ok":false}'; return; }
-    $last = (int)stream_get_contents($file);
+    $record = json_decode(stream_get_contents($file), true) ?: [];
+    $last = (int)($record['attemptedAt'] ?? 0);
+    $digest = hash_hmac('sha256', json_encode($data), $config['rateLimitSecret']);
+    if (($record['deliveredHash'] ?? '') === $digest) { flock($file, LOCK_UN); fclose($file); echo '{"ok":true}'; return; }
     if (time() - $last < 120) { flock($file, LOCK_UN); fclose($file); http_response_code(429); echo '{"ok":false}'; return; }
-    ftruncate($file, 0); rewind($file); fwrite($file, (string)time()); flock($file, LOCK_UN); fclose($file);
+    $record['attemptedAt'] = time();
+    ftruncate($file, 0); rewind($file); fwrite($file, json_encode($record)); fflush($file);
     $payload = ['from' => $config['sender'], 'to' => [$config['recipient']], 'subject' => 'AssetMaster feature request: ' . str_replace(["\r", "\n"], ' ', $data['title']), 'text' => $data['description'] . "\n\nReply email: " . ($data['replyTo'] ?: 'Not provided')];
     if ($data['replyTo'] !== '') $payload['reply_to'] = $data['replyTo'];
     $send = $deliver ?? 'deliver_feature_request';
-    if (!$send($payload, $config, $key, $data)) { http_response_code(502); echo '{"ok":false}'; return; }
+    $accepted = $send($payload, $config, $key, $data);
+    if ($accepted) {
+        $record['deliveredHash'] = $digest;
+        ftruncate($file, 0); rewind($file); fwrite($file, json_encode($record));
+    }
+    flock($file, LOCK_UN); fclose($file);
+    if (!$accepted) { http_response_code(502); echo '{"ok":false}'; return; }
     echo '{"ok":true}';
 }
 if (!defined('ASSETMASTER_FEEDBACK_TEST')) feature_request_main();
